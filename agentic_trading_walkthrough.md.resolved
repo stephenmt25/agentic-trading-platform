@@ -1,0 +1,117 @@
+# Agentic Trading Platform: Phase 1 Walkthrough
+
+This guide will walk you through spinning up the entire microservices architecture, verifying the data pipelines, testing the high-speed execution rules, and viewing the results in the Next.js Dashboard.
+
+## Prerequisites
+
+Ensure you have Docker and Docker Compose installed and running on your Windows machine, as the entire stack relies on spinning up Redis, TimescaleDB, and the Python/Next.js services in containers.
+
+## Step 1: Booting the Infrastructure (The State Layer)
+
+Before the 6 Agents can run, we need the databases up. We have a test compose file ready.
+
+1.  Open your terminal in `c:\Users\stevo\DEV\agent_trader_1\aion-trading`.
+2.  Run the database layer:
+    ```bash
+    docker-compose -f deploy/docker-compose.test.yml up -d redis timescaledb
+    ```
+    *This starts the Redis cluster (for pub/sub, streams, caching, and rate limiting) and TimescaleDB (for tick history, ordered ledgers, and audit logs).*
+
+## Step 2: Running Database Migrations
+
+The TimescaleDB schema needs to be applied, creating the hypertables for high-frequency writes.
+
+1.  Ensure you have your poetry environment active.
+2.  Run the migration script:
+    ```bash
+    python -m poetry run python scripts/migrate.py
+    ```
+    *This executes the SQL scripts in `migrations/versions/`, setting up `market_data_ohlcv`, `orders`, `profiles`, `audit_log`, `pnl_snapshots`, and `paper_trading_reports`.*
+
+## Step 3: Starting the Core Agents
+
+We will now bring the system online. Normally, in GKE, these are separate deployments. Locally, we can run them via the `run_local.sh` script, or start them individually.
+
+To observe the logs clearly, open a new terminal and run:
+
+```bash
+# Start the Data Ingestion Agent (Connecting to Binance/Coinbase Testnets)
+python -m poetry run python -m services.ingestion.src.main
+
+# Start the Strategy Agent (Rule Compilation & Hydration)
+python -m poetry run python -m services.strategy.src.main
+
+# Start the Validation Agent (The <35ms Safety Fast-Gate)
+python -m poetry run python -m services.validation.src.main
+
+# Start the Hot-Path Processor (Execution Engine)
+# NOTE: This will specifically wait for the Validation Agent's /health endpoint to return 200 before it begins processing ticks to prevent unprotected trades.
+python -m poetry run python -m services.hot-path.src.main
+
+# Start the Execution Agent (Mocking physical exchange interactions on Testnet)
+python -m poetry run python -m services.execution.src.main
+```
+
+***What's happening now?***
+*   The **Ingestion Agent** is pulling WebSocket ticks.
+*   It routes them to the **Hot-Path Processor**, which checks `ProfileStateCache` and compiles `O(1)` rules.
+*   If a rule triggers (e.g., RSI < 30), it fires a `ValidationRequestEvent` to the **Validation Agent**.
+*   The Validation Agent returns `PROCEED` (under 35ms).
+*   The Hot-Path emits an `OrderApprovedEvent`.
+*   The **Execution Agent** catches it, attempts testnet execution, and writes a `Position` to the database.
+
+## Step 4: Starting the Support Agents
+
+Now we bring up the slower, non-blocking agents.
+
+```bash
+# Start P&L Service (Subscribes to Price Ticks, calculates PnL vs Positions, factors US Tax estimates)
+python -m poetry run python -m services.pnl.src.main
+
+# Start Logger/Auditor (Captures every event for compliance)
+python -m poetry run python -m services.logger.src.main
+```
+
+## Step 5: Booting the Control Plane & Dashboard
+
+Finally, we start the API Gateway and the Next.js Frontend.
+
+1.  **Start the API Gateway:**
+    ```bash
+    python -m poetry run python -m services.api-gateway.src.main
+    ```
+    *(Runs on `http://localhost:8000`. This handles JWT auth, REST endpoints, and multiplexes Redis Pub/Sub events down a single WebSocket connection `ws://localhost:8000/ws`.)*
+
+2.  **Start the Next.js Dashboard:**
+    Open a new terminal, navigate to the frontend directory, and run the development server.
+    ```bash
+    cd frontend
+    npm run dev
+    ```
+    *(Runs on `http://localhost:3000`)*
+
+## Step 6: Testing the Features via the UI
+
+Open your browser to `http://localhost:3000`.
+
+*   **Real-time P&L Updates:** On the Dashboard (`/`), you will see the `PortfolioSummaryCard` and individual active profiles. If the `pnl` service and underlying databases are populated, you'll see the numbers update dynamically via WebSockets, mapping from `PUBSUB_PNL_UPDATES` with zero page refreshes.
+*   **Safety Alerts (Validation Tray):** Click the Bell icon on the right side of the screen to open the `AlertTray`. If the Validation Async Auditor (Checks 2-5) detects hallucination drift or consecutive warnings, it emits an alert. Red alerts (Trading Halts) require manual acknowledgment in this tray.
+*   **Paper Trading Mode:** Navigate to `http://localhost:3000/paper-trading`. This is the strict 30-day compliance view holding the `AION_TRADING_ENABLED=true` boundary.
+*   **Strategy Modification:** In the Profiles view, you can test the `JSONRuleEditor`. It provides syntax highlighting and sends the payload to the API Gateway. The API Gateway explicitly calls the `RuleValidator` in the Strategy Agent (via shared library logic locally, or RPC in production) to ensure the indicators actually exist before allowing a save.
+
+## Step 7: Verifying the Architecture (Under the Hood)
+
+You can verify the data structures by interacting directly with the Timescale/Postgres database:
+
+```bash
+# Connect to PostgreSQL inside Docker
+docker exec -it aion-timescaledb psql -U postgres -d aion_trading
+
+# Check the Audit Log (You should see hundreds of rows representing every MarketTick, OrderApproved, and ValidationResponse event)
+aion_trading=# SELECT event_type, source_service, timestamp_us FROM audit_log ORDER BY timestamp_us DESC LIMIT 10;
+
+# Check Positions (Created by Execution Agent)
+aion_trading=# SELECT symbol, side, quantity, entry_price FROM positions;
+```
+
+This completes the full cycle, proving out the deterministic >50ms execution loops, the multi-phase safety validation gates, and the reactive Next.js visualizations.
