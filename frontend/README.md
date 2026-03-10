@@ -1,36 +1,36 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Agentic Trading Platform (Frontend)
+
+This is the Next.js frontend application for the Agentic Trading Platform, providing a premium dark mode dashboard to manage algorithmic trading agents, profiles, and paper trading executions.
+
+## UI Previews
+
+Below are screenshots showcasing the recent Phase 1.5 UI/UX overhaul featuring a bespoke design system built on top of `shadcn/ui` and `Tailwind CSS v4`.
+
+### Dashboard View
+The main control plane showcasing portfolio summaries, active agent bounds, and real-time PnL tracking.
+![Dashboard View](/docs/images/dashboard.png)
+
+### Profile Management
+A split-pane view for managing individual trading profiles, including a robust JSON configuration editor.
+![Profiles Management View](/docs/images/profiles.png)
+
+### Paper Trading Monitoring
+A specialized view to track the required 30-day paper trading safety policy, featuring uptime and drawdown metrics.
+![Paper Trading View](/docs/images/paper-trading.png)
 
 ## Getting Started
 
-First, run the development server:
+First, ensure the backend microservices are running. Then, run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
-
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Technology Stack
+- **Framework:** Next.js 15 (App Router)
+- **Styling:** Tailwind CSS v4 + OKLCH Color Space
+- **Components:** shadcn/ui + Radix UI Primitives
+- **Icons:** Lucide React
+- **Notifications:** Sonner
