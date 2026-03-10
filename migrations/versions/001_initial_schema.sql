@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS trading_profiles (
 );
 
 CREATE TABLE IF NOT EXISTS orders (
-    order_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    order_id UUID DEFAULT uuid_generate_v4(),
     profile_id UUID NOT NULL REFERENCES trading_profiles(profile_id) ON DELETE RESTRICT,
     symbol TEXT NOT NULL,
     side TEXT NOT NULL,
@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS orders (
     exchange TEXT NOT NULL,
     fill_price DECIMAL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    filled_at TIMESTAMPTZ
+    filled_at TIMESTAMPTZ,
+    PRIMARY KEY (order_id, created_at)
 );
 
 SELECT create_hypertable('orders', 'created_at', if_not_exists => TRUE);
