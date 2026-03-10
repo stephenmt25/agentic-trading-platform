@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import Any, List, Optional
 from uuid import UUID
 from libs.core.models import Position
 from libs.core.enums import PositionStatus
@@ -37,9 +37,13 @@ class PositionRepository(BaseRepository):
         """
         await self._execute(query, datetime.utcnow(), exit_price, position_id)
 
-    async def get_open_positions(self, profile_id: ProfileId) -> List[Any]:
-        query = "SELECT * FROM positions WHERE profile_id = $1 AND status = 'OPEN'"
-        return await self._fetch(query, profile_id)
+    async def get_open_positions(self, profile_id: ProfileId = None) -> List[Any]:
+        if profile_id:
+            query = "SELECT * FROM positions WHERE profile_id = $1 AND status = 'OPEN'"
+            return await self._fetch(query, profile_id)
+        else:
+            query = "SELECT * FROM positions WHERE status = 'OPEN'"
+            return await self._fetch(query)
 
     async def get_positions_for_symbol(self, symbol: SymbolPair) -> List[Any]:
         query = "SELECT * FROM positions WHERE symbol = $1 AND status = 'OPEN'"

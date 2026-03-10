@@ -1,5 +1,5 @@
 from collections import defaultdict
-import numpy as np
+import math
 from typing import Dict, Any
 from .check_1_strategy import CheckResult
 
@@ -24,7 +24,7 @@ class BiasCheck:
             buy_ratio = tracker['buys'] / tracker['count']
             
             # Simple binomial z-score (p=0.5 assumed for neutral baseline)
-            z_score = abs(buy_ratio - 0.5) / np.sqrt((0.5 * 0.5) / tracker['count'])
+            z_score = abs(buy_ratio - 0.5) / math.sqrt((0.5 * 0.5) / tracker['count'])
             
             # Reset after check or rolling logic
             tracker['count'] = 0

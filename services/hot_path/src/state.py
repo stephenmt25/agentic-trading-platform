@@ -1,5 +1,4 @@
 from __future__ import annotations
-import numpy as np
 from typing import Dict, Optional
 from libs.indicators import IndicatorSet
 from services.strategy.src.compiler import CompiledRuleSet

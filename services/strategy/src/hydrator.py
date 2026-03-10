@@ -9,10 +9,10 @@ from libs.observability import get_logger
 logger = get_logger("strategy.hydrator")
 
 class IndicatorHydrator:
-    def __init__(self, profile_repo: ProfileRepository, market_repo: MarketDataRepository, redis_client: RedisClient):
+    def __init__(self, profile_repo: ProfileRepository, market_repo: MarketDataRepository, redis_client):
         self.profile_repo = profile_repo
         self.market_repo = market_repo
-        self.redis = redis_client.get_connection()
+        self.redis = redis_client
         # buffer for calculating indicators accurately (especially EMAs which need a burn-in period)
         self.candle_limit = max(RSI_PERIOD, MACD_SLOW) + 100
 
