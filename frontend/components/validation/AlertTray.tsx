@@ -1,3 +1,5 @@
+"use client";
+
 import React, { useState } from 'react';
 import { useAlerts } from '../../lib/hooks/useAlerts';
 import { Bell, CheckCircle2, ChevronRight, AlertOctagon } from 'lucide-react';
@@ -10,22 +12,22 @@ export const AlertTray: React.FC = () => {
     const toggle = () => setIsOpen(!isOpen);
 
     return (
-        <div className={`fixed right-0 top-0 h-full w-80 bg-slate-900 border-l border-slate-700 shadow-2xl transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
-
-            {/* Toggle Button */}
+        <>
+            {/* Toggle Button Container for Top Nav */}
             <button
                 onClick={toggle}
-                className="absolute -left-12 top-20 bg-slate-800 p-2 rounded-l-md border border-r-0 border-slate-700 hover:bg-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                className="relative p-2 rounded-full border border-border bg-card hover:bg-slate-800/50 transition-colors focus:outline-none focus:ring-1 focus:ring-primary shadow-sm"
             >
-                <div className="relative">
-                    <Bell size={20} className="text-slate-300" />
-                    {unreadCount > 0 && (
-                        <span className="absolute -top-2 -right-2 bg-rose-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full animate-pulse">
-                            {unreadCount}
-                        </span>
-                    )}
-                </div>
+                <Bell size={18} className="text-slate-300" />
+                {unreadCount > 0 && (
+                    <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center bg-rose-500 text-white text-[9px] font-bold rounded-full animate-bounce shadow-[0_0_10px_rgba(244,63,94,0.5)]">
+                        {unreadCount}
+                    </span>
+                )}
             </button>
+
+            <div className={`fixed z-50 right-0 top-0 h-full w-80 bg-card border-l border-border shadow-2xl transition-transform duration-300 transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+
 
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-sm">
@@ -79,5 +81,6 @@ export const AlertTray: React.FC = () => {
                 )}
             </div>
         </div>
+        </>
     );
 };

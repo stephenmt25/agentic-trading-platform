@@ -1,0 +1,10 @@
+feat(ui): implement Phase 1.5 UX overhaul with shadcn/ui and dark mode
+
+- Initialized shadcn/ui and implemented premium dark mode design system (Deep Slate & Electric Violet)
+- Refactored core layout to use a persistent Top Navigation Header for Connection Status and Alert Tray
+- Redesigned Dashboard: Updated Portfolio Summary and Agent Bounds with Card components
+- Built new /profiles page with split layout for profile selection and JSON configuration editing
+- Overhauled /paper-trading page with a sleek amber-themed UI to track safety policies
+- Created a foundation for the /settings page with Exchange Account connection forms
+- Integrated sonner for global toast notifications
+- Updated Tailwind CSS configuration to use v4 @import syntax
