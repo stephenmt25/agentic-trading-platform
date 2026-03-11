@@ -67,16 +67,20 @@ def create_app() -> FastAPI:
     
     # Secure API mounts
     secure_routes = [
-        profiles.router,
-        orders.router,
-        pnl.router,
-        commands.router,
-        exchange_keys.router,
-        paper_trading.router,
+        (profiles.router, "/profiles"),
+        (orders.router, "/orders"),
+        (pnl.router, "/pnl"),
+        (commands.router, "/commands"),
+        (exchange_keys.router, "/exchange-keys"),
+        (paper_trading.router, "/paper-trading"),
     ]
     
-    for r in secure_routes:
-        app.include_router(r, dependencies=[Depends(verify_token_dep)])
+    for router, prefix in secure_routes:
+        # Avoid double-prefixing if the module router already specified a prefix
+        # By inspecting the code, our modules mostly use APIRouter() without a prefix
+        # If they do have a prefix, prefix="" will be used. For safety we inject prefix here.
+        route_prefix = "" if router.prefix else prefix
+        app.include_router(router, prefix=route_prefix, dependencies=[Depends(verify_token_dep)])
 
     return app
 

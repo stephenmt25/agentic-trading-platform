@@ -63,8 +63,8 @@ export default function SettingsPage() {
       } else {
         toast.error(result.message);
       }
-    } catch (err: any) {
-      toast.error(err.message || "Connection test failed.");
+    } catch (err) {
+      toast.error((err as Error).message || "Connection test failed.");
     } finally {
       setIsTesting(false);
     }
@@ -86,8 +86,8 @@ export default function SettingsPage() {
       setApiKey("");
       setApiSecret("");
       await loadConnectedKeys();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save keys.");
+    } catch (err) {
+      toast.error((err as Error).message || "Failed to save keys.");
     } finally {
       setIsSaving(false);
     }
@@ -98,8 +98,8 @@ export default function SettingsPage() {
       await api.exchangeKeys.delete(id);
       toast.success("Exchange key removed.");
       await loadConnectedKeys();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to delete key.");
+    } catch (err) {
+      toast.error((err as Error).message || "Failed to delete key.");
     }
   };
 
@@ -250,7 +250,7 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-bold text-slate-200">
-                          {(session?.user as any)?.provider === "github" ? "GitHub" : "Google"} OAuth
+                          {((session?.user as unknown) as { provider?: string })?.provider === "github" ? "GitHub" : "Google"} OAuth
                         </p>
                         <p className="text-xs text-slate-500">{session?.user?.email || "Connected"}</p>
                       </div>
@@ -278,7 +278,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex justify-between py-2 border-b border-border/30">
                       <span className="text-sm text-slate-400">Auth Provider</span>
-                      <span className="text-sm font-mono text-slate-200 capitalize">{(session?.user as any)?.provider || "—"}</span>
+                      <span className="text-sm font-mono text-slate-200 capitalize">{((session?.user as unknown) as { provider?: string })?.provider || "—"}</span>
                     </div>
                     <div className="flex justify-between py-2">
                       <span className="text-sm text-slate-400">Session Status</span>

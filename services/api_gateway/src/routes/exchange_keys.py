@@ -1,217 +1,151 @@
-"""Exchange key management routes.
-
-Handles secure storage, retrieval, testing, and deletion of exchange API keys.
-Keys are stored in GCP Secret Manager (production) or local Fernet encryption (dev).
-Plaintext keys are NEVER returned to the client or stored in the database.
-"""
-
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import List, Dict, Any, Optional
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
-from datetime import datetime
-import uuid
+import json
+import ccxt.async_support as ccxt
 
-from libs.config import settings
 from libs.core.secrets import SecretManager
-from libs.observability import get_logger
+from libs.config.settings import Settings
+from services.api_gateway.src.dependencies import get_db, require_user
 
-logger = get_logger("exchange-keys-routes")
+router = APIRouter()
+settings = Settings()
 
-router = APIRouter(prefix="/exchange-keys", tags=["exchange-keys"])
+# Instantiate secret manager once (uses GCP if GCP_PROJECT_ID is set, else Fernet fallback)
+secret_manager = SecretManager(gcp_project_id=settings.GCP_PROJECT_ID)
 
-# Initialize the secret manager once
-_secret_manager = SecretManager(gcp_project_id=settings.GCP_PROJECT_ID)
-
-# In-memory store for exchange key metadata (Phase 2 MVP)
-# TODO(AION-210): Replace with TimescaleDB exchange_keys table queries
-_exchange_keys_store: dict[str, dict] = {}
-
-
-class StoreKeyRequest(BaseModel):
-    """Request to store a new exchange API key pair."""
-    exchange_name: str  # "binance" or "coinbase"
+class ExchangeKeyCreate(BaseModel):
+    exchange_id: str
     api_key: str
     api_secret: str
-    label: Optional[str] = None
+    passphrase: Optional[str] = None
 
+class ExchangeKeyTest(ExchangeKeyCreate):
+    pass
 
-class StoreKeyResponse(BaseModel):
-    """Response after storing exchange keys."""
+class ExchangeKeyResponse(BaseModel):
     id: str
-    exchange_name: str
-    label: str
-    message: str
-
-
-class ExchangeKeyInfo(BaseModel):
-    """Public metadata about a stored exchange key (no secrets exposed)."""
-    id: str
-    exchange_name: str
-    label: str
-    is_active: bool
+    exchange_id: str
     created_at: str
 
-
-class TestConnectionRequest(BaseModel):
-    """Request to test exchange API key validity."""
-    api_key: str
-    api_secret: str
-    exchange_name: str
-
-
-class TestConnectionResponse(BaseModel):
-    """Response from testing an exchange connection."""
-    success: bool
-    message: str
-    permissions: list[str]
-
-
-@router.post("", response_model=StoreKeyResponse, status_code=status.HTTP_201_CREATED)
-async def store_exchange_key(req: StoreKeyRequest):
-    """Store a new exchange API key pair securely.
-    
-    The keys are encrypted and stored in GCP Secret Manager (or local Fernet).
-    Only a reference ID is saved in the database — never the plaintext keys.
-    
-    Args:
-        req: The exchange key pair and metadata.
-        
-    Returns:
-        StoreKeyResponse with the stored key's ID and confirmation.
+@router.get("/", response_model=List[ExchangeKeyResponse])
+async def list_exchange_keys(
+    db=Depends(get_db), 
+    user_id: str = Depends(require_user)
+):
+    """List connected exchange keys for the current user."""
+    query = """
+        SELECT id, exchange_id, created_at 
+        FROM exchange_keys 
+        WHERE user_id = $1 AND deleted_at IS NULL
     """
-    key_id = str(uuid.uuid4())
-    label = req.label or f"{req.exchange_name.capitalize()} Key"
-    
-    # Store API key and secret as a combined JSON payload in the secret manager
-    import json
-    secret_payload = json.dumps({
-        "api_key": req.api_key,
-        "api_secret": req.api_secret,
-    })
-    
-    secret_id = f"exchange-key-{key_id}"
-    
-    try:
-        await _secret_manager.store_secret(secret_id, secret_payload)
-    except Exception as e:
-        logger.error("Failed to store exchange key", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to securely store the exchange key. Please try again.",
-        )
-    
-    # Save metadata (no secrets) in-memory for now
-    _exchange_keys_store[key_id] = {
-        "id": key_id,
-        "exchange_name": req.exchange_name,
-        "label": label,
-        "gcp_secret_id": secret_id,
-        "is_active": True,
-        "created_at": datetime.utcnow().isoformat(),
-        "deleted_at": None,
+    records = await db.fetch(query, user_id)
+    return [
+        {
+            "id": str(r["id"]),
+            "exchange_id": r["exchange_id"],
+            "created_at": str(r["created_at"])
+        }
+        for r in records
+    ]
+
+@router.post("/test")
+async def test_exchange_connection(data: ExchangeKeyTest):
+    """Test API keys with CCXT before saving them."""
+    if not hasattr(ccxt, data.exchange_id):
+        raise HTTPException(status_code=400, detail=f"Exchange '{data.exchange_id}' not supported")
+        
+    exchange_class = getattr(ccxt, data.exchange_id)
+    exchange_params = {
+        "apiKey": data.api_key,
+        "secret": data.api_secret,
+        "enableRateLimit": True,
     }
     
-    logger.info(
-        "Exchange key stored",
-        key_id=key_id,
-        exchange=req.exchange_name,
-        label=label,
-    )
-    
-    return StoreKeyResponse(
-        id=key_id,
-        exchange_name=req.exchange_name,
-        label=label,
-        message=f"API key for {req.exchange_name.capitalize()} stored securely.",
-    )
+    # Binance testnet adjustment
+    if data.exchange_id == "binance" and settings.BINANCE_TESTNET:
+        exchange_params["options"] = {"defaultType": "future"}
+        exchange = exchange_class(exchange_params)
+        exchange.set_sandbox_mode(True)
+    elif data.exchange_id == "coinbase" and settings.COINBASE_SANDBOX:
+        exchange = exchange_class(exchange_params)
+        exchange.set_sandbox_mode(True)
+    else:
+        exchange = exchange_class(exchange_params)
 
-
-@router.get("", response_model=list[ExchangeKeyInfo])
-async def list_exchange_keys():
-    """List all stored exchange key metadata for the current user.
-    
-    Returns only metadata (exchange name, label, status).
-    NEVER returns the actual API keys or secrets.
-    
-    Returns:
-        List of ExchangeKeyInfo with masked key metadata.
-    """
-    active_keys = [
-        ExchangeKeyInfo(
-            id=k["id"],
-            exchange_name=k["exchange_name"],
-            label=k["label"],
-            is_active=k["is_active"],
-            created_at=k["created_at"],
-        )
-        for k in _exchange_keys_store.values()
-        if k.get("deleted_at") is None
-    ]
-    return active_keys
-
-
-@router.post("/test", response_model=TestConnectionResponse)
-async def test_exchange_connection(req: TestConnectionRequest):
-    """Test an exchange API key pair without storing it.
-    
-    Temporarily uses the provided keys to call the exchange's account endpoint
-    to verify validity and check permissions.
-    
-    Args:
-        req: The exchange key pair to test.
-        
-    Returns:
-        TestConnectionResponse with success status and detected permissions.
-    """
-    logger.info("Testing exchange connection", exchange=req.exchange_name)
-    
-    # TODO(AION-211): Implement real exchange API validation via ccxt
-    # For now, simulate the test based on key format
-    if len(req.api_key) < 8 or len(req.api_secret) < 8:
-        return TestConnectionResponse(
-            success=False,
-            message="Invalid key format. API Key and Secret must be at least 8 characters.",
-            permissions=[],
-        )
-    
-    # Simulate a successful connection test
-    return TestConnectionResponse(
-        success=True,
-        message=f"Successfully connected to {req.exchange_name.capitalize()}. Read and Trade permissions verified.",
-        permissions=["read", "trade"],
-    )
-
-
-@router.delete("/{key_id}", status_code=status.HTTP_200_OK)
-async def delete_exchange_key(key_id: str):
-    """Soft-delete an exchange key and destroy the secret.
-    
-    Removes the secret from GCP Secret Manager (or local Fernet store) and 
-    marks the database record as deleted.
-    
-    Args:
-        key_id: The UUID of the exchange key to delete.
-    """
-    if key_id not in _exchange_keys_store:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Exchange key not found.",
-        )
-    
-    key_data = _exchange_keys_store[key_id]
-    
-    # Delete the secret from the secret manager
     try:
-        await _secret_manager.delete_secret(key_data["gcp_secret_id"])
-    except FileNotFoundError:
-        pass  # Secret already deleted, proceed with DB cleanup
+        # Check authentication by fetching balances
+        await exchange.fetch_balance()
+        return {"status": "success", "message": "Connection verified successfully"}
+    except ccxt.AuthenticationError as e:
+        raise HTTPException(status_code=401, detail="Invalid API key or secret")
     except Exception as e:
-        logger.error("Failed to delete secret", error=str(e))
+        raise HTTPException(status_code=400, detail=f"Connection test failed: {str(e)}")
+    finally:
+        await exchange.close()
+
+@router.post("/")
+async def save_exchange_key(
+    data: ExchangeKeyCreate, 
+    db=Depends(get_db), 
+    user_id: str = Depends(require_user)
+):
+    """Securely store an exchange key in Secret Manager and save reference to DB."""
+    # 1. Package the payload
+    payload = {
+        "apiKey": data.api_key,
+        "secret": data.api_secret,
+    }
+    if data.passphrase:
+        payload["password"] = data.passphrase
+        
+    # 2. Generate a unique secret reference ID
+    secret_ref = f"usr-{user_id}-{data.exchange_id}-keys"
     
-    # Soft-delete the metadata
-    key_data["deleted_at"] = datetime.utcnow().isoformat()
-    key_data["is_active"] = False
+    # 3. Store securely in GCP Secret Manager (or local Fernet)
+    try:
+        await secret_manager.store_secret(secret_ref, json.dumps(payload))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to store secret securely: {str(e)}")
+        
+    # 4. Insert or update the database tracking row
+    query = """
+        INSERT INTO exchange_keys (user_id, exchange_id, key_ref)
+        VALUES ($1, $2, $3)
+        ON CONFLICT (user_id, exchange_id) 
+        DO UPDATE SET key_ref = EXCLUDED.key_ref, deleted_at = NULL, updated_at = NOW()
+        RETURNING id
+    """
+    row = await db.fetchrow(query, user_id, data.exchange_id, secret_ref)
     
-    logger.info("Exchange key deleted", key_id=key_id)
+    return {"status": "success", "id": str(row["id"]), "message": "Exchange keys securely stored"}
+
+@router.delete("/{key_id}")
+async def delete_exchange_key(
+    key_id: str, 
+    db=Depends(get_db), 
+    user_id: str = Depends(require_user)
+):
+    """Destroy exchange key from Secret Manager and soft-delete from DB."""
+    # Verify ownership
+    query = "SELECT key_ref FROM exchange_keys WHERE id = $1 AND user_id = $2"
+    record = await db.fetchrow(query, key_id, user_id)
     
-    return {"message": "Exchange key deleted successfully.", "id": key_id}
+    if not record:
+        raise HTTPException(status_code=404, detail="Exchange key not found")
+        
+    secret_ref = record["key_ref"]
+    
+    # 1. Destroy the actual secret payload
+    try:
+        await secret_manager.delete_secret(secret_ref)
+    except Exception as e:
+        # Ignore if file not found locally
+        if not isinstance(e, FileNotFoundError):
+            raise HTTPException(status_code=500, detail=f"Failed to destroy secret: {str(e)}")
+            
+    # 2. Soft-delete the database tracking row
+    delete_query = "UPDATE exchange_keys SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1"
+    await db.execute(delete_query, key_id)
+    
+    return {"status": "success", "message": "Exchange key permanently destroyed"}

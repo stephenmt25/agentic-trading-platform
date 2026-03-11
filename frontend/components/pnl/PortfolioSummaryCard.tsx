@@ -30,7 +30,7 @@ export const PortfolioSummaryCard: React.FC = () => {
 
             <CardContent className="relative z-10 space-y-8">
                 <div className="flex items-baseline gap-2">
-                    <span className={`text-5xl lg:text-6xl font-black tracking-tighter ${isPositive ? 'text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]' : 'text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.3)]'}`}>
+                    <span className={`text-5xl lg:text-6xl font-mono font-bold tracking-tighter ${isPositive ? 'text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]' : 'text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.3)]'}`}>
                         {isPositive ? '+' : ''}${(totalNet).toFixed(2)}
                     </span>
                     <span className="text-muted-foreground font-mono text-sm font-medium">(post-tax)</span>
