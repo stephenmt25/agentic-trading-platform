@@ -51,30 +51,50 @@ Recognizing that the control plane needed to look institutional, we overhauled t
 *   **Tailwind CSS v4 Compilation**: Addressed a difficult bug where dark mode CSS rules wouldn't apply by purging legacy `@tailwind` directives from `globals.css` and implementing the modern `@import "tailwindcss";` mechanics.
 *   **React Server Components (RSC) Boundaries**: Fixed several crashes regarding the `AlertTray` state by properly isolating `"use client"` directives for global notification hooks.
 
-## UI Previews (Phase 1.5 Frontend)
+## UI Previews (Phase 2 Frontend)
 
-Below are screenshots showcasing the recent Phase 1.5 UI/UX overhaul featuring a bespoke design system built on top of `shadcn/ui` and `Tailwind CSS v4`.
+Below are placeholders for the new UI/UX screenshots featuring the bespoke design system built on top of `shadcn/ui` and `Tailwind CSS v4`.
 
 ### Dashboard View
-![Dashboard View](frontend/public/docs/images/dashboard.png)
+![Dashboard View](frontend/public/docs/images/dashboard_phase2.png)
 
 ### Profile Management
-![Profiles Management View](frontend/public/docs/images/profiles.png)
+![Profiles Management View](frontend/public/docs/images/profiles_phase2.png)
 
-### Paper Trading Monitoring
-![Paper Trading View](frontend/public/docs/images/paper-trading.png)
+### Settings & Exchange Keys
+![Settings View](frontend/public/docs/images/settings_phase2.png)
 
 ---
 
-## 3. What is Next: Phase 3 Road Map
+## 3. Implemented User Flows
 
-We have successfully built a highly performant backend and a premium frontend. The system now supports secure **Phase 2** functionality:
+The platform currently supports the following end-to-end user flows across the full stack:
 
-### Phase 2: User Onboarding & Secure Key Storage (Completed)
-*   **OAuth Authentication**: NextAuth.js integrated with Google & GitHub providers to secure the dashboard.
-*   **Multi-tenant Infrastructure**: Core schemas updated to isolate user data.
-*   **Encrypted Secrets Management**: Live broker credentials are now encrypted in **GCP Secret Manager** (with a local Fernet fallback for development), never stored in plaintext within the database.
-*   **Broker Connectivity**: The Settings page provides real-time validation and management of encrypted exchange connections.
+1. **Secure Authentication & Session Management**:
+   - OAuth login via Google or GitHub.
+   - Secure server-side validation and issue of internal JWTs.
+   - User dropdown menu with sign-out functionality.
+
+2. **Exchange Key Security**:
+   - Add/Remove exchange API keys safely from the Settings page.
+   - Secure verification of API keys via `ccxt` prior to database storage.
+   - Keys are encrypted dynamically out-of-band via Google Cloud Secret Manager.
+
+3. **Trading Profile Operations**:
+   - **Create**: Add new algorithmic trading profiles with custom JSON rule schemas and allocation sizes.
+   - **List**: View all active profiles mapped to their corresponding ticker symbols.
+   - **Delete (Soft)**: Remove profiles defensively, hiding them from the unified execution engine without permanently destroying metric history.
+
+4. **Paper Trading Controls**:
+   - Dashboard indicators for live WebSocket feed statuses.
+   - "Awaiting Data" and contextual placeholders when data ingestion pauses.
+   - Comprehensive system toggles for enabling Paper Tracking metrics.
+
+---
+
+## 4. What is Next: Phase 3 Road Map
+
+We have successfully built a highly performant backend and a premium frontend. The system fully supports secure **Phase 2** auth and key storage functionality.
 
 ### Phase 3: ML Engine & Risk Management (Upcoming)
 *   **Agent Integration**: Injecting predictive ML/RL models (TA-Agent, Sentiment, Regime HMM) into the signal valuation pipeline.

@@ -6,7 +6,7 @@ import ccxt.async_support as ccxt
 
 from libs.core.secrets import SecretManager
 from libs.config.settings import Settings
-from services.api_gateway.src.dependencies import get_db, require_user
+from services.api_gateway.src.deps import get_timescale as get_db, get_current_user as require_user
 
 router = APIRouter()
 settings = Settings()
