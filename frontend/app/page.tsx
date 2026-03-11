@@ -1,37 +1,42 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PortfolioSummaryCard } from '../components/pnl/PortfolioSummaryCard';
 import { PnLDisplay } from '../components/pnl/PnLDisplay';
 import { usePortfolioStore } from '../lib/stores/portfolioStore';
-import { apiClient } from '../lib/api/client';
-import { Profile } from '../lib/types';
+import { api, type ProfileResponse } from '../lib/api/client';
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Loader2 } from "lucide-react";
 
 export default function Dashboard() {
   const { profiles, setProfiles } = usePortfolioStore();
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // 1. Authenticate Mock
-    // In actual app, login screen handles this.
-    localStorage.setItem('jwt', 'mock-jwt-token-sprint-5');
-
-    // 2. Fetch Active Profiles
     const fetchProfiles = async () => {
+      setIsLoading(true);
       try {
-        // We'll mock returning 2 profiles to show the Dashboard real time loops
-        const mockProfiles: Profile[] = [
-          { profile_id: 'prof-btc-test1', is_active: true, rules_json: {} },
-          { profile_id: 'prof-eth-test2', is_active: true, rules_json: {} }
-        ];
-
-        // Uncomment once backend is fully booted:
-        // const fetched = await apiClient.get<Profile[]>('/profiles');
-        setProfiles(mockProfiles);
-      } catch (e) {
+        const fetched = await api.profiles.list();
+        // Only show active profiles on the dashboard
+        const activeProfiles = fetched.filter((p) => p.is_active && !p.deleted_at);
+        setProfiles(
+          activeProfiles.map((p) => ({
+            profile_id: p.profile_id,
+            name: p.name,
+            is_active: p.is_active,
+            rules_json: p.rules_json,
+          }))
+        );
+        setError(null);
+      } catch (e: any) {
         console.error("Failed loading profiles", e);
+        setError(e.message || "Failed to load profiles");
+        setProfiles([]);
+      } finally {
+        setIsLoading(false);
       }
     };
 
@@ -57,21 +62,41 @@ export default function Dashboard() {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex-1">
-            {profiles.length === 0 ? (
-              <div className="h-full flex justify-center items-center font-mono opacity-50 text-sm">NO PROFILES ACTIVE</div>
+            {isLoading ? (
+              <div className="h-full flex justify-center items-center">
+                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : error ? (
+              <div className="h-full flex flex-col justify-center items-center gap-2 text-center">
+                <div className="font-mono text-sm text-amber-500/80">BACKEND OFFLINE</div>
+                <p className="text-xs text-muted-foreground max-w-xs">
+                  Could not reach the API. Start the API gateway on port 8000 to see live profile data.
+                </p>
+              </div>
+            ) : profiles.length === 0 ? (
+              <div className="h-full flex flex-col justify-center items-center gap-2 text-center">
+                <div className="font-mono opacity-50 text-sm">NO ACTIVE PROFILES</div>
+                <p className="text-xs text-muted-foreground">
+                  Navigate to <a href="/profiles" className="text-primary underline">Profiles</a> to create your first trading agent.
+                </p>
+              </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {profiles.map(p => (
-                  <div key={p.profile_id} className="border border-border p-5 rounded-lg bg-black/20 relative overflow-hidden group hover:border-primary/50 transition-colors">
+                  <a
+                    key={p.profile_id}
+                    href={`/profiles?selected=${p.profile_id}`}
+                    className="border border-border p-5 rounded-lg bg-black/20 relative overflow-hidden group hover:border-primary/50 transition-colors cursor-pointer block"
+                  >
                     <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-primary to-cyan-500 transform origin-left transition-transform group-hover:scale-x-110 left-0" />
                     <div className="flex justify-between items-start mb-4">
-                      <div className="text-sm font-bold font-mono text-cyan-400 truncate">{p.profile_id}</div>
-                      <Badge variant="default" className="bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20 text-[10px] font-bold">
-                        RUNNING
+                      <div className="text-sm font-bold font-mono text-cyan-400 truncate">{p.name || 'Unnamed Agent'}</div>
+                      <Badge variant="default" className={`text-[10px] font-bold ${p.is_active ? 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/20' : 'bg-slate-500/10 text-slate-500'}`}>
+                        {p.is_active ? 'RUNNING' : 'DORMANT'}
                       </Badge>
                     </div>
                     <PnLDisplay profileId={p.profile_id} />
-                  </div>
+                  </a>
                 ))}
               </div>
             )}

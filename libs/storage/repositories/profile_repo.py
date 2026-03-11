@@ -5,37 +5,77 @@ from ._repository_base import BaseRepository
 import json
 
 class ProfileRepository(BaseRepository):
-    async def get_active_profiles(self) -> List[TradingProfile]:
-        query = "SELECT * FROM trading_profiles WHERE is_active = true"
+    async def get_active_profiles(self) -> list:
+        query = "SELECT * FROM trading_profiles WHERE is_active = true ORDER BY created_at DESC"
         records = await self._fetch(query)
-        # Type conversions omitted
-        return []
+        return [dict(r) for r in records]
 
-    async def get_profile(self, profile_id: str) -> Optional[TradingProfile]:
+    async def get_all_profiles(self) -> list:
+        query = "SELECT * FROM trading_profiles ORDER BY created_at DESC"
+        records = await self._fetch(query)
+        return [dict(r) for r in records]
+
+    async def get_profile(self, profile_id: str) -> Optional[dict]:
         query = "SELECT * FROM trading_profiles WHERE profile_id = $1"
         record = await self._fetchrow(query, UUID(profile_id))
         if record:
-            pass
+            return dict(record)
         return None
 
-    async def update_profile(self, profile: TradingProfile):
+    async def create_profile(self, user_id: str, name: str, strategy_rules: dict,
+                             risk_limits: dict, allocation_pct: float,
+                             exchange_key_ref: str = "paper") -> dict:
+        query = """
+        INSERT INTO trading_profiles (user_id, name, strategy_rules, risk_limits, allocation_pct, exchange_key_ref, is_active)
+        VALUES ($1, $2, $3, $4, $5, $6, true)
+        RETURNING *
+        """
+        record = await self._fetchrow(
+            query,
+            UUID(user_id),
+            name,
+            json.dumps(strategy_rules),
+            json.dumps(risk_limits),
+            allocation_pct,
+            exchange_key_ref
+        )
+        return dict(record) if record else {}
+
+    async def update_profile(self, profile_id: str, strategy_rules: dict, is_active: bool = True) -> dict:
         query = """
         UPDATE trading_profiles 
-        SET name = $1, strategy_rules_json = $2, risk_limits = $3, blacklist = $4, allocation_pct = $5, is_active = $6
-        WHERE profile_id = $7
+        SET strategy_rules = $1, is_active = $2, updated_at = NOW()
+        WHERE profile_id = $3
+        RETURNING *
         """
-        await self._execute(
+        record = await self._fetchrow(
             query,
-            profile.name,
-            profile.strategy_rules_json,
-            json.dumps(profile.risk_limits.__dict__), # simplified
-            profile.blacklist,
-            profile.allocation_pct,
-            profile.is_active,
-            UUID(profile.profile_id)
+            json.dumps(strategy_rules),
+            is_active,
+            UUID(profile_id)
         )
+        return dict(record) if record else {}
 
-    async def get_profiles_for_symbol(self, symbol: str) -> List[TradingProfile]:
-        query = "SELECT * FROM trading_profiles WHERE is_active = true"
-        # We assume later parsing or actual join depending on setup
-        return []
+    async def toggle_active(self, profile_id: str, is_active: bool) -> dict:
+        query = """
+        UPDATE trading_profiles SET is_active = $1, updated_at = NOW()
+        WHERE profile_id = $2
+        RETURNING *
+        """
+        record = await self._fetchrow(query, is_active, UUID(profile_id))
+        return dict(record) if record else {}
+
+    async def soft_delete(self, profile_id: str) -> dict:
+        query = """
+        UPDATE trading_profiles
+        SET is_active = false, deleted_at = NOW(), updated_at = NOW()
+        WHERE profile_id = $1
+        RETURNING *
+        """
+        record = await self._fetchrow(query, UUID(profile_id))
+        return dict(record) if record else {}
+
+    async def get_profiles_for_symbol(self, symbol: str) -> list:
+        query = "SELECT * FROM trading_profiles WHERE is_active = true AND deleted_at IS NULL"
+        records = await self._fetch(query)
+        return [dict(r) for r in records]

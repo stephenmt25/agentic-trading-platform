@@ -1,5 +1,6 @@
 import React from 'react';
 import { useRealtimePnl } from '../../lib/hooks/useRealtimePnl';
+import { Radio, Clock } from 'lucide-react';
 
 interface PnLDisplayProps {
     profileId: string;
@@ -9,7 +10,21 @@ export const PnLDisplay: React.FC<PnLDisplayProps> = ({ profileId }) => {
     const pnl = useRealtimePnl(profileId);
 
     if (!pnl) {
-        return <div className="animate-pulse flex space-x-4 bg-slate-800 h-16 w-full rounded"></div>;
+        return (
+            <div className="bg-slate-900/60 border border-dashed border-slate-700/50 p-4 rounded-lg">
+                <div className="flex items-center gap-2 mb-2">
+                    <Radio className="w-3.5 h-3.5 text-amber-500/70" />
+                    <span className="text-[10px] font-bold text-amber-500/70 uppercase tracking-widest">Awaiting Live Data</span>
+                </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Real-time P&L will appear here once the paper trading engine begins publishing snapshots via the WebSocket feed.
+                </p>
+                <div className="flex items-center gap-1.5 mt-2.5 text-[10px] text-slate-600">
+                    <Clock className="w-3 h-3" />
+                    <span>Requires active paper trading session</span>
+                </div>
+            </div>
+        );
     }
 
     const isPositive = pnl.net_post_tax >= 0;

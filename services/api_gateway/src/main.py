@@ -11,7 +11,7 @@ from libs.observability import get_logger
 from .middleware.auth import verify_jwt
 from .middleware.rate_limit import RateLimiterMiddleware
 
-from .routes import auth, profiles, orders, pnl, commands, ws, health
+from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading
 
 logger = get_logger("api-gateway")
 
@@ -70,7 +70,9 @@ def create_app() -> FastAPI:
         profiles.router,
         orders.router,
         pnl.router,
-        commands.router
+        commands.router,
+        exchange_keys.router,
+        paper_trading.router,
     ]
     
     for r in secure_routes:

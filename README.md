@@ -1,4 +1,4 @@
-# Agentic Trading Platform - Phase 1 & 1.5
+# Agentic Trading Platform - Phase 2
 
 This document provides a high-level technical overview of the Agentic Trading Platform, detailing its capabilities, the development process, the future roadmap, and local setup instructions.
 
@@ -66,19 +66,20 @@ Below are screenshots showcasing the recent Phase 1.5 UI/UX overhaul featuring a
 
 ---
 
-## 3. What is Next: Phase 2 Road Map
+## 3. What is Next: Phase 3 Road Map
 
-Now that we have a highly performant backend and a beautiful frontend, we are shifting focus to multi-tenancy and live exchange functionality.
+We have successfully built a highly performant backend and a premium frontend. The system now supports secure **Phase 2** functionality:
 
-### Phase 2: User Onboarding & Live Connections
-*   **User Authentication**: Implementing OAuth (via NextAuth.js or Supabase) to restrict dashboard access.
-*   **Multi-tenant Database Logic**: Updating profile and order schemas to ensure users can only ever access their own data and capital.
-*   **Secure Exchange Connections**: 
-    *   Implementing a secure flow to connect live Binance/Coinbase API keys.
-    *   Transitioning from plaintext configuration to a robust Secrets Manager (e.g., HashiCorp Vault or GCP Secret Manager) to encrypt API keys at rest.
-*   **Guided Onboarding**: Replacing the static configurations with an interactive UI flow: Auth -> Connect Keys -> Create First Agent Profile -> Launch Dashboard.
+### Phase 2: User Onboarding & Secure Key Storage (Completed)
+*   **OAuth Authentication**: NextAuth.js integrated with Google & GitHub providers to secure the dashboard.
+*   **Multi-tenant Infrastructure**: Core schemas updated to isolate user data.
+*   **Encrypted Secrets Management**: Live broker credentials are now encrypted in **GCP Secret Manager** (with a local Fernet fallback for development), never stored in plaintext within the database.
+*   **Broker Connectivity**: The Settings page provides real-time validation and management of encrypted exchange connections.
 
-Once Phase 2 is complete, we will move into Phase 3, which fundamentally introduces the true ML/RL predictive models into the system logic.
+### Phase 3: ML Engine & Risk Management (Upcoming)
+*   **Agent Integration**: Injecting predictive ML/RL models (TA-Agent, Sentiment, Regime HMM) into the signal valuation pipeline.
+*   **Advanced Analytics**: Portfolio-level execution VaR limits, cross-asset correlation analysis, and slippage monitoring.
+*   **Tax Jurisdiction Modules**: Live streaming PnL routing for diverse multi-jurisdictional compliance capabilities.
 
 ---
 
@@ -90,7 +91,8 @@ Once Phase 2 is complete, we will move into Phase 3, which fundamentally introdu
 - **Message Bus:** Redis Pub/Sub
 
 ### Frontend (Next.js)
-- **Framework:** Next.js 15 (App Router)
+- **Framework:** Next.js 16 (App Router)
+- **Auth:** NextAuth.js v4 (Google & GitHub OAuth)
 - **Styling:** Tailwind CSS v4 + OKLCH Color Space
 - **Components:** shadcn/ui + Radix UI Primitives
 - **Icons:** Lucide React
@@ -101,30 +103,64 @@ Once Phase 2 is complete, we will move into Phase 3, which fundamentally introdu
 
 ### Prerequisites
 - Python 3.11+
-- Poetry
-- Docker and Docker Compose
+- Docker Desktop (must be running)
 - Node.js 20+
+- Google OAuth credentials (for authentication)
 
-### Initialization (Backend)
+### Step 1: Start Infrastructure (Redis + TimescaleDB)
 ```bash
-# 1. Install Python dependencies
-make install
-
-# 2. Setup environment variables (Requires manual configuration for the actual .env file)
-cp config/.env.example .env
-
-# 3. Start local infrastructure (Redis + TimescaleDB + Services)
-make run-local
+# Start Docker containers (Redis on :6379, TimescaleDB on :5432)
+docker compose -f deploy/docker-compose.yml up --build -d
 ```
 
-### Initialization (Frontend)
-Open a new terminal and start the Next.js UI:
+### Step 2: Start the Backend API
+Open a new terminal:
+```bash
+# Install Python dependencies
+pip install fastapi uvicorn pydantic pydantic-settings redis asyncpg structlog pyjwt "passlib[bcrypt]" cryptography bcrypt msgpack numpy
+
+# Start the FastAPI server (port 8000)
+# On Windows (PowerShell):
+$env:PYTHONPATH = "."; python -m uvicorn services.api_gateway.src.main:app --host 0.0.0.0 --port 8000 --reload
+
+# On macOS/Linux:
+PYTHONPATH=. python -m uvicorn services.api_gateway.src.main:app --host 0.0.0.0 --port 8000 --reload
+```
+Verify: `curl http://localhost:8000/health` should return `{"status": "healthy"}`
+
+### Step 3: Start the Frontend
+Open a new terminal:
 ```bash
 cd frontend
 npm install
+
+# Copy the env template and fill in your OAuth credentials
+cp .env.local.example .env.local
+```
+
+Edit `frontend/.env.local` with your credentials:
+```env
+NEXTAUTH_URL=http://localhost:3000
+NEXTAUTH_SECRET=<generate-a-random-string>
+GOOGLE_CLIENT_ID=<your-google-client-id>
+GOOGLE_CLIENT_SECRET=<your-google-client-secret>
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+Then start the dev server:
+```bash
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the dashboard.
+Open [http://localhost:3000](http://localhost:3000) — you will be redirected to the login page.
+
+### Running Services Summary
+
+| Service | URL | Command |
+|---------|-----|--------|
+| TimescaleDB | `localhost:5432` | `docker compose -f deploy/docker-compose.yml up -d` |
+| Redis | `localhost:6379` | (same Docker Compose) |
+| Backend API | `http://localhost:8000` | `uvicorn services.api_gateway.src.main:app` |
+| Frontend | `http://localhost:3000` | `npm run dev` (in `frontend/`) |
 
 ### Development
 ```bash

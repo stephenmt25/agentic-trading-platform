@@ -23,6 +23,8 @@ uvicorn = "^0.27.0"
 pyjwt = "^2.8.0"
 passlib = {extras = ["bcrypt"], version = "^1.7.4"}
 numpy = "^1.26.0"
+cryptography = "^46.0.0"
+bcrypt = "^4.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.2.0"

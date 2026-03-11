@@ -28,3 +28,8 @@ class Settings(BaseSettings):
     NEWS_API_KEY: str = Field(default="")
     PAGERDUTY_API_KEY: str = Field(default="")
     GCS_BUCKET_NAME: str = Field(default="")
+
+    # Phase 2: Auth & Secrets
+    SECRET_KEY: str = Field(default="aion-dev-secret-key-change-in-production")
+    NEXTAUTH_SECRET: str = Field(default="")  # Must match NextAuth.js NEXTAUTH_SECRET
+    GCP_PROJECT_ID: str = Field(default="")   # Empty = use local Fernet fallback
