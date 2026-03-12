@@ -1,195 +1,267 @@
-# Agentic Trading Platform - Phase 2
+# Agentic Trading Platform - Phase 3
 
-This document provides a high-level technical overview of the Agentic Trading Platform, detailing its capabilities, the development process, the future roadmap, and local setup instructions.
+A high-performance, deterministic algorithmic trading engine with ML prediction agents, backtesting, and real-time risk management.
 
 ---
 
-## 1. What the System Does
-
-The Agentic Trading Platform is a high-performance, deterministic algorithmic trading engine. It evaluates incoming real-time market data against user-defined trading rules (Profiles) and executes orders with strict latency constraints.
+## System Overview
 
 ### Core Capabilities
-*   **Latency-Optimized Hot Path**: Evaluates signals and executes orders within a 50ms absolute deadline.
-*   **Decoupled Microservices**: The system is split horizontally into independent, single-responsibility Python microservices communicating asynchronously over Redis.
-*   **Dual-Layer Validation**: 
-    1.  **Fast-Gate Validation (Sync)**: A 35ms network-bound safety check before any order hits an exchange.
-    2.  **Audit Validation (Async)**: Post-trade LLM-based hallucination and bias checks.
-*   **Strict Safety Tracking (Paper Trading Mode)**: The system supports a mandatory 30-day "dry run" against LIVE market data but routing to TESTNET order-books, tracked and monitored via the dashboard.
-*   **Premium Control Plane**: A Next.js 14+ frontend featuring a bespoke dark mode institutional design system.
+- **Latency-Optimized Hot Path**: 9-stage signal pipeline with 50ms deadline
+- **ML Prediction Agents**: TA multi-timeframe confluence, HMM regime classification, LLM sentiment scoring
+- **Real Backtesting Engine**: Replay historical candles through compiled strategy rules with slippage simulation
+- **Dynamic Risk Management**: Circuit breakers, drawdown-aware position sizing, live PnL state hydration
+- **Dual-Layer Validation**: Sync fast-gate (35ms) + async LLM audit checks
+- **Paper Trading Mode**: Mandatory 30-day dry run on testnet before live trading
+- **Premium Control Plane**: Next.js 16 dashboard with equity curves, agent scores, and risk monitors
+
+### Architecture
+```
+                         ┌─────────────────────────────────────────────┐
+                         │              Frontend (Next.js)             │
+                         │         http://localhost:3000                │
+                         └────────────────────┬────────────────────────┘
+                                              │
+                         ┌────────────────────▼────────────────────────┐
+                         │          API Gateway (FastAPI)              │
+                         │         http://localhost:8000                │
+                         └────────────────────┬────────────────────────┘
+                                              │
+              ┌───────────────────────────────┼───────────────────────────────┐
+              │                               │                               │
+    ┌─────────▼──────────┐     ┌──────────────▼───────────┐     ┌────────────▼──────────┐
+    │    Hot Path :8082   │     │   Backtesting :8086      │     │  ML Agents            │
+    │  (9-stage pipeline) │     │   (replay engine)        │     │  TA :8090             │
+    │                     │     │                          │     │  HMM :8091            │
+    │  Reads agent scores │     │                          │     │  Sentiment :8092      │
+    │  from Redis         │     │                          │     │  (write to Redis)     │
+    └─────────┬───────────┘     └──────────────────────────┘     └───────────────────────┘
+              │
+    ┌─────────▼───────────┐     ┌──────────────────────────┐
+    │  Execution :8083    │     │  PnL :8084               │
+    │  (order ledger)     │     │  (daily tracking, Redis)  │
+    └─────────────────────┘     └──────────────────────────┘
+              │
+    ┌─────────▼───────────────────────────────────────────────────────────────┐
+    │                    Infrastructure (Docker)                              │
+    │           Redis :6379          TimescaleDB :5432                        │
+    └─────────────────────────────────────────────────────────────────────────┘
+```
 
 ---
 
-## 2. The Development Journey Thus Far
-
-We have currently completed **Phase 1** and **Phase 1.5** of the development lifecycle.
-
-### Phase 1: The Core Backend Engine
-The foundational work was broken down into 7 hyper-focused sprints to establish the execution mechanics without ML/RL models:
-1.  **Sprint 0 (Foundation)**: Initialized the monorepo structure, established robust `libs/` for shared domain models, configured `docker-compose` for the Redis/TimescaleDB infrastructure.
-2.  **Sprint 1 (Data Pipeline)**: Built the HTTP/WebSocket exchange adapters and the `ingestion/` agent to pump raw market data onto a Redis stream.
-3.  **Sprint 2 (Trading Engine)**: The heart of the system. Implemented the `hot-path/` processor to eagerly evaluate JSON-based trading profiles against arriving ticks, routing signals to the `execution/` agent.
-4.  **Sprint 3 (Safety)**: Implemented the `validation/` agent to ensure no rogue agents could drain capital.
-5.  **Sprint 4 (Financials)**: Developed the asynchronous `pnl/` and `tax/` calculators, streaming results to TimescaleDB.
-6.  **Sprint 5 (Presentation Layer)**: Spun up the Next.js `frontend/` and connected it to the backend via a FastAPI `api-gateway/`.
-7.  **Sprint 6 (Hardening)**: Wrote rigorous integration/contract tests and finalized Paper Trading safety constraints.
-
-*All services rely heavily on `pydantic` schemas for message validation and `asyncio` to prevent I/O blocking.*
-
-### Notable Fixes & Technical Debt Paid (Phase 1)
-Getting the microservice architecture running smoothly locally required resolving several integration bugs:
-*   **Port Collision Resolution**: Manually re-assigned network ports across the services (e.g., moving the Validation Agent from 8080 to 8081) to prevent conflicts during local `docker-compose` health checks.
-*   **Dependency Pruning**: Removed conflicting and redundant `numpy` imports from non-essential services to dramatically speed up installation and prevent environment clashes.
-*   **Docker-Compose Stability**: Resolved early warnings regarding volume mounting and database migration scripts.
-
-### Phase 1.5: UI/UX Refinement
-Recognizing that the control plane needed to look institutional, we overhauled the Next.js frontend:
-*   Upgraded from raw styling to a holistic **Dark Mode System (Deep Slate & Electric Violet)**.
-*   Integrated **shadcn/ui** and **Tailwind CSS v4** to build premium components (Cards, Badges, Toasts).
-*   Refactored the core `/dashboard`, built a split-pane `/profiles` JSON editor, and visually enhanced the `/paper-trading` policy tracker.
-
-**Frontend Fixes Implemented:**
-*   **Tailwind CSS v4 Compilation**: Addressed a difficult bug where dark mode CSS rules wouldn't apply by purging legacy `@tailwind` directives from `globals.css` and implementing the modern `@import "tailwindcss";` mechanics.
-*   **React Server Components (RSC) Boundaries**: Fixed several crashes regarding the `AlertTray` state by properly isolating `"use client"` directives for global notification hooks.
-
-## UI Previews (Phase 2 Frontend)
-
-Below are placeholders for the new UI/UX screenshots featuring the bespoke design system built on top of `shadcn/ui` and `Tailwind CSS v4`.
-
-### Dashboard View
-![Dashboard View](frontend/public/docs/images/dashboard_phase2.png)
-
-### Profile Management
-![Profiles Management View](frontend/public/docs/images/profiles_phase2.png)
-
-### Settings & Exchange Keys
-![Settings View](frontend/public/docs/images/settings_phase2.png)
-
----
-
-## 3. Implemented User Flows
-
-The platform currently supports the following end-to-end user flows across the full stack:
-
-1. **Secure Authentication & Session Management**:
-   - OAuth login via Google or GitHub.
-   - Secure server-side validation and issue of internal JWTs.
-   - User dropdown menu with sign-out functionality.
-
-2. **Exchange Key Security**:
-   - Add/Remove exchange API keys safely from the Settings page.
-   - Secure verification of API keys via `ccxt` prior to database storage.
-   - Keys are encrypted dynamically out-of-band via Google Cloud Secret Manager.
-
-3. **Trading Profile Operations**:
-   - **Create**: Add new algorithmic trading profiles with custom JSON rule schemas and allocation sizes.
-   - **List**: View all active profiles mapped to their corresponding ticker symbols.
-   - **Delete (Soft)**: Remove profiles defensively, hiding them from the unified execution engine without permanently destroying metric history.
-
-4. **Paper Trading Controls**:
-   - Dashboard indicators for live WebSocket feed statuses.
-   - "Awaiting Data" and contextual placeholders when data ingestion pauses.
-   - Comprehensive system toggles for enabling Paper Tracking metrics.
-
----
-
-## 4. What is Next: Phase 3 Road Map
-
-We have successfully built a highly performant backend and a premium frontend. The system fully supports secure **Phase 2** auth and key storage functionality.
-
-### Phase 3: ML Engine & Risk Management (Upcoming)
-*   **Agent Integration**: Injecting predictive ML/RL models (TA-Agent, Sentiment, Regime HMM) into the signal valuation pipeline.
-*   **Advanced Analytics**: Portfolio-level execution VaR limits, cross-asset correlation analysis, and slippage monitoring.
-*   **Tax Jurisdiction Modules**: Live streaming PnL routing for diverse multi-jurisdictional compliance capabilities.
-
----
-
-## Architecture & Tech Stack
-
-### Backend (Python/Docker)
-- **Language:** Python 3.11+
-- **Database/Cache:** Redis (State) & TimescaleDB (Metrics)
-- **Message Bus:** Redis Pub/Sub
-
-### Frontend (Next.js)
-- **Framework:** Next.js 16 (App Router)
-- **Auth:** NextAuth.js v4 (Google & GitHub OAuth)
-- **Styling:** Tailwind CSS v4 + OKLCH Color Space
-- **Components:** shadcn/ui + Radix UI Primitives
-- **Icons:** Lucide React
-
----
-
-## Setup Instructions
+## Quick Start
 
 ### Prerequisites
 - Python 3.11+
 - Docker Desktop (must be running)
 - Node.js 20+
-- Google OAuth credentials (for authentication)
+- pip (Python package manager)
 
 ### Step 1: Start Infrastructure (Redis + TimescaleDB)
+
 ```bash
-# Start Docker containers (Redis on :6379, TimescaleDB on :5432)
-docker compose -f deploy/docker-compose.yml up --build -d
+docker compose -f deploy/docker-compose.yml up -d
 ```
 
-### Step 2: Start the Backend API
-Open a new terminal:
+Wait for healthy status:
 ```bash
-# Install Python dependencies
-pip install fastapi uvicorn pydantic pydantic-settings redis asyncpg structlog pyjwt "passlib[bcrypt]" cryptography bcrypt msgpack numpy
+docker compose -f deploy/docker-compose.yml ps
+```
 
-# Start the FastAPI server (port 8000)
-# On Windows (PowerShell):
-$env:PYTHONPATH = "."; python -m uvicorn services.api_gateway.src.main:app --host 0.0.0.0 --port 8000 --reload
+### Step 2: Apply Database Migrations
 
-# On macOS/Linux:
+```bash
+# On Windows (Git Bash / WSL):
+for f in migrations/versions/*.sql; do
+  docker exec -i $(docker compose -f deploy/docker-compose.yml ps -q timescaledb) psql -U postgres -d aion_trading < "$f"
+done
+```
+
+### Step 3: Install Python Dependencies
+
+```bash
+pip install fastapi uvicorn pydantic pydantic-settings redis asyncpg structlog pyjwt "passlib[bcrypt]" cryptography bcrypt msgpack numpy httpx hmmlearn ccxt
+```
+
+### Step 4: Start Backend Services
+
+Each service runs in its own terminal. Start them in this order:
+
+**Terminal 1 — API Gateway (required)**
+```bash
 PYTHONPATH=. python -m uvicorn services.api_gateway.src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
-Verify: `curl http://localhost:8000/health` should return `{"status": "healthy"}`
+Windows PowerShell:
+```powershell
+$env:PYTHONPATH="."; python -m uvicorn services.api_gateway.src.main:app --host 0.0.0.0 --port 8000 --reload
+```
 
-### Step 3: Start the Frontend
-Open a new terminal:
+**Terminal 2 — Hot Path Processor**
+```bash
+PYTHONPATH=. python -m uvicorn services.hot_path.src.main:app --host 0.0.0.0 --port 8082 --reload
+```
+
+**Terminal 3 — Execution Service**
+```bash
+PYTHONPATH=. python -m uvicorn services.execution.src.main:app --host 0.0.0.0 --port 8083 --reload
+```
+
+**Terminal 4 — PnL Service**
+```bash
+PYTHONPATH=. python -m uvicorn services.pnl.src.main:app --host 0.0.0.0 --port 8084 --reload
+```
+
+**Terminal 5 — Backtesting Engine**
+```bash
+PYTHONPATH=. python -m uvicorn services.backtesting.src.main:app --host 0.0.0.0 --port 8086 --reload
+```
+
+**Terminal 6 — TA Multi-Timeframe Agent**
+```bash
+PYTHONPATH=. python -m uvicorn services.ta_agent.src.main:app --host 0.0.0.0 --port 8090 --reload
+```
+
+**Terminal 7 — Regime HMM Agent**
+```bash
+PYTHONPATH=. python -m uvicorn services.regime_hmm.src.main:app --host 0.0.0.0 --port 8091 --reload
+```
+
+**Terminal 8 — Sentiment Agent**
+```bash
+PYTHONPATH=. python -m uvicorn services.sentiment.src.main:app --host 0.0.0.0 --port 8092 --reload
+```
+
+### Step 5: Start the Frontend
+
 ```bash
 cd frontend
 npm install
-
-# Copy the env template and fill in your OAuth credentials
-cp .env.local.example .env.local
-```
-
-Edit `frontend/.env.local` with your credentials:
-```env
-NEXTAUTH_URL=http://localhost:3000
-NEXTAUTH_SECRET=<generate-a-random-string>
-GOOGLE_CLIENT_ID=<your-google-client-id>
-GOOGLE_CLIENT_SECRET=<your-google-client-secret>
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-Then start the dev server:
-```bash
 npm run dev
 ```
-Open [http://localhost:3000](http://localhost:3000) — you will be redirected to the login page.
 
-### Running Services Summary
+Open [http://localhost:3000](http://localhost:3000)
 
-| Service | URL | Command |
-|---------|-----|--------|
-| TimescaleDB | `localhost:5432` | `docker compose -f deploy/docker-compose.yml up -d` |
-| Redis | `localhost:6379` | (same Docker Compose) |
-| Backend API | `http://localhost:8000` | `uvicorn services.api_gateway.src.main:app` |
-| Frontend | `http://localhost:3000` | `npm run dev` (in `frontend/`) |
+---
 
-### Development
+## Running Services Summary
+
+| Service | Port | Purpose | Required |
+|---------|------|---------|----------|
+| Redis | 6379 | State, pub/sub, streams | Yes |
+| TimescaleDB | 5432 | Metrics, orders, positions | Yes |
+| API Gateway | 8000 | REST API + WebSocket | Yes |
+| Hot Path | 8082 | 9-stage signal processing pipeline | Yes |
+| Execution | 8083 | Order ledger, exchange routing | Yes |
+| PnL | 8084 | P&L calculation, daily tracking | Yes |
+| Backtesting | 8086 | Strategy replay engine | For backtest page |
+| TA Agent | 8090 | Multi-timeframe TA confluence scoring | For ML features |
+| Regime HMM | 8091 | Hidden Markov Model regime classification | For ML features |
+| Sentiment | 8092 | LLM-based news sentiment scoring | For ML features |
+| Frontend | 3000 | Next.js dashboard | Yes |
+
+### Convenience: Start All Backend Services (Single Command)
+
 ```bash
-# Linting & Type Checking (Backend)
-make lint
-
-# Running tests (Backend)
-make test-unit
-make test-integration
+# Unix/Mac/Git Bash — starts all services in background
+PYTHONPATH=. python -m uvicorn services.api_gateway.src.main:app --port 8000 &
+PYTHONPATH=. python -m uvicorn services.hot_path.src.main:app --port 8082 &
+PYTHONPATH=. python -m uvicorn services.execution.src.main:app --port 8083 &
+PYTHONPATH=. python -m uvicorn services.pnl.src.main:app --port 8084 &
+PYTHONPATH=. python -m uvicorn services.backtesting.src.main:app --port 8086 &
+PYTHONPATH=. python -m uvicorn services.ta_agent.src.main:app --port 8090 &
+PYTHONPATH=. python -m uvicorn services.regime_hmm.src.main:app --port 8091 &
+PYTHONPATH=. python -m uvicorn services.sentiment.src.main:app --port 8092 &
 ```
 
-*Refer to the respective service directories for detailed interface definitions.*
+---
+
+## Frontend Pages
+
+| Route | Description |
+|-------|-------------|
+| `/` | Dashboard — portfolio P&L, agent scores, risk monitor |
+| `/profiles` | Trading profile CRUD, JSON rule editor |
+| `/backtest` | Submit backtests, view equity curves and trade tables |
+| `/paper-trading` | 30-day paper trading progress tracker |
+| `/settings` | Exchange keys, security, preferences |
+
+---
+
+## API Endpoints
+
+### Profiles
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/profiles` | List all profiles |
+| POST | `/profiles` | Create new profile |
+| PUT | `/profiles/{id}` | Update profile rules |
+| PATCH | `/profiles/{id}/toggle` | Toggle active status |
+| DELETE | `/profiles/{id}` | Soft delete profile |
+
+### Backtesting
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/backtest` | Submit backtest job |
+| GET | `/backtest/{job_id}` | Get backtest results |
+
+### ML Agents & Risk
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/agents/status` | Get all agent scores (TA, sentiment, HMM) |
+| GET | `/agents/risk/{profile_id}` | Get risk metrics for a profile |
+| GET | `/agents/risk` | Get risk metrics for all profiles |
+
+### Other
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/health` | Health check |
+| POST | `/auth/callback` | OAuth callback |
+| GET | `/auth/me` | Current user info |
+| GET | `/paper-trading/status` | Paper trading metrics |
+| POST | `/exchange-keys` | Store exchange API key |
+| GET | `/exchange-keys` | List stored keys |
+
+---
+
+## Hot Path Pipeline (9 Stages)
+
+```
+Tick → (1) Strategy Eval
+     → (2) Abstention Check
+     → (3) Regime Dampener (dual: rule-based + HMM Redis)
+     → (3b) Agent Modifier (TA + sentiment scores from Redis)
+     → (4) Circuit Breaker (daily loss limit, hydrated from PnL service)
+     → (5) Blacklist Check
+     → (6) Risk Gate (dynamic position sizing)
+     → (7) Validation Fast Gate (50ms timeout)
+     → (8) Order Approved
+```
+
+---
+
+## Testing
+
+```bash
+# Run all unit tests
+PYTHONPATH=. python -m pytest tests/unit/ -v
+
+# Run with coverage
+PYTHONPATH=. python -m pytest tests/unit/ --cov=services --cov=libs -v
+```
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|-------|-----------|
+| Backend | Python 3.11, FastAPI, asyncio |
+| Database | TimescaleDB (PostgreSQL 15) |
+| Cache/Bus | Redis 7 (Streams + Pub/Sub) |
+| Frontend | Next.js 16, React 19, Tailwind CSS 4 |
+| Auth | NextAuth.js v4 (Google/GitHub OAuth) |
+| Charts | Recharts |
+| State | Zustand |
+| ML | hmmlearn (HMM), Claude API (sentiment) |
+| Exchange | CCXT |

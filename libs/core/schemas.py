@@ -80,7 +80,7 @@ class CircuitBreakerEvent(BaseEvent):
     reason: str
 
 class AlertEvent(BaseEvent):
-    event_type: Literal[EventType.ALERT_AMBER, EventType.ALERT_RED, EventType.SYSTEM_ALERT]
+    event_type: Literal[EventType.ALERT_AMBER, EventType.ALERT_RED, EventType.SYSTEM_ALERT, EventType.REGIME_DISAGREEMENT]
     message: str
     level: str
     profile_id: Optional[ProfileId] = None

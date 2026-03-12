@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import { PortfolioSummaryCard } from '../components/pnl/PortfolioSummaryCard';
 import { PnLDisplay } from '../components/pnl/PnLDisplay';
+import { AgentStatusPanel } from '../components/agents/AgentStatusPanel';
+import { RiskMonitorCard } from '../components/risk/RiskMonitorCard';
 import { usePortfolioStore } from '../lib/stores/portfolioStore';
 import { api, type ProfileResponse } from '../lib/api/client';
 
@@ -32,8 +34,14 @@ export default function Dashboard() {
         );
         setError(null);
       } catch (e: any) {
-        console.error("Failed loading profiles", e);
-        setError(e.message || "Failed to load profiles");
+        const msg = e.message || "Failed to load profiles";
+        console.error("Failed loading profiles", msg);
+        // Don't show error for auth failures — user just needs to log in
+        if (msg.includes("Unauthorized")) {
+          setError(null);
+        } else {
+          setError(msg);
+        }
         setProfiles([]);
       } finally {
         setIsLoading(false);
@@ -102,6 +110,14 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+      </div>
+
+      {/* Phase 3: ML Agents & Risk Monitor */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+        <AgentStatusPanel />
+        <RiskMonitorCard
+          profileIds={profiles.map(p => p.profile_id)}
+        />
       </div>
     </div>
   );

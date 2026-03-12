@@ -10,7 +10,7 @@ const chakraPetch = Chakra_Petch({ weight: ["400", "500", "600", "700"], subsets
 const shareTechMonoCode = Share_Tech_Mono({ weight: "400", subsets: ['latin'], variable: '--font-mono' });
 
 export const metadata: Metadata = {
-  title: 'Control Plane Dashboard | Phase 2',
+  title: 'Control Plane Dashboard | Phase 3',
   description: 'Agentic Trading Platform',
 }
 

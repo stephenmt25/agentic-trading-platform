@@ -11,7 +11,7 @@ from libs.observability import get_logger
 from .middleware.auth import verify_jwt
 from .middleware.rate_limit import RateLimiterMiddleware
 
-from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading
+from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents
 
 logger = get_logger("api-gateway")
 
@@ -58,6 +58,10 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(ws.router)
+
+    # Public read-only monitoring endpoints (no auth required for dev observability)
+    app.include_router(agents.router, prefix="/agents")
+    app.include_router(backtest.router, prefix="/backtest")
     
     # Protected grouped Router
     api_router = FastAPI(dependencies=[])

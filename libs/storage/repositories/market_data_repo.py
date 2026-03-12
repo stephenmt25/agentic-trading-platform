@@ -1,4 +1,5 @@
 from typing import List, Dict, Any
+from datetime import datetime
 from ._repository_base import BaseRepository
 
 class MarketDataRepository(BaseRepository):
@@ -12,6 +13,19 @@ class MarketDataRepository(BaseRepository):
         """
         records = await self._fetch(query, symbol, timeframe, limit)
         return [dict(r) for r in reversed(records)]  # Return oldest to newest
+
+    async def get_candles_by_range(
+        self, symbol: str, timeframe: str, start: datetime, end: datetime
+    ) -> List[Dict[str, Any]]:
+        query = """
+        SELECT bucket as "time", open, high, low, close, volume
+        FROM market_data_ohlcv
+        WHERE symbol = $1 AND timeframe = $2
+          AND bucket BETWEEN $3 AND $4
+        ORDER BY bucket ASC
+        """
+        records = await self._fetch(query, symbol, timeframe, start, end)
+        return [dict(r) for r in records]
 
     async def write_candle(self, symbol: str, timeframe: str, ohlcv: Dict[str, Any], bucket: str):
         query = """

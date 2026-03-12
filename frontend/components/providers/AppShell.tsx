@@ -11,6 +11,7 @@ const PUBLIC_PATHS = ["/login"];
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/profiles", label: "Profiles" },
+  { href: "/backtest", label: "Backtest" },
   { href: "/paper-trading", label: "Paper Trading" },
 ];
 

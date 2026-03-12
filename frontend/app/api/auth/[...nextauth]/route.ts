@@ -21,21 +21,26 @@ const handler = NextAuth({
   },
   callbacks: {
     async jwt({ token, account, profile }) {
-      // On initial sign-in, call backend to upsert user and get a backend JWT
+      // On initial sign-in, capture provider info
       if (account && profile) {
         token.provider = account.provider;
         token.providerAccountId = account.providerAccountId;
+        token.email = token.email || profile.email || "";
+        token.name = token.name || profile.name || "";
+      }
 
+      // Get backend token if we don't have one yet (initial sign-in or retry)
+      if (!token.backendAccessToken && token.email) {
         try {
           const res = await fetch(`${BACKEND_URL}/auth/callback`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              email: token.email || profile.email || "",
-              name: token.name || profile.name || "",
+              email: token.email,
+              name: token.name || "",
               image: token.picture || "",
-              provider: account.provider,
-              provider_account_id: account.providerAccountId,
+              provider: token.provider || "google",
+              provider_account_id: token.providerAccountId || "",
             }),
           });
 
@@ -47,7 +52,7 @@ const handler = NextAuth({
             console.error("Backend auth callback failed:", res.status);
           }
         } catch (err) {
-          // Backend may be offline — continue without backend token
+          // Backend may be offline — will retry on next session refresh
           console.error("Backend auth callback error:", err);
         }
       }

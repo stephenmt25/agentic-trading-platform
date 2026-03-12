@@ -8,11 +8,12 @@ from contextlib import asynccontextmanager
 from libs.config import settings
 from libs.storage._redis_client import RedisClient
 from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
+from libs.messaging._pubsub import PubSubSubscriber
 from libs.messaging.channels import (
-    MARKET_DATA_STREAM, 
-    ORDERS_STREAM, 
-    VALIDATION_STREAM, 
-    VALIDATION_RESPONSE_STREAM, 
+    MARKET_DATA_STREAM,
+    ORDERS_STREAM,
+    VALIDATION_STREAM,
+    VALIDATION_RESPONSE_STREAM,
     PUBSUB_THRESHOLD_PROXIMITY
 )
 from libs.observability import get_logger
@@ -20,30 +21,27 @@ from libs.observability import get_logger
 from .state import ProfileStateCache
 from .validation_client import ValidationClient
 from .processor import HotPathProcessor
+from .pnl_sync import PnlSync
 
 logger = get_logger("hot-path.main")
 
 async def verify_validation_agent_health():
     """Wait and verify validation agent is completely online before starting."""
-    # Hardcoded host assuming docker compose resolution. Could be env driven.
     url = "http://validation:8080/health"
     backoff = 1.0
-    
+
     logger.info("Waiting for Validation Agent health check...")
-    
-    # Needs httpx async client
+
     async with httpx.AsyncClient() as client:
         while True:
             try:
-                # In development/standalone if validation not mocked/running we bypass or crash
-                # Let's bypass gracefully if it's localhost and doesn't exist just to test Hot-Path alone.
                 res = await client.get(url, timeout=2.0)
                 if res.status_code == 200:
                     logger.info("Validation Agent is HEALTHY.")
                     break
             except httpx.ConnectError:
                 pass
-            
+
             logger.info(f"Validation Agent unavailable. Retrying in {backoff}s...")
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30.0)
@@ -58,14 +56,14 @@ async def wait_for_hydration_complete(redis_client, state_cache: ProfileStateCac
             if status != b"complete":
                 all_ready = False
                 break
-        
+
         if all_ready and len(list(state_cache.itervalues())) > 0:
              break
-        
+
         # If no profiles, skip wait for dummy boots
         if len(list(state_cache.itervalues())) == 0:
              break
-             
+
         await asyncio.sleep(1.0)
     logger.info("Profile states successfully hydrated.")
 
@@ -76,7 +74,8 @@ async def lifespan(app: FastAPI):
     consumer = StreamConsumer(redis_instance)
     publisher = StreamPublisher(redis_instance)
     pubsub = PubSubBroadcaster(redis_instance)
-    
+    pubsub_subscriber = PubSubSubscriber(redis_instance)
+
     val_client = ValidationClient(
         publisher=publisher,
         consumer=consumer,
@@ -84,17 +83,16 @@ async def lifespan(app: FastAPI):
         resp_channel=VALIDATION_RESPONSE_STREAM,
         timeout_ms=settings.FAST_GATE_TIMEOUT_MS
     )
-    
+
     state_cache = ProfileStateCache()
-    
-    # 1. Hydrate cache loop Wait (Requires active caching, skip if zero profiles for dev ease)
+
+    # 1. Hydrate cache loop Wait
     await wait_for_hydration_complete(redis_instance, state_cache)
-    
-    # 2. Verify Safety gate
-    # Bypassing hard check here for pure library test runtime ability if not in compose,
-    # But in strict Prod mode we must wait forever until 200 is confirmed.
-    # await verify_validation_agent_health()
-    
+
+    # 2. Start PnL sync background task (Sprint 10.1)
+    pnl_sync = PnlSync(redis_instance, pubsub_subscriber, state_cache)
+    pnl_sync_task = asyncio.create_task(pnl_sync.run())
+
     processor = HotPathProcessor(
         state_cache=state_cache,
         consumer=consumer,
@@ -103,17 +101,19 @@ async def lifespan(app: FastAPI):
         validation_client=val_client,
         tick_channel=MARKET_DATA_STREAM,
         orders_channel=ORDERS_STREAM,
-        proximity_pubsub_channel=PUBSUB_THRESHOLD_PROXIMITY
+        proximity_pubsub_channel=PUBSUB_THRESHOLD_PROXIMITY,
+        redis_client=redis_instance,
     )
-    
+
     logger.info("Injecting Hot-Path background loop.")
     task = asyncio.create_task(processor.run())
-    
+
     yield
-    
+
     # Teardown
     task.cancel()
-    await asyncio.gather(task, return_exceptions=True)
+    pnl_sync_task.cancel()
+    await asyncio.gather(task, pnl_sync_task, return_exceptions=True)
     logger.info("Hot-Path shutdown gracefully.")
 
 app = FastAPI(title="HotPath Processor", lifespan=lifespan)

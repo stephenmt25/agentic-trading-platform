@@ -1,0 +1,101 @@
+import asyncio
+import json
+from libs.messaging.channels import PUBSUB_PNL_UPDATES
+from libs.observability import get_logger
+
+logger = get_logger("hot-path.pnl-sync")
+
+
+class PnlSync:
+    """Background task that keeps ProfileState risk fields hydrated from Redis.
+
+    Subscribes to pubsub:pnl_updates for near-real-time updates.
+    Also polls Redis keys every 5 seconds as fallback reconciliation.
+    Updates: daily_realised_pnl_pct, current_drawdown_pct, current_allocation_pct
+    """
+
+    POLL_INTERVAL_S = 5
+
+    def __init__(self, redis_client, pubsub_subscriber, state_cache):
+        self._redis = redis_client
+        self._subscriber = pubsub_subscriber
+        self._state_cache = state_cache
+
+    async def run(self):
+        """Start both the pubsub listener and the polling reconciliation."""
+        await asyncio.gather(
+            self._pubsub_listener(),
+            self._poll_reconciliation(),
+            return_exceptions=True,
+        )
+
+    async def _pubsub_listener(self):
+        """Subscribe to PnL updates for near-real-time state hydration."""
+        logger.info("PnL sync pubsub listener started")
+
+        async def on_message(data):
+            try:
+                if isinstance(data, bytes):
+                    data = data.decode()
+                message = json.loads(data)
+                profile_id = message.get("profile_id")
+                if not profile_id:
+                    return
+
+                state = self._state_cache.get(profile_id)
+                if not state:
+                    return
+
+                pct_return = message.get("pct_return", message.get("roi_pct", 0.0))
+                if pct_return:
+                    state.daily_realised_pnl_pct += float(pct_return)
+                    logger.debug(
+                        "PnL sync updated from pubsub",
+                        profile_id=profile_id,
+                        daily_pnl=state.daily_realised_pnl_pct,
+                    )
+            except Exception as e:
+                logger.error("PnL sync pubsub callback error", error=str(e))
+
+        try:
+            await self._subscriber.subscribe(PUBSUB_PNL_UPDATES, on_message)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.error("PnL sync pubsub listener error", error=str(e))
+
+    async def _poll_reconciliation(self):
+        """Poll Redis keys for risk state reconciliation every 5 seconds."""
+        logger.info("PnL sync polling reconciliation started")
+        while True:
+            try:
+                for state in self._state_cache.itervalues():
+                    if not state.is_active:
+                        continue
+
+                    pid = state.profile_id
+
+                    # Daily PnL
+                    daily_raw = await self._redis.get(f"pnl:daily:{pid}")
+                    if daily_raw:
+                        data = json.loads(daily_raw)
+                        state.daily_realised_pnl_pct = float(data.get("total_pct", 0.0))
+
+                    # Drawdown
+                    dd_raw = await self._redis.get(f"risk:drawdown:{pid}")
+                    if dd_raw:
+                        data = json.loads(dd_raw)
+                        state.current_drawdown_pct = float(data.get("drawdown_pct", 0.0))
+
+                    # Allocation
+                    alloc_raw = await self._redis.get(f"risk:allocation:{pid}")
+                    if alloc_raw:
+                        data = json.loads(alloc_raw)
+                        state.current_allocation_pct = float(data.get("allocation_pct", 0.0))
+
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error("PnL sync poll error", error=str(e))
+
+            await asyncio.sleep(self.POLL_INTERVAL_S)
