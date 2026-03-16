@@ -36,11 +36,11 @@ export default function Dashboard() {
         setError(null);
       } catch (e: any) {
         const msg = e.message || "Failed to load profiles";
-        console.error("Failed loading profiles", msg);
-        // Don't show error for auth failures — user just needs to log in
+        // Don't log or show error for auth failures — user just needs to log in
         if (msg.includes("Unauthorized")) {
           setError(null);
         } else {
+          console.error("Failed loading profiles", msg);
           setError(msg);
         }
         setProfiles([]);

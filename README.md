@@ -81,7 +81,7 @@ done
 ### Step 3: Install Python Dependencies
 
 ```bash
-pip install fastapi uvicorn pydantic pydantic-settings redis asyncpg structlog pyjwt "passlib[bcrypt]" cryptography bcrypt msgpack numpy httpx hmmlearn ccxt
+poetry install
 ```
 
 ### Step 4: Start Backend Services
@@ -90,46 +90,42 @@ Each service runs in its own terminal. Start them in this order:
 
 **Terminal 1 — API Gateway (required)**
 ```bash
-PYTHONPATH=. python -m uvicorn services.api_gateway.src.main:app --host 0.0.0.0 --port 8000 --reload
-```
-Windows PowerShell:
-```powershell
-$env:PYTHONPATH="."; python -m uvicorn services.api_gateway.src.main:app --host 0.0.0.0 --port 8000 --reload
+poetry run uvicorn services.api_gateway.src.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 **Terminal 2 — Hot Path Processor**
 ```bash
-PYTHONPATH=. python -m uvicorn services.hot_path.src.main:app --host 0.0.0.0 --port 8082 --reload
+poetry run uvicorn services.hot_path.src.main:app --host 0.0.0.0 --port 8082 --reload
 ```
 
 **Terminal 3 — Execution Service**
 ```bash
-PYTHONPATH=. python -m uvicorn services.execution.src.main:app --host 0.0.0.0 --port 8083 --reload
+poetry run uvicorn services.execution.src.main:app --host 0.0.0.0 --port 8083 --reload
 ```
 
 **Terminal 4 — PnL Service**
 ```bash
-PYTHONPATH=. python -m uvicorn services.pnl.src.main:app --host 0.0.0.0 --port 8084 --reload
+poetry run uvicorn services.pnl.src.main:app --host 0.0.0.0 --port 8084 --reload
 ```
 
 **Terminal 5 — Backtesting Engine**
 ```bash
-PYTHONPATH=. python -m uvicorn services.backtesting.src.main:app --host 0.0.0.0 --port 8086 --reload
+poetry run uvicorn services.backtesting.src.main:app --host 0.0.0.0 --port 8086 --reload
 ```
 
 **Terminal 6 — TA Multi-Timeframe Agent**
 ```bash
-PYTHONPATH=. python -m uvicorn services.ta_agent.src.main:app --host 0.0.0.0 --port 8090 --reload
+poetry run uvicorn services.ta_agent.src.main:app --host 0.0.0.0 --port 8090 --reload
 ```
 
 **Terminal 7 — Regime HMM Agent**
 ```bash
-PYTHONPATH=. python -m uvicorn services.regime_hmm.src.main:app --host 0.0.0.0 --port 8091 --reload
+poetry run uvicorn services.regime_hmm.src.main:app --host 0.0.0.0 --port 8091 --reload
 ```
 
 **Terminal 8 — Sentiment Agent**
 ```bash
-PYTHONPATH=. python -m uvicorn services.sentiment.src.main:app --host 0.0.0.0 --port 8092 --reload
+poetry run uvicorn services.sentiment.src.main:app --host 0.0.0.0 --port 8092 --reload
 ```
 
 ### Step 5: Start the Frontend
@@ -164,14 +160,14 @@ Open [http://localhost:3000](http://localhost:3000)
 
 ```bash
 # Unix/Mac/Git Bash — starts all services in background
-PYTHONPATH=. python -m uvicorn services.api_gateway.src.main:app --port 8000 &
-PYTHONPATH=. python -m uvicorn services.hot_path.src.main:app --port 8082 &
-PYTHONPATH=. python -m uvicorn services.execution.src.main:app --port 8083 &
-PYTHONPATH=. python -m uvicorn services.pnl.src.main:app --port 8084 &
-PYTHONPATH=. python -m uvicorn services.backtesting.src.main:app --port 8086 &
-PYTHONPATH=. python -m uvicorn services.ta_agent.src.main:app --port 8090 &
-PYTHONPATH=. python -m uvicorn services.regime_hmm.src.main:app --port 8091 &
-PYTHONPATH=. python -m uvicorn services.sentiment.src.main:app --port 8092 &
+poetry run uvicorn services.api_gateway.src.main:app --port 8000 &
+poetry run uvicorn services.hot_path.src.main:app --port 8082 &
+poetry run uvicorn services.execution.src.main:app --port 8083 &
+poetry run uvicorn services.pnl.src.main:app --port 8084 &
+poetry run uvicorn services.backtesting.src.main:app --port 8086 &
+poetry run uvicorn services.ta_agent.src.main:app --port 8090 &
+poetry run uvicorn services.regime_hmm.src.main:app --port 8091 &
+poetry run uvicorn services.sentiment.src.main:app --port 8092 &
 ```
 
 ---
@@ -244,10 +240,10 @@ Tick → (1) Strategy Eval
 
 ```bash
 # Run all unit tests
-PYTHONPATH=. python -m pytest tests/unit/ -v
+poetry run pytest tests/unit/ -v
 
 # Run with coverage
-PYTHONPATH=. python -m pytest tests/unit/ --cov=services --cov=libs -v
+poetry run pytest tests/unit/ --cov=services --cov=libs -v
 ```
 
 ---

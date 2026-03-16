@@ -61,8 +61,10 @@ export default function ProfilesPage() {
         setSelectedProfileId(fetched[0].profile_id);
       }
     } catch (e: any) {
-      console.error("Failed to load profiles:", e);
-      toast.error("Could not load profiles. Is the backend running?");
+      if (!e.message?.includes("Unauthorized")) {
+        console.error("Failed to load profiles:", e);
+        toast.error("Could not load profiles. Is the backend running?");
+      }
       setProfiles([]);
     } finally {
       setIsLoading(false);

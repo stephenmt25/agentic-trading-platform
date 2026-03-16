@@ -23,8 +23,13 @@ export default function PaperTradingDashboard() {
             setStatus(data);
             setError(null);
         } catch (e: any) {
-            console.error("Failed to load paper trading status:", e);
-            setError(e.message || "Failed to load paper trading data");
+            const msg = e.message || "Failed to load paper trading data";
+            if (!msg.includes("Unauthorized")) {
+                console.error("Failed to load paper trading status:", e);
+                setError(msg);
+            } else {
+                setError(null);
+            }
             setStatus(null);
         } finally {
             setIsLoading(false);
