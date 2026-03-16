@@ -1,84 +1,115 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from typing import List
+from pydantic import BaseModel, Field
+from typing import Dict, List, Optional, Any
 from ..deps import get_profile_repo, get_current_user
 from libs.storage.repositories.profile_repo import ProfileRepository
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
 
-@router.get("/")
-async def get_profiles(repo: ProfileRepository = Depends(get_profile_repo)):
-    """Return all trading profiles (active and inactive)."""
-    profiles = await repo.get_all_profiles()
-    # Normalize keys for frontend consumption
-    result = []
-    for p in profiles:
-        result.append({
-            "profile_id": str(p.get("profile_id", "")),
-            "name": p.get("name", ""),
-            "is_active": p.get("is_active", False),
-            "rules_json": p.get("strategy_rules", {}),
-            "allocation_pct": float(p.get("allocation_pct", 0)),
-            "created_at": str(p.get("created_at", "")),
-            "deleted_at": str(p.get("deleted_at", "")) if p.get("deleted_at") else None,
-        })
-    return result
 
-@router.post("/")
+class ProfileCreate(BaseModel):
+    name: str = Field(default="Untitled Profile", min_length=1, max_length=200)
+    rules_json: Dict[str, Any] = Field(default_factory=dict)
+    risk_limits: Dict[str, Any] = Field(default_factory=dict)
+    allocation_pct: float = Field(default=1.0, ge=0.0, le=100.0)
+
+
+class ProfileUpdate(BaseModel):
+    rules_json: Dict[str, Any]
+    is_active: bool = True
+
+
+class ProfileToggle(BaseModel):
+    is_active: bool
+
+
+class ProfileResponse(BaseModel):
+    profile_id: str
+    name: str
+    is_active: bool
+    rules_json: Dict[str, Any]
+    allocation_pct: float
+    created_at: str
+    deleted_at: Optional[str] = None
+
+
+@router.get("/", response_model=List[ProfileResponse])
+async def get_profiles(
+    user_id: str = Depends(get_current_user),
+    repo: ProfileRepository = Depends(get_profile_repo),
+):
+    """Return all trading profiles for the current user."""
+    profiles = await repo.get_all_profiles_for_user(user_id)
+    return [
+        ProfileResponse(
+            profile_id=str(p.get("profile_id", "")),
+            name=p.get("name", ""),
+            is_active=p.get("is_active", False),
+            rules_json=p.get("strategy_rules", {}),
+            allocation_pct=float(p.get("allocation_pct", 0)),
+            created_at=str(p.get("created_at", "")),
+            deleted_at=str(p.get("deleted_at", "")) if p.get("deleted_at") else None,
+        )
+        for p in profiles
+    ]
+
+
+@router.post("/", status_code=201)
 async def create_profile(
-    profile_data: dict,
-    request: Request,
+    profile_data: ProfileCreate,
+    user_id: str = Depends(get_current_user),
     repo: ProfileRepository = Depends(get_profile_repo),
 ):
     """Create a new trading profile with strategy rules."""
-    rules = profile_data.get("rules_json", {})
-    name = profile_data.get("name", "Untitled Profile")
-    
-    # Get the real user_id from the JWT (set by verify_jwt middleware)
-    user_id = getattr(request.state, "user_id", None)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="User identity not available")
-    
     try:
         created = await repo.create_profile(
             user_id=user_id,
-            name=name,
-            strategy_rules=rules,
-            risk_limits=profile_data.get("risk_limits", {}),
-            allocation_pct=profile_data.get("allocation_pct", 1.0),
+            name=profile_data.name,
+            strategy_rules=profile_data.rules_json,
+            risk_limits=profile_data.risk_limits,
+            allocation_pct=profile_data.allocation_pct,
         )
         return {"status": "created", "id": str(created.get("profile_id", "")), "profile": created}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to create profile")
+
 
 @router.put("/{profile_id}")
-async def update_profile(profile_id: str, profile_data: dict, repo: ProfileRepository = Depends(get_profile_repo)):
-    """Update strategy rules for an existing profile."""
-    rules = profile_data.get("rules_json", {})
-    is_active = profile_data.get("is_active", True)
-    
-    try:
-        updated = await repo.update_profile(profile_id, rules, is_active)
-        if not updated:
-            raise HTTPException(status_code=404, detail="Profile not found")
-        return {"status": "updated", "profile": updated}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+async def update_profile(
+    profile_id: str,
+    profile_data: ProfileUpdate,
+    user_id: str = Depends(get_current_user),
+    repo: ProfileRepository = Depends(get_profile_repo),
+):
+    """Update strategy rules for an existing profile (owned by current user)."""
+    updated = await repo.update_profile(profile_id, user_id, profile_data.rules_json, profile_data.is_active)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Profile not found")
+    return {"status": "updated", "profile": updated}
+
 
 @router.patch("/{profile_id}/toggle")
-async def toggle_profile(profile_id: str, body: dict, repo: ProfileRepository = Depends(get_profile_repo)):
-    """Toggle a profile's active state."""
-    is_active = body.get("is_active", False)
-    result = await repo.toggle_active(profile_id, is_active)
+async def toggle_profile(
+    profile_id: str,
+    body: ProfileToggle,
+    user_id: str = Depends(get_current_user),
+    repo: ProfileRepository = Depends(get_profile_repo),
+):
+    """Toggle a profile's active state (owned by current user)."""
+    result = await repo.toggle_active(profile_id, user_id, body.is_active)
     if not result:
         raise HTTPException(status_code=404, detail="Profile not found")
-    return {"status": "toggled", "is_active": is_active}
+    return {"status": "toggled", "is_active": body.is_active}
+
 
 @router.delete("/{profile_id}")
-async def delete_profile(profile_id: str, repo: ProfileRepository = Depends(get_profile_repo)):
-    """Soft-delete a profile by setting deleted_at timestamp."""
-    result = await repo.soft_delete(profile_id)
+async def delete_profile(
+    profile_id: str,
+    user_id: str = Depends(get_current_user),
+    repo: ProfileRepository = Depends(get_profile_repo),
+):
+    """Soft-delete a profile (owned by current user)."""
+    result = await repo.soft_delete(profile_id, user_id)
     if not result:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"status": "deleted", "deleted_at": str(result.get("deleted_at", ""))}

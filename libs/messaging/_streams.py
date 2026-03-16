@@ -15,13 +15,18 @@ class StreamPublisher:
 class StreamConsumer:
     def __init__(self, redis_client: redis.Redis):
         self._redis = redis_client
+        self._known_groups: set = set()
 
     async def _ensure_group(self, channel: str, group: str):
+        key = (channel, group)
+        if key in self._known_groups:
+            return
         try:
             await self._redis.xgroup_create(channel, group, id="0", mkstream=True)
         except redis.ResponseError as e:
             if "BUSYGROUP" not in str(e):
                 raise
+        self._known_groups.add(key)
 
     async def consume(self, channel: str, group: str, consumer: str, count: int = 10, block_ms: int = 100) -> List[tuple[str, BaseEvent]]:
         await self._ensure_group(channel, group)

@@ -12,9 +12,19 @@ class LearningLoop:
         while True:
             await asyncio.sleep(interval_seconds)
             try:
-                # Fetch recent red/amber events
-                # events = await self._validation_repo.get_recent_escalations()
-                events = [] # MOCK
+                # Fetch recent red/amber events from the last hour across all check types
+                from libs.core.enums import ValidationCheck
+                events = []
+                for check_type in ValidationCheck:
+                    try:
+                        records = await self._validation_repo.get_recent_events(check_type, hours=1)
+                        for r in records:
+                            row = dict(r) if not isinstance(r, dict) else r
+                            verdict = row.get("verdict", "")
+                            if verdict in ("RED", "AMBER"):
+                                events.append(row)
+                    except Exception:
+                        continue
                 
                 for ev in events:
                     job_type = ""

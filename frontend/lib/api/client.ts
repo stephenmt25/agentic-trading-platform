@@ -5,6 +5,8 @@
  * Redirects to /login on 401 responses.
  */
 
+import { z } from "zod";
+
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface ApiClientOptions extends Omit<RequestInit, "body"> {
@@ -48,7 +50,7 @@ async function apiRequest<T>(
   const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
 
   if (response.status === 401) {
-    // Don't redirect here — the AppShell/AuthGuard already handles session-based redirects.
+    // Don't redirect here — the AppShell already handles session-based redirects.
     // Redirecting on API 401 causes a loop when the backend token isn't ready yet.
     throw new Error("Unauthorized — backend rejected the request");
   }
@@ -60,6 +62,50 @@ async function apiRequest<T>(
 
   return response.json() as Promise<T>;
 }
+
+/**
+ * Validated API request -- parses the response through a Zod schema to ensure
+ * the backend returned the expected shape.
+ */
+async function validatedRequest<T>(
+  schema: z.ZodType<T>,
+  endpoint: string,
+  options: ApiClientOptions = {}
+): Promise<T> {
+  const raw = await apiRequest<unknown>(endpoint, options);
+  return schema.parse(raw);
+}
+
+// ---- Zod Schemas for critical responses ----
+
+const ExchangeKeyInfoSchema = z.object({
+  id: z.string(),
+  exchange_name: z.string(),
+  label: z.string(),
+  is_active: z.boolean(),
+  created_at: z.string(),
+});
+
+const TestConnectionResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  permissions: z.array(z.string()),
+});
+
+const ProfileResponseSchema = z.object({
+  profile_id: z.string(),
+  name: z.string(),
+  is_active: z.boolean(),
+  rules_json: z.record(z.unknown()),
+  allocation_pct: z.number(),
+  created_at: z.string(),
+  deleted_at: z.string().nullable(),
+});
+
+const BacktestResultSchema = z.object({
+  job_id: z.string().optional(),
+  status: z.string(),
+}).passthrough();
 
 // ---- Type Definitions ----
 
@@ -123,7 +169,7 @@ export interface PaperTradingStatus {
 export const api = {
   profiles: {
     list: () =>
-      apiRequest<ProfileResponse[]>("/profiles"),
+      validatedRequest(z.array(ProfileResponseSchema), "/profiles"),
 
     create: (data: {
       name: string;
@@ -164,7 +210,7 @@ export const api = {
 
   exchangeKeys: {
     list: () =>
-      apiRequest<ExchangeKeyInfo[]>("/exchange-keys"),
+      validatedRequest(z.array(ExchangeKeyInfoSchema), "/exchange-keys"),
 
     store: (data: {
       exchange_name: string;
@@ -182,7 +228,7 @@ export const api = {
       api_secret: string;
       exchange_name: string;
     }) =>
-      apiRequest<TestConnectionResponse>("/exchange-keys/test", {
+      validatedRequest(TestConnectionResponseSchema, "/exchange-keys/test", {
         method: "POST",
         body: data,
       }),
@@ -207,7 +253,7 @@ export const api = {
       }),
 
     result: (jobId: string) =>
-      apiRequest<Record<string, unknown>>(`/backtest/${jobId}`),
+      validatedRequest(BacktestResultSchema, `/backtest/${jobId}`),
   },
 
   agents: {
@@ -237,6 +283,27 @@ export const api = {
         drawdown_pct: number;
         allocation_pct: number;
       }>>("/agents/risk"),
+  },
+
+  preferences: {
+    get: () =>
+      apiRequest<{
+        email_alerts: boolean;
+        trade_notifications: boolean;
+        default_exchange: string;
+        timezone: string;
+      }>("/preferences"),
+
+    save: (data: {
+      email_alerts: boolean;
+      trade_notifications: boolean;
+      default_exchange: string;
+      timezone: string;
+    }) =>
+      apiRequest<{ message: string }>("/preferences", {
+        method: "PUT",
+        body: data,
+      }),
   },
 
   auth: {

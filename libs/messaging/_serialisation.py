@@ -23,8 +23,23 @@ EVENT_MAP = {
 # We will use class type for serialization
 
 def encode_event(event: BaseEvent) -> bytes:
-    data = event.model_dump(mode="json")
-    return msgpack.packb({"__type__": event.__class__.__name__, **data}, use_bin_type=True)
+    # Fast path: use __dict__ directly for internal events, avoiding Pydantic overhead
+    try:
+        raw = {}
+        for k, v in event.__dict__.items():
+            # Convert non-serializable types for msgpack
+            if hasattr(v, 'value'):  # Enum
+                raw[k] = v.value
+            elif hasattr(v, 'hex'):  # UUID
+                raw[k] = str(v)
+            else:
+                raw[k] = v
+        raw["__type__"] = event.__class__.__name__
+        return msgpack.packb(raw, use_bin_type=True, default=str)
+    except Exception:
+        # Fallback to Pydantic model_dump for complex cases
+        data = event.model_dump(mode="json")
+        return msgpack.packb({"__type__": event.__class__.__name__, **data}, use_bin_type=True)
 
 def decode_event(data: bytes) -> BaseEvent:
     raw: Dict[str, Any] = msgpack.unpackb(data, raw=False)

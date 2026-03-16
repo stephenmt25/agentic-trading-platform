@@ -5,8 +5,10 @@ from contextlib import asynccontextmanager
 
 from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient, MarketDataRepository, ProfileRepository, ValidationRepository, PnlRepository
+from libs.storage.repositories import BacktestRepository
 from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
-from libs.messaging.channels import VALIDATION_STREAM
+from libs.messaging.channels import VALIDATION_STREAM, VALIDATION_RESPONSE_STREAM
+from libs.messaging._serialisation import encode_event
 from libs.observability import get_logger
 
 from .check_1_strategy import StrategyRecheck
@@ -47,7 +49,8 @@ async def lifespan(app: FastAPI):
     # Async Audit
     check2 = HallucinationCheck(validation_repo, market_repo)
     check3 = BiasCheck()
-    check4 = DriftCheck(pnl_repo)
+    backtest_repo = BacktestRepository(timescale_client)
+    check4 = DriftCheck(pnl_repo, backtest_repo=backtest_repo)
     check5 = EscalationCheck(validation_repo, pubsub)
     async_auditor = AsyncAuditHandler(consumer, validation_repo, check2, check3, check4, check5, VALIDATION_STREAM)
     
@@ -66,7 +69,12 @@ async def lifespan(app: FastAPI):
             for msg_id, ev in events:
                 if ev:
                     resp = await fast_gate.handle(ev)
-                    await publisher.publish("stream:validation_responses", resp)
+                    await publisher.publish(VALIDATION_RESPONSE_STREAM, resp)
+                    # LPUSH response to per-request key for BLPOP RPC pickup
+                    resp_key = f"validation:resp:{ev.event_id}"
+                    encoded = encode_event(resp)
+                    await redis_instance.lpush(resp_key, encoded)
+                    await redis_instance.expire(resp_key, 5)  # TTL cleanup
                 await consumer.ack(VALIDATION_STREAM, g_name, [msg_id])
 
     # Start Tasks

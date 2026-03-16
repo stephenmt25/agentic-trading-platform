@@ -21,17 +21,26 @@ const handler = NextAuth({
   },
   callbacks: {
     async jwt({ token, account, profile }) {
-      // On initial sign-in, capture provider info
+      // On initial sign-in, capture provider info and ID token
       if (account && profile) {
         token.provider = account.provider;
         token.providerAccountId = account.providerAccountId;
         token.email = token.email || profile.email || "";
         token.name = token.name || profile.name || "";
+        // Store the OAuth id_token for backend verification
+        token.idToken = account.id_token || "";
       }
 
       // Get backend token if we don't have one yet (initial sign-in or retry)
       if (!token.backendAccessToken && token.email) {
         try {
+          // Encode a session token signed with NEXTAUTH_SECRET for backend verification
+          const jwt = await import("next-auth/jwt");
+          const sessionToken = await (jwt as any).encode({
+            token: { email: token.email, sub: token.sub },
+            secret: process.env.NEXTAUTH_SECRET || "",
+          });
+
           const res = await fetch(`${BACKEND_URL}/auth/callback`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -41,6 +50,7 @@ const handler = NextAuth({
               image: token.picture || "",
               provider: token.provider || "google",
               provider_account_id: token.providerAccountId || "",
+              id_token: sessionToken,
             }),
           });
 
@@ -61,12 +71,12 @@ const handler = NextAuth({
     async session({ session, token }) {
       // Expose backend token and provider info to the client session
       if (session.user) {
-        (session.user as any).provider = token.provider;
-        (session.user as any).providerAccountId = token.providerAccountId;
-        (session.user as any).backendUserId = token.backendUserId;
+        session.user.provider = token.provider;
+        session.user.providerAccountId = token.providerAccountId;
+        session.user.backendUserId = token.backendUserId;
       }
       // Attach backend JWT as accessToken so the API client can use it
-      (session as any).accessToken = token.backendAccessToken || null;
+      session.accessToken = token.backendAccessToken || null;
       return session;
     },
   },

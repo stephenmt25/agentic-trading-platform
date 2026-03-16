@@ -11,8 +11,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -46,6 +46,10 @@ htmlcov/
 # Local configuration
 .env
 .env.local
+frontend/.env.local
+
+# Secrets — NEVER commit
+.dev_secrets/
 
 # Node/Frontend
 node_modules/

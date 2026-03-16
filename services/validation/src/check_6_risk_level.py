@@ -1,4 +1,9 @@
+import json
 from .check_1_strategy import CheckResult
+from libs.observability import get_logger
+
+logger = get_logger("validation.risk_level")
+
 
 class RiskLevelRecheck:
     def __init__(self, profile_repo):
@@ -6,22 +11,70 @@ class RiskLevelRecheck:
 
     async def check(self, request) -> CheckResult:
         """
-        Validates the pre-execution order against portfolio-level limits.
-        If anything is structurally dangerous, block it.
+        Validates the pre-execution order against portfolio-level risk limits
+        loaded from the trading profile in the database.
         """
-        # (a) Check allocation limits
-        # (b) stop-loss > tick?
-        # For Phase 1 we return pass on mock bounds
-        
-        # In a real environment we would load the Profile and assess its max allocation
-        # against the requested amount in request payload.
-        
-        passed = True
-        reason = None
-        
-        # Hardcoded safeguard mock for check 6
-        if request.payload.get("quantity", 0) > 1000:
-            passed = False
-            reason = "Allocation exceeds exchange minimum order / maximum exposure"
-            
-        return CheckResult(passed=passed, reason=reason)
+        quantity = float(request.payload.get("quantity", 0))
+        price = float(request.payload.get("price", 0))
+        order_value = quantity * price if price > 0 else quantity
+
+        # Load the profile and its risk_limits from DB
+        try:
+            profile = await self._profile_repo.get_profile(str(request.profile_id))
+        except Exception as e:
+            logger.error("Failed to load profile for risk check", error=str(e))
+            profile = None
+
+        if not profile:
+            # If we cannot load the profile, block as a safety measure
+            return CheckResult(passed=False, reason="Profile not found — cannot verify risk limits")
+
+        # Parse risk_limits from the profile record
+        raw_limits = profile.get("risk_limits", "{}")
+        if isinstance(raw_limits, str):
+            try:
+                risk_limits = json.loads(raw_limits)
+            except (json.JSONDecodeError, TypeError):
+                risk_limits = {}
+        else:
+            risk_limits = raw_limits if isinstance(raw_limits, dict) else {}
+
+        # (a) Max allocation percentage check
+        max_allocation_pct = float(risk_limits.get("max_allocation_pct", 1.0))
+        profile_allocation = float(profile.get("allocation_pct", 1.0))
+        # order_value as fraction of profile allocation (simplified: treat allocation_pct as USD budget)
+        if profile_allocation > 0 and order_value > 0:
+            alloc_fraction = order_value / (profile_allocation * 10_000)  # normalize to notional
+            if alloc_fraction > max_allocation_pct:
+                return CheckResult(
+                    passed=False,
+                    reason=f"Order value ${order_value:.2f} exceeds max allocation "
+                           f"({max_allocation_pct*100:.0f}% of profile budget)"
+                )
+
+        # (b) Stop-loss tolerance check
+        stop_loss_pct = float(risk_limits.get("stop_loss_pct", 0.05))
+        order_stop_loss = float(request.payload.get("stop_loss_pct", 0))
+        if order_stop_loss > 0 and order_stop_loss > stop_loss_pct:
+            return CheckResult(
+                passed=False,
+                reason=f"Stop-loss {order_stop_loss*100:.1f}% exceeds profile limit of {stop_loss_pct*100:.1f}%"
+            )
+
+        # (c) Max drawdown circuit breaker
+        max_drawdown_pct = float(risk_limits.get("max_drawdown_pct", 0.10))
+        current_drawdown = float(request.payload.get("current_drawdown_pct", 0))
+        if current_drawdown >= max_drawdown_pct:
+            return CheckResult(
+                passed=False,
+                reason=f"Current drawdown {current_drawdown*100:.1f}% at/above max allowed {max_drawdown_pct*100:.1f}%"
+            )
+
+        # (d) Hard safety cap — absolute quantity guard
+        if quantity > 10_000:
+            return CheckResult(
+                passed=False,
+                reason="Absolute quantity guard: order qty exceeds 10,000 unit hard cap"
+            )
+
+        return CheckResult(passed=True)

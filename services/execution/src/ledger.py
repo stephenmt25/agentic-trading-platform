@@ -47,18 +47,31 @@ class OptimisticLedger:
             logger.error("Failed to rollback in ledger", error=str(e), order_id=str(order_id))
             return False
 
+    # Lua script for atomic allocation increment
+    _ALLOC_INCR_SCRIPT = """
+    local key = KEYS[1]
+    local incr = tonumber(ARGV[1])
+    local ttl = tonumber(ARGV[2])
+    local raw = redis.call('GET', key)
+    local data
+    if raw then
+        data = cjson.decode(raw)
+        data['allocated_qty'] = (data['allocated_qty'] or 0) + incr
+    else
+        data = {allocated_qty = incr}
+    end
+    redis.call('SET', key, cjson.encode(data), 'EX', ttl)
+    return tostring(data['allocated_qty'])
+    """
+
     async def _update_allocation(self, profile_id: str, quantity: float):
-        """Update allocation tracking in Redis (Sprint 10.3)."""
+        """Update allocation tracking in Redis atomically (Sprint 10.3)."""
         if not self._redis:
             return
         try:
             key = f"risk:allocation:{profile_id}"
-            raw = await self._redis.get(key)
-            if raw:
-                data = json.loads(raw)
-                data["allocation_pct"] = data.get("allocation_pct", 0.0) + quantity
-            else:
-                data = {"allocation_pct": quantity}
-            await self._redis.set(key, json.dumps(data), ex=86400)
+            await self._redis.eval(
+                self._ALLOC_INCR_SCRIPT, 1, key, str(quantity), "86400"
+            )
         except Exception as e:
             logger.error("Failed to update allocation", error=str(e), profile_id=profile_id)

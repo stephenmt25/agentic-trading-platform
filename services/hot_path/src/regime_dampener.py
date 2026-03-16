@@ -28,9 +28,12 @@ class DampenerResult:
 
 
 class RegimeDampener:
+    _REGIME_CACHE_TTL_S = 1.0  # Cache HMM regime for 1 second
+
     def __init__(self, redis_client=None, pubsub=None):
         self._redis = redis_client
         self._pubsub = pubsub
+        self._regime_cache: dict = {}  # symbol -> (regime, timestamp)
 
     async def check(
         self, state: ProfileState, signal: SignalResult, tick: NormalisedTick, inds: EvaluatedIndicators
@@ -64,13 +67,24 @@ class RegimeDampener:
     async def _read_hmm_regime(self, symbol: str) -> Optional[Regime]:
         if not self._redis:
             return None
+
+        # Check in-process cache first (1s TTL)
+        cached = self._regime_cache.get(symbol)
+        if cached is not None:
+            regime, cached_at = cached
+            if (time.monotonic() - cached_at) < self._REGIME_CACHE_TTL_S:
+                return regime
+
         try:
             raw = await self._redis.get(f"agent:regime_hmm:{symbol}")
             if raw:
                 data = json.loads(raw)
-                return Regime(data["regime"])
+                regime = Regime(data["regime"])
+                self._regime_cache[symbol] = (regime, time.monotonic())
+                return regime
         except Exception:
             pass
+        self._regime_cache[symbol] = (None, time.monotonic())
         return None
 
     def _resolve_regimes(self, rule_regime: Optional[Regime], hmm_regime: Optional[Regime]) -> Optional[Regime]:

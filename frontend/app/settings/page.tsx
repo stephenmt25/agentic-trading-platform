@@ -103,8 +103,23 @@ export default function SettingsPage() {
     }
   };
 
-  const handleSavePreferences = () => {
-    toast.success("Preferences saved!");
+  const [isSavingPrefs, setIsSavingPrefs] = useState(false);
+
+  const handleSavePreferences = async () => {
+    setIsSavingPrefs(true);
+    try {
+      await api.preferences.save({
+        email_alerts: emailAlerts,
+        trade_notifications: tradeNotifications,
+        default_exchange: defaultExchange,
+        timezone,
+      });
+      toast.success("Preferences saved!");
+    } catch (err) {
+      toast.error((err as Error).message || "Failed to save preferences.");
+    } finally {
+      setIsSavingPrefs(false);
+    }
   };
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [
@@ -250,7 +265,7 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <p className="text-sm font-bold text-slate-200">
-                          {((session?.user as unknown) as { provider?: string })?.provider === "github" ? "GitHub" : "Google"} OAuth
+                          {session?.user?.provider === "github" ? "GitHub" : "Google"} OAuth
                         </p>
                         <p className="text-xs text-slate-500">{session?.user?.email || "Connected"}</p>
                       </div>
@@ -278,7 +293,7 @@ export default function SettingsPage() {
                     </div>
                     <div className="flex justify-between py-2 border-b border-border/30">
                       <span className="text-sm text-slate-400">Auth Provider</span>
-                      <span className="text-sm font-mono text-slate-200 capitalize">{((session?.user as unknown) as { provider?: string })?.provider || "—"}</span>
+                      <span className="text-sm font-mono text-slate-200 capitalize">{session?.user?.provider || "—"}</span>
                     </div>
                     <div className="flex justify-between py-2">
                       <span className="text-sm text-slate-400">Session Status</span>
@@ -379,8 +394,8 @@ export default function SettingsPage() {
                     <p className="text-[10px] text-slate-600 mt-1">Used for PnL reporting and trade timestamps.</p>
                   </div>
                   <div className="pt-2">
-                    <Button onClick={handleSavePreferences} className="bg-primary text-primary-foreground hover:bg-primary/90 font-bold">
-                      <Save className="w-4 h-4 mr-2" /> SAVE PREFERENCES
+                    <Button onClick={handleSavePreferences} disabled={isSavingPrefs} className="bg-primary text-primary-foreground hover:bg-primary/90 font-bold">
+                      {isSavingPrefs ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> SAVING...</> : <><Save className="w-4 h-4 mr-2" /> SAVE PREFERENCES</>}
                     </Button>
                   </div>
                 </CardContent>

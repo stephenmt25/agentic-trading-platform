@@ -14,22 +14,25 @@ from .confluence import TAConfluenceScorer
 
 logger = get_logger("ta-agent")
 
-SYMBOLS = ["BTC/USDT", "ETH/USDT"]
 SCORE_INTERVAL_S = 60
 SCORE_TTL_S = 120
+# MACD needs 26 (slow) + 9 (signal) = 35 warmup candles minimum.
+# Use 150 to give all indicators ample warmup across timeframes.
+CANDLE_LIMIT = 150
 
 
 async def scoring_loop(redis_client, market_repo: MarketDataRepository):
     """Periodically compute TA confluence scores and write to Redis."""
-    scorer_map = {sym: TAConfluenceScorer() for sym in SYMBOLS}
+    symbols = settings.TRADING_SYMBOLS
+    scorer_map = {sym: TAConfluenceScorer() for sym in symbols}
 
     while True:
         try:
-            for symbol in SYMBOLS:
+            for symbol in symbols:
                 scorer = scorer_map[symbol]
 
                 for tf in TAConfluenceScorer.TIMEFRAMES:
-                    candles = await market_repo.get_candles(symbol, tf, limit=50)
+                    candles = await market_repo.get_candles(symbol, tf, limit=CANDLE_LIMIT)
                     # Re-initialize scorer for this cycle with fresh data
                     for candle in candles:
                         scorer.update_timeframe(
@@ -51,6 +54,8 @@ async def scoring_loop(redis_client, market_repo: MarketDataRepository):
         except Exception as e:
             logger.error("TA scoring loop error", error=str(e))
 
+        # Re-read symbols in case config changes at runtime
+        symbols = settings.TRADING_SYMBOLS
         await asyncio.sleep(SCORE_INTERVAL_S)
 
 

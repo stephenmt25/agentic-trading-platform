@@ -9,9 +9,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 export const PortfolioSummaryCard: React.FC = () => {
     const pnlData = usePortfolioStore(state => state.pnlData);
 
-    const totalNet = Object.values(pnlData).reduce((sum, pnl) => sum + pnl.net_post_tax, 0);
-    const totalGross = Object.values(pnlData).reduce((sum, pnl) => sum + pnl.gross_pnl, 0);
-    const totalFees = Object.values(pnlData).reduce((sum, pnl) => sum + pnl.fees, 0);
+    const entries = Object.values(pnlData);
+    const totalNet = entries.reduce((sum, pnl) => sum + pnl.net_post_tax, 0);
+    const totalGross = entries.reduce((sum, pnl) => sum + pnl.gross_pnl, 0);
+    const totalFees = entries.reduce((sum, pnl) => sum + pnl.fees, 0);
+    const totalTaxEst = entries.reduce((sum, pnl) => sum + pnl.tax_estimate, 0);
+    // Invested = gross PnL minus net post-tax (captures fees + taxes deducted from principal)
+    // When no positions exist this shows $0.00 which is correct.
+    const totalInvested = totalGross - totalNet + totalFees + totalTaxEst;
 
     const isPositive = totalNet >= 0;
 
@@ -39,7 +44,7 @@ export const PortfolioSummaryCard: React.FC = () => {
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-black/40 backdrop-blur-md rounded-xl border border-white/5">
                     <div className="flex flex-col space-y-1">
                         <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">Invested</span>
-                        <span className="text-sm font-mono text-slate-300 font-medium">$0.00</span>
+                        <span className="text-sm font-mono text-slate-300 font-medium">${totalInvested.toFixed(2)}</span>
                     </div>
                     <div className="flex flex-col space-y-1">
                         <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">Gross P&L</span>
@@ -53,7 +58,7 @@ export const PortfolioSummaryCard: React.FC = () => {
                         <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider flex items-center gap-1">
                             Tax Est. <span className="cursor-help w-3 h-3 bg-primary/20 text-primary text-[8px] flex items-center justify-center rounded-full font-bold">i</span>
                         </span>
-                        <span className="text-sm font-mono text-rose-400/90 font-medium">-${(0).toFixed(2)}</span>
+                        <span className="text-sm font-mono text-rose-400/90 font-medium">-${totalTaxEst.toFixed(2)}</span>
                     </div>
                 </div>
             </CardContent>

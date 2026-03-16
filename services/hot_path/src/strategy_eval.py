@@ -30,7 +30,17 @@ class StrategyEvaluator:
         # Hydration must have been completed.
         rsi_val = state.indicators.rsi.update(price)
         macd_val = state.indicators.macd.update(price)
-        atr_val = state.indicators.atr.update(price, price, price) # Simplified HLC logic
+
+        # Derive high/low from bid/ask if available, else estimate from prev_close
+        if tick.bid is not None and tick.ask is not None:
+            tick_high = float(tick.ask)
+            tick_low = float(tick.bid)
+        else:
+            # Use previous close to create a minimal true range
+            prev = state.indicators.atr.prev_close if state.indicators.atr.prev_close else price
+            tick_high = max(price, prev)
+            tick_low = min(price, prev)
+        atr_val = state.indicators.atr.update(tick_high, tick_low, price)
 
         if rsi_val is None or macd_val is None or atr_val is None:
             return None # Indicators still priming

@@ -44,21 +44,22 @@ class TAConfluenceScorer:
             if rsi_val is None or macd_result is None:
                 return None
 
-            # RSI signal: bullish < 40, bearish > 60, neutral otherwise
-            if rsi_val < 40:
-                rsi_signals.append(1.0)
-            elif rsi_val > 60:
-                rsi_signals.append(-1.0)
-            else:
-                rsi_signals.append(0.0)
+            # RSI signal: continuous value based on distance from neutral (50).
+            # Maps RSI 0-100 to signal -1.0 (overbought/bearish) to +1.0 (oversold/bullish).
+            # RSI 50 -> 0.0, RSI 30 -> +0.4, RSI 70 -> -0.4, RSI 0 -> +1.0, RSI 100 -> -1.0
+            rsi_signal = (50.0 - rsi_val) / 50.0
+            rsi_signals.append(max(-1.0, min(1.0, rsi_signal)))
 
-            # MACD signal: bullish if histogram > 0, bearish if < 0
-            if macd_result.histogram > 0:
-                macd_signals.append(1.0)
-            elif macd_result.histogram < 0:
-                macd_signals.append(-1.0)
+            # MACD signal: continuous value from histogram magnitude.
+            # Normalise by the absolute MACD line value to get a relative strength,
+            # then clamp to [-1, 1]. If MACD line is near zero, use raw sign.
+            macd_line_abs = abs(macd_result.macd) if macd_result.macd else 0.0
+            if macd_line_abs > 1e-10:
+                macd_signal = macd_result.histogram / macd_line_abs
+                macd_signal = max(-1.0, min(1.0, macd_signal))
             else:
-                macd_signals.append(0.0)
+                macd_signal = max(-1.0, min(1.0, macd_result.histogram * 1000.0)) if macd_result.histogram else 0.0
+            macd_signals.append(macd_signal)
 
         # Weighted average: longer timeframes carry more weight
         weights = [0.1, 0.2, 0.3, 0.4]  # 1m, 5m, 15m, 1h

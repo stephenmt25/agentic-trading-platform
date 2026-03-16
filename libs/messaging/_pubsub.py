@@ -1,7 +1,8 @@
 import asyncio
-import json
+import msgpack
 import redis.asyncio as redis
 from libs.core.schemas import BaseEvent
+from libs.messaging._serialisation import encode_event
 from typing import Callable, Awaitable
 
 class PubSubBroadcaster:
@@ -9,8 +10,8 @@ class PubSubBroadcaster:
         self._redis = redis_client
 
     async def publish(self, channel: str, event: BaseEvent):
-        # PubSub uses JSON format for websocket ease
-        data = event.model_dump_json()
+        # Use msgpack for faster internal pubsub serialization
+        data = encode_event(event)
         await self._redis.publish(channel, data)
 
 class PubSubSubscriber:

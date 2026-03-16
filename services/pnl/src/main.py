@@ -13,7 +13,7 @@ from libs.observability import get_logger
 
 from .calculator import PnLCalculator
 from .publisher import PnLPublisher
-from services.tax.src.us_tax import TaxEstimate
+from services.tax.src.us_tax import TaxEstimate, USTaxCalculator
 
 logger = get_logger("pnl")
 
@@ -55,15 +55,32 @@ async def lifespan(app: FastAPI):
             # Find open positions for symbol
             positions = active_positions_cache.get(sym, [])
             for pos in positions:
-                # Precalculate Tax: Holding duration
+                # Calculate holding duration and estimate tax on unrealized gains
                 diff_days = (datetime.utcnow() - pos.opened_at).days
-                tax = TaxEstimate(0.0, 0.0, "short-term")
-                
-                # We can call the local Tax calculator explicitly without network overhead since we loaded it
+
+                # Compute preliminary gross PnL for tax estimation
+                qty = float(pos.quantity)
+                entry = float(pos.entry_price)
+                if pos.side.value == "BUY":
+                    prelim_gross = (cp - entry) * qty
+                else:
+                    prelim_gross = (entry - cp) * qty
+
+                # Use real tax calculator based on holding period and estimated gains
+                tax = USTaxCalculator.calculate(
+                    holding_duration_days=diff_days,
+                    net_pnl=prelim_gross,  # pre-fee estimate for tax purposes
+                )
+
+                # Determine exchange-specific taker fee rate
+                exchange_name = getattr(pos, 'exchange', 'BINANCE') if hasattr(pos, 'exchange') else 'BINANCE'
+                taker_rates = {"BINANCE": 0.001, "COINBASE": 0.006}
+                taker_rate = taker_rates.get(str(exchange_name).upper(), 0.002)
+
                 snapshot = PnLCalculator.calculate(
                     position=pos,
                     current_price=cp,
-                    taker_rate=0.001, # 0.1% hardcoded for binance taker
+                    taker_rate=taker_rate,
                     tax_result=tax
                 )
                 await publisher.publish_update(pos.profile_id, snapshot)

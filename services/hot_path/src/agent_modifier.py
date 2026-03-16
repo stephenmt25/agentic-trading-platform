@@ -18,18 +18,26 @@ class AgentModifier:
         self._redis = redis_client
 
     async def apply(self, symbol: str, signal: SignalResult) -> SignalResult:
-        ta_factor = await self._get_ta_factor(symbol, signal)
-        sentiment_factor = await self._get_sentiment_factor(symbol, signal)
+        # Pipeline both Redis reads into a single round trip
+        pipe = self._redis.pipeline(transaction=False)
+        pipe.get(f"agent:ta_score:{symbol}")
+        pipe.get(f"agent:sentiment:{symbol}")
+        ta_raw, sent_raw = await pipe.execute()
 
-        new_confidence = signal.confidence * ta_factor * sentiment_factor
+        ta_adj = self._calc_ta_adjustment(ta_raw, signal)
+        sentiment_adj = self._calc_sentiment_adjustment(sent_raw, signal)
+
+        # Additive adjustment with clamp avoids multiplicative compounding
+        # that can drive confidence toward zero when multiple agents disagree.
+        new_confidence = signal.confidence + ta_adj + sentiment_adj
         new_confidence = max(0.0, min(1.0, new_confidence))
 
-        if ta_factor != 1.0 or sentiment_factor != 1.0:
+        if ta_adj != 0.0 or sentiment_adj != 0.0:
             logger.info(
                 "Agent modifier applied",
                 symbol=symbol,
-                ta_factor=ta_factor,
-                sentiment_factor=sentiment_factor,
+                ta_adjustment=ta_adj,
+                sentiment_adjustment=sentiment_adj,
                 original_confidence=signal.confidence,
                 new_confidence=new_confidence,
             )
@@ -40,49 +48,51 @@ class AgentModifier:
             rule_matched=signal.rule_matched,
         )
 
-    async def _get_ta_factor(self, symbol: str, signal: SignalResult) -> float:
-        """TA alignment factor: boosts confidence when TA agrees, dampens when opposing."""
+    @staticmethod
+    def _calc_ta_adjustment(raw, signal: SignalResult) -> float:
+        """TA alignment adjustment: positive when TA agrees, negative when opposing.
+
+        Returns an additive adjustment in [-0.20, +0.20].
+        """
         try:
-            raw = await self._redis.get(f"agent:ta_score:{symbol}")
             if not raw:
-                return 1.0
+                return 0.0
             data = json.loads(raw)
             ta_score = float(data["score"])  # -1.0 to 1.0
 
-            # Align with signal direction
             if signal.direction == SignalDirection.BUY:
-                # Positive TA score = bullish alignment → boost
-                factor = 1.0 + (ta_score * 0.2)  # ±20%
+                adj = ta_score * 0.20  # +/-20 pct-points
             elif signal.direction == SignalDirection.SELL:
-                # Negative TA score = bearish alignment → boost
-                factor = 1.0 + (-ta_score * 0.2)
+                adj = -ta_score * 0.20
             else:
-                factor = 1.0
+                adj = 0.0
 
-            return max(0.5, min(1.5, factor))
+            return max(-0.20, min(0.20, adj))
         except Exception:
-            return 1.0
+            return 0.0
 
-    async def _get_sentiment_factor(self, symbol: str, signal: SignalResult) -> float:
-        """Sentiment polarity factor: adjusts confidence based on market sentiment."""
+    @staticmethod
+    def _calc_sentiment_adjustment(raw, signal: SignalResult) -> float:
+        """Sentiment adjustment: positive when sentiment aligns, negative when opposing.
+
+        Returns an additive adjustment in [-0.15, +0.15].
+        """
         try:
-            raw = await self._redis.get(f"agent:sentiment:{symbol}")
             if not raw:
-                return 1.0
+                return 0.0
             data = json.loads(raw)
             sent_score = float(data["score"])  # -1.0 to 1.0
             sent_confidence = float(data.get("confidence", 0.5))
 
-            # Weight by sentiment confidence
             weighted_score = sent_score * sent_confidence
 
             if signal.direction == SignalDirection.BUY:
-                factor = 1.0 + (weighted_score * 0.15)  # ±15%
+                adj = weighted_score * 0.15  # +/-15 pct-points
             elif signal.direction == SignalDirection.SELL:
-                factor = 1.0 + (-weighted_score * 0.15)
+                adj = -weighted_score * 0.15
             else:
-                factor = 1.0
+                adj = 0.0
 
-            return max(0.5, min(1.5, factor))
+            return max(-0.15, min(0.15, adj))
         except Exception:
-            return 1.0
+            return 0.0

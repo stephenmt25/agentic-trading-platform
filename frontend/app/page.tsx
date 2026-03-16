@@ -11,6 +11,7 @@ import { api, type ProfileResponse } from '../lib/api/client';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
+import Link from "next/link";
 
 export default function Dashboard() {
   const { profiles, setProfiles } = usePortfolioStore();
@@ -85,13 +86,13 @@ export default function Dashboard() {
               <div className="h-full flex flex-col justify-center items-center gap-2 text-center">
                 <div className="font-mono opacity-50 text-sm">NO ACTIVE PROFILES</div>
                 <p className="text-xs text-muted-foreground">
-                  Navigate to <a href="/profiles" className="text-primary underline">Profiles</a> to create your first trading agent.
+                  Navigate to <Link href="/profiles" className="text-primary underline">Profiles</Link> to create your first trading agent.
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {profiles.map(p => (
-                  <a
+                  <Link
                     key={p.profile_id}
                     href={`/profiles?selected=${p.profile_id}`}
                     className="border border-border p-5 rounded-lg bg-black/20 relative overflow-hidden group hover:border-primary/50 transition-colors cursor-pointer block"
@@ -104,7 +105,7 @@ export default function Dashboard() {
                       </Badge>
                     </div>
                     <PnLDisplay profileId={p.profile_id} />
-                  </a>
+                  </Link>
                 ))}
               </div>
             )}

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { api } from '../../lib/api/client';
 import { BacktestResult, SimulatedTrade } from '../../lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,16 +32,33 @@ export default function BacktestPage() {
   const [status, setStatus] = useState<'idle' | 'queued' | 'polling' | 'completed' | 'error'>('idle');
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelledRef = useRef(false);
+
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      cancelledRef.current = true;
+      if (pollTimerRef.current) {
+        clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const pollResult = useCallback(
     async (id: string) => {
       setStatus('polling');
+      cancelledRef.current = false;
       let attempts = 0;
       const maxAttempts = 60;
 
       const poll = async () => {
+        if (cancelledRef.current) return;
         try {
           const res = await api.backtest.result(id);
+          if (cancelledRef.current) return;
+
           if (res.status === 'completed') {
             setResult(res as unknown as BacktestResult);
             setStatus('completed');
@@ -50,7 +67,7 @@ export default function BacktestPage() {
           if (res.status === 'running' || res.status === 'queued') {
             attempts++;
             if (attempts < maxAttempts) {
-              setTimeout(poll, 2000);
+              pollTimerRef.current = setTimeout(poll, 2000);
             } else {
               setError('Backtest timed out');
               setStatus('error');
@@ -59,8 +76,9 @@ export default function BacktestPage() {
           }
           setError(`Unknown status: ${res.status}`);
           setStatus('error');
-        } catch (e: any) {
-          setError(e.message || 'Failed to fetch result');
+        } catch (e: unknown) {
+          if (cancelledRef.current) return;
+          setError(e instanceof Error ? e.message : 'Failed to fetch result');
           setStatus('error');
         }
       };

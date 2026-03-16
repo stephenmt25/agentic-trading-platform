@@ -3,7 +3,10 @@
 import { useSession, signOut } from "next-auth/react";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 import { AlertTray } from "@/components/validation/AlertTray";
+import { wsClient } from "@/lib/ws/client";
+import { useAuthStore } from "@/lib/stores/authStore";
 import { LogOut, Settings, User } from "lucide-react";
 
 const PUBLIC_PATHS = ["/login"];
@@ -22,9 +25,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const [showUserMenu, setShowUserMenu] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const jwt = useAuthStore((s) => s.jwt);
 
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
+
+  // Connect/disconnect WebSocket based on auth state
+  useEffect(() => {
+    if (jwt) {
+      wsClient.connect();
+    } else {
+      wsClient.disconnect();
+    }
+    return () => {
+      wsClient.disconnect();
+    };
+  }, [jwt]);
+
+  // Poll WS connection status for the indicator
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setWsConnected(wsClient.isConnected());
+    }, 2000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     if (status === "loading") return;
@@ -95,7 +120,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <nav className="flex flex-col w-full px-4 space-y-2 flex-1">
           {NAV_ITEMS.map((item) => (
-            <a
+            <Link
               key={item.href}
               href={item.href}
               className={`px-4 py-3 rounded-lg font-bold text-sm tracking-wide transition ${
@@ -105,10 +130,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               }`}
             >
               {item.label}
-            </a>
+            </Link>
           ))}
 
-          <a
+          <Link
             href={SETTINGS_ITEM.href}
             className={`px-4 py-3 rounded-lg font-bold text-sm tracking-wide transition mt-auto ${
               isActive(SETTINGS_ITEM.href)
@@ -117,7 +142,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             }`}
           >
             {SETTINGS_ITEM.label}
-          </a>
+          </Link>
         </nav>
       </aside>
 
@@ -131,13 +156,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Connection Status */}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-black/20 border border-border rounded-full text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                {wsConnected ? (
+                  <>
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                  </>
+                ) : (
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-500" />
+                )}
               </span>
-              <span className="font-mono uppercase font-bold text-[10px] tracking-widest text-emerald-500/80">
-                Active
+              <span className={`font-mono uppercase font-bold text-[10px] tracking-widest ${wsConnected ? "text-emerald-500/80" : "text-slate-500"}`}>
+                {wsConnected ? "Connected" : "Disconnected"}
               </span>
-              <span className="font-mono opacity-50 ml-1">wss://api/connect</span>
             </div>
 
             <AlertTray />
@@ -176,14 +206,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
                   {/* Menu Items */}
                   <div className="py-1">
-                    <a
+                    <Link
                       href="/settings"
                       className="flex items-center gap-3 px-4 py-2.5 text-sm text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
                       onClick={() => setShowUserMenu(false)}
                     >
                       <Settings className="w-4 h-4 text-slate-500" />
                       Settings
-                    </a>
+                    </Link>
                   </div>
 
                   {/* Sign Out */}

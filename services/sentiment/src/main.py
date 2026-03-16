@@ -13,7 +13,6 @@ from .scorer import LLMSentimentScorer
 
 logger = get_logger("sentiment-agent")
 
-SYMBOLS = ["BTC/USDT", "ETH/USDT"]
 SCORE_INTERVAL_S = 300  # 5 minutes
 SCORE_TTL_S = 900  # 15 minutes
 
@@ -22,7 +21,7 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
     """Periodically score sentiment for tracked symbols and write to Redis."""
     while True:
         try:
-            for symbol in SYMBOLS:
+            for symbol in settings.TRADING_SYMBOLS:
                 headlines = await news_client.get_headlines(symbol, limit=5)
                 result = await scorer.score(symbol, headlines)
 

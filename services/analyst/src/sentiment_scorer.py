@@ -31,13 +31,10 @@ class SentimentScorer:
             # Fallback neutral score if no data or no key
             return SentimentResult(score=0.0, confidence=1.0, source="fallback")
 
-        # 3. Call LLM (Mocked for Phase 1 logic without live AI key costs)
-        # prompt = f"Analyze sentiment for {symbol} based on: {headlines}. Return JSON: score (-1.0 to 1.0) and reasoning."
-        
-        import random
-        llm_score = round(random.uniform(-1.0, 1.0), 2)
-        
-        res = SentimentResult(score=llm_score, confidence=0.85, source="llm")
+        # 3. Rule-based keyword sentiment scoring across headlines
+        score, confidence = self._keyword_score(headlines)
+
+        res = SentimentResult(score=score, confidence=confidence, source="keyword_rules")
         
         # 4. Cache hit mapping
         await self._cache.set(symbol, {
@@ -47,3 +44,48 @@ class SentimentScorer:
         })
         
         return res
+
+    @staticmethod
+    def _keyword_score(headlines: list) -> tuple:
+        """Score sentiment using keyword frequency analysis. Returns (score, confidence)."""
+        BULLISH = {
+            "surge": 0.6, "rally": 0.5, "bullish": 0.7, "gains": 0.4, "soars": 0.6,
+            "breakout": 0.5, "upgrade": 0.4, "adoption": 0.3, "partnership": 0.3,
+            "record high": 0.6, "buy": 0.3, "momentum": 0.3, "recovery": 0.4,
+            "accumulation": 0.3, "growth": 0.3, "positive": 0.3, "outperform": 0.4,
+        }
+        BEARISH = {
+            "crash": -0.7, "plunge": -0.6, "bearish": -0.7, "losses": -0.4, "tumbles": -0.6,
+            "sell-off": -0.6, "selloff": -0.6, "downgrade": -0.4, "ban": -0.5,
+            "hack": -0.6, "fraud": -0.7, "lawsuit": -0.4, "collapse": -0.7,
+            "fear": -0.3, "panic": -0.5, "negative": -0.3, "underperform": -0.4,
+            "warning": -0.3, "risk": -0.2, "decline": -0.4, "drop": -0.3,
+        }
+
+        if not headlines:
+            return 0.0, 0.5
+
+        total_score = 0.0
+        match_count = 0
+        for headline in headlines:
+            text = headline.lower() if isinstance(headline, str) else str(headline).lower()
+            for keyword, weight in BULLISH.items():
+                if keyword in text:
+                    total_score += weight
+                    match_count += 1
+            for keyword, weight in BEARISH.items():
+                if keyword in text:
+                    total_score += weight
+                    match_count += 1
+
+        if match_count == 0:
+            return 0.0, 0.3  # no signal, low confidence
+
+        # Normalize score to [-1.0, 1.0]
+        avg_score = total_score / match_count
+        final_score = max(-1.0, min(1.0, avg_score))
+
+        # Confidence scales with number of keyword matches (more matches = higher confidence)
+        confidence = min(0.95, 0.4 + (match_count * 0.05))
+
+        return round(final_score, 3), round(confidence, 2)

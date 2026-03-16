@@ -37,7 +37,7 @@ class PnlSync:
             try:
                 if isinstance(data, bytes):
                     data = data.decode()
-                message = json.loads(data)
+                message = json.loads(data) if isinstance(data, str) else data
                 profile_id = message.get("profile_id")
                 if not profile_id:
                     return
@@ -48,7 +48,17 @@ class PnlSync:
 
                 pct_return = message.get("pct_return", message.get("roi_pct", 0.0))
                 if pct_return:
-                    state.daily_realised_pnl_pct += float(pct_return)
+                    pct_val = float(pct_return)
+                    # Use HINCRBY for atomic increment in Redis (avoids race with poll overwrite)
+                    if self._redis:
+                        # Store as integer micro-percent for HINCRBY (Redis only does int incr)
+                        incr_micro = int(pct_val * 1_000_000)
+                        new_micro = await self._redis.hincrby(
+                            f"pnl:daily:{profile_id}", "total_pct_micro", incr_micro
+                        )
+                        state.daily_realised_pnl_pct = new_micro / 1_000_000.0
+                    else:
+                        state.daily_realised_pnl_pct += pct_val
                     logger.debug(
                         "PnL sync updated from pubsub",
                         profile_id=profile_id,
@@ -75,11 +85,10 @@ class PnlSync:
 
                     pid = state.profile_id
 
-                    # Daily PnL
-                    daily_raw = await self._redis.get(f"pnl:daily:{pid}")
-                    if daily_raw:
-                        data = json.loads(daily_raw)
-                        state.daily_realised_pnl_pct = float(data.get("total_pct", 0.0))
+                    # Daily PnL - read from atomic hash, don't overwrite increments
+                    daily_micro = await self._redis.hget(f"pnl:daily:{pid}", "total_pct_micro")
+                    if daily_micro is not None:
+                        state.daily_realised_pnl_pct = int(daily_micro) / 1_000_000.0
 
                     # Drawdown
                     dd_raw = await self._redis.get(f"risk:drawdown:{pid}")

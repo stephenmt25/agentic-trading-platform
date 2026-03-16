@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from libs.core.types import ProfileId
 from ._repository_base import BaseRepository
 
@@ -7,7 +7,7 @@ class PnlRepository(BaseRepository):
     async def write_snapshot(self, snapshot: Dict[str, Any]):
         query = """
         INSERT INTO pnl_snapshots (
-            profile_id, symbol, gross_pnl, net_pnl_pre_tax, net_pnl_post_tax, 
+            profile_id, symbol, gross_pnl, net_pnl_pre_tax, net_pnl_post_tax,
             total_fees, estimated_tax, cost_basis, pct_return, snapshot_at
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """
@@ -22,7 +22,7 @@ class PnlRepository(BaseRepository):
             snapshot['estimated_tax'],
             snapshot['cost_basis'],
             snapshot['pct_return'],
-            snapshot.get('snapshot_at', datetime.utcnow())
+            snapshot.get('snapshot_at', datetime.now(timezone.utc))
         )
 
     async def get_snapshots(self, profile_id: ProfileId, start: datetime, end: datetime) -> List[Any]:

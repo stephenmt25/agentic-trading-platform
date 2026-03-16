@@ -45,7 +45,7 @@ class SimpleRegimeClassifier:
             return Regime.CRISIS
             
         if atr > p75_atr:
-            return Regime.HIGH_VOL
+            return Regime.HIGH_VOLATILITY
             
         # RANGE_BOUND: within 2% of SMA, vol < 50th
         if abs(price - sma) / sma <= 0.02 and atr < p50_atr:

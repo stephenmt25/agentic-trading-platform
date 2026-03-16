@@ -1,14 +1,45 @@
 from typing import Any, Dict, Optional, Literal
 from uuid import UUID, uuid4
+import os
+import threading
 from pydantic import BaseModel, Field, ConfigDict
 
 from .enums import EventType, OrderSide, OrderStatus, ValidationCheck, ValidationMode, ValidationVerdict
 from .types import Price, ProfileId, Quantity, SymbolPair, Timestamp
 
+
+def _make_monotonic_id_factory():
+    """Create a fast monotonic ID generator using process ID + counter.
+
+    Produces valid UUID-shaped strings without syscalls.
+    Format: 00000000-0000-4pid-8cnt-cntcntcntcnt
+    """
+    _pid = os.getpid() & 0xFFFF
+    _counter = 0
+    _lock = threading.Lock()
+
+    def _next_id() -> UUID:
+        nonlocal _counter
+        with _lock:
+            _counter += 1
+            c = _counter
+        # Build a UUID from pid + counter deterministically
+        high = (c >> 48) & 0xFFFFFFFF
+        mid = (c >> 32) & 0xFFFF
+        low = c & 0xFFFFFFFFFFFF
+        hex_str = f"{high:08x}-{mid:04x}-4{_pid:03x}-8000-{low:012x}"
+        return UUID(hex_str)
+
+    return _next_id
+
+
+_monotonic_id = _make_monotonic_id_factory()
+
+
 class BaseEvent(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    event_id: UUID = Field(default_factory=uuid4)
+    event_id: UUID = Field(default_factory=_monotonic_id)
     event_type: EventType
     timestamp_us: Timestamp
     source_service: str

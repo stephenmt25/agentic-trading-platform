@@ -38,7 +38,7 @@ export const JSONRuleEditor: React.FC<RuleEditorProps> = ({ initialJson = '{\n  
     return (
         <div className="flex flex-col h-full bg-slate-900 border border-slate-700 shadow-xl rounded-xl overflow-hidden">
             <div className="bg-slate-800 p-3 border-b border-slate-700 flex justify-between items-center">
-                <h3 className="text-sm font-semibold text-slate-300 font-mono">Strategy Strategy Editor</h3>
+                <h3 className="text-sm font-semibold text-slate-300 font-mono">Strategy Editor</h3>
                 <button
                     onClick={handleValidateAndSave}
                     disabled={isSaving}

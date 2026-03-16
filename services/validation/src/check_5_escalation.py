@@ -1,6 +1,12 @@
 from collections import defaultdict
 import datetime
 from typing import Dict, Any
+from libs.core.schemas import AlertEvent
+from libs.core.enums import EventType
+from libs.messaging.channels import PUBSUB_SYSTEM_ALERTS
+from libs.observability import get_logger
+
+logger = get_logger("validation.escalation")
 
 class EscalationCheck:
     def __init__(self, validation_repo, pubsub):
@@ -41,6 +47,29 @@ class EscalationCheck:
         return "GREEN"
 
     async def _trigger_halt(self, profile_id: str, reason: str):
-        # Triggers PUB/SUB System Alert + Writes Trading Halt state
-        print(f"[ESCALATION] Trading Halt on {profile_id}: {reason}")
-        # await self._pubsub.publish("system_alerts", {"level": "RED", "profile_id": profile_id, "reason": reason})
+        """Publishes a RED system alert via PubSub and records the trading halt."""
+        logger.critical("Trading halt triggered", profile_id=profile_id, reason=reason)
+
+        # Publish structured alert over PubSub so all services (executor, PnL, alerter) react
+        alert_event = AlertEvent(
+            event_type=EventType.ALERT_RED,
+            timestamp_us=int(datetime.datetime.utcnow().timestamp() * 1_000_000),
+            source_service="validation",
+            message=reason,
+            level="RED",
+            profile_id=profile_id,
+        )
+        try:
+            await self._pubsub.publish(PUBSUB_SYSTEM_ALERTS, alert_event)
+        except Exception as e:
+            logger.error("Failed to publish halt alert via PubSub", error=str(e))
+
+        # Write halt flag to Redis so executor fast-checks before placing orders
+        try:
+            # Convention: any service can check this key before allowing trades
+            redis_conn = getattr(self._pubsub, '_redis', None)
+            if redis_conn:
+                halt_key = f"halt:{profile_id}"
+                await redis_conn.set(halt_key, reason, ex=86400)  # 24h TTL
+        except Exception as e:
+            logger.error("Failed to persist halt flag to Redis", error=str(e))

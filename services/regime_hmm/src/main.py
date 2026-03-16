@@ -15,18 +15,21 @@ from .regime_mapper import map_state_to_regime
 
 logger = get_logger("regime-hmm")
 
-SYMBOLS = ["BTC/USDT", "ETH/USDT"]
 CLASSIFY_INTERVAL_S = 300  # 5 minutes
 SCORE_TTL_S = 600
+HMM_FIT_TIMEOUT_S = 30
+# Number of recent points to hold out from training for prediction
+HMM_PREDICT_WINDOW = 1
 
 
 async def classification_loop(redis_client, market_repo: MarketDataRepository):
     """Periodically classify market regime using HMM and write to Redis."""
-    models = {sym: HMMRegimeModel() for sym in SYMBOLS}
+    symbols = settings.TRADING_SYMBOLS
+    models: dict[str, HMMRegimeModel] = {sym: HMMRegimeModel() for sym in symbols}
 
     while True:
         try:
-            for symbol in SYMBOLS:
+            for symbol in symbols:
                 # Fetch recent 1h candles for regime classification
                 candles = await market_repo.get_candles(symbol, "1h", limit=500)
                 if not candles:
@@ -35,12 +38,23 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository):
                 prices = [float(c["close"]) for c in candles]
                 model = models[symbol]
 
-                # Re-fit periodically with latest data
-                if not model._is_fitted or True:  # Always re-fit for freshness
+                # Split: train on all but last N points, predict on full series
+                train_prices = prices[:-HMM_PREDICT_WINDOW]
+
+                # Re-fit only when model has not been fitted yet
+                if not model._is_fitted:
                     models[symbol] = HMMRegimeModel()
                     model = models[symbol]
-                    model.fit(prices)
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.to_thread(model.fit, train_prices),
+                            timeout=HMM_FIT_TIMEOUT_S,
+                        )
+                    except asyncio.TimeoutError:
+                        logger.error("HMM fit timed out", symbol=symbol)
+                        continue
 
+                # Predict on the full price series (last point is unseen by training)
                 state = model.predict_state(prices)
                 if state is not None:
                     regime = map_state_to_regime(model, state)

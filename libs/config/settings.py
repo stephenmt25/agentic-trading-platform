@@ -1,7 +1,10 @@
-from typing import Optional
+from typing import List, Optional
 from decimal import Decimal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
+
+_INSECURE_DEFAULT_KEY = "aion-dev-secret-key-change-in-production"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -30,6 +33,24 @@ class Settings(BaseSettings):
     GCS_BUCKET_NAME: str = Field(default="")
 
     # Phase 2: Auth & Secrets
-    SECRET_KEY: str = Field(default="aion-dev-secret-key-change-in-production")
+    SECRET_KEY: str = Field(default=_INSECURE_DEFAULT_KEY)
+    REFRESH_SECRET_KEY: str = Field(default="")  # Separate key for refresh tokens
     NEXTAUTH_SECRET: str = Field(default="")  # Must match NextAuth.js NEXTAUTH_SECRET
     GCP_PROJECT_ID: str = Field(default="")   # Empty = use local Fernet fallback
+
+    # CORS
+    CORS_ORIGINS: List[str] = Field(default=["http://localhost:3000"])
+
+    # Connection pool settings
+    DB_POOL_MIN_SIZE: int = Field(default=5)
+    DB_POOL_MAX_SIZE: int = Field(default=20)
+    DB_POOL_TIMEOUT: int = Field(default=30)
+
+    # Trading symbols (single source of truth for all agents)
+    TRADING_SYMBOLS: List[str] = Field(default=["BTC/USDT", "ETH/USDT"])
+
+    # Backtest queue limits
+    BACKTEST_MAX_QUEUE_DEPTH: int = Field(default=100)
+
+    def is_secret_key_secure(self) -> bool:
+        return self.SECRET_KEY != _INSECURE_DEFAULT_KEY

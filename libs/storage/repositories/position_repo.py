@@ -4,7 +4,7 @@ from libs.core.models import Position
 from libs.core.enums import PositionStatus
 from libs.core.types import Price, ProfileId, SymbolPair
 from ._repository_base import BaseRepository
-from datetime import datetime
+from datetime import datetime, timezone
 
 class PositionRepository(BaseRepository):
     async def create_position(self, position: Position):
@@ -35,7 +35,7 @@ class PositionRepository(BaseRepository):
         SET status = 'CLOSED', closed_at = $1, exit_price = $2
         WHERE position_id = $3
         """
-        await self._execute(query, datetime.utcnow(), exit_price, position_id)
+        await self._execute(query, datetime.now(timezone.utc), exit_price, position_id)
 
     async def get_open_positions(self, profile_id: ProfileId = None) -> List[Any]:
         if profile_id:

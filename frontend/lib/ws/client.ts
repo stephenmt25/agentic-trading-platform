@@ -2,13 +2,17 @@ import { useAuthStore } from '../stores/authStore';
 import { usePortfolioStore } from '../stores/portfolioStore';
 import { useAlertStore } from '../stores/alertStore';
 
-const WS_URL = 'ws://localhost:8000/ws';
+function getWsUrl(): string {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    // Convert http(s) to ws(s)
+    return apiUrl.replace(/^http/, 'ws') + '/ws';
+}
 
 class WebSocketClient {
     private socket: WebSocket | null = null;
     private reconnectAttempts = 0;
     private maxReconnectAttempts = 5;
-    private pingInterval: any;
+    private pingInterval: ReturnType<typeof setInterval> | null = null;
 
     connect() {
         if (this.socket?.readyState === WebSocket.OPEN) return;
@@ -16,11 +20,20 @@ class WebSocketClient {
         const token = useAuthStore.getState().jwt;
         if (!token) return;
 
-        this.socket = new WebSocket(`${WS_URL}?token=${token}`);
+        const wsUrl = getWsUrl();
+        this.socket = new WebSocket(wsUrl);
 
         this.socket.onopen = () => {
             console.log('WS Connected');
             this.reconnectAttempts = 0;
+
+            // Authenticate by sending JWT as the first message instead of
+            // passing it as a query parameter (which is insecure and logged
+            // in server access logs).
+            if (this.socket?.readyState === WebSocket.OPEN) {
+                this.socket.send(JSON.stringify({ type: 'auth', token }));
+            }
+
             this.startHeartbeat();
         };
 
@@ -92,7 +105,10 @@ class WebSocketClient {
     }
 
     private stopHeartbeat() {
-        if (this.pingInterval) clearInterval(this.pingInterval);
+        if (this.pingInterval) {
+            clearInterval(this.pingInterval);
+            this.pingInterval = null;
+        }
     }
 
     private attemptReconnect() {
@@ -103,6 +119,10 @@ class WebSocketClient {
         const delay = Math.pow(2, this.reconnectAttempts) * 1000;
         setTimeout(() => this.connect(), delay);
         this.reconnectAttempts++;
+    }
+
+    isConnected(): boolean {
+        return this.socket?.readyState === WebSocket.OPEN;
     }
 
     disconnect() {
