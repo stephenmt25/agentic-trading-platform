@@ -1,0 +1,311 @@
+# promptfoo-risk-assessor.yaml
+description: "AION Trader — Risk Assessor Evaluation Suite"
+
+providers:
+  - id: anthropic:messages:claude-sonnet-4-20250514
+    config:
+      temperature: 0
+      max_tokens: 500
+
+prompts:
+  - file://prompts/risk-assessor.txt
+
+defaultTest:
+  assert:
+    - type: is-json
+    - type: latency
+      threshold: 10000
+    - type: cost
+      threshold: 0.01
+
+tests:
+  # --- Test 1: Reject trade exceeding portfolio limits ---
+  - description: "Should reject oversized trade with no stop loss"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: DOGE/USDT
+        Size: 45% of portfolio
+        Entry: $0.182
+        Stop Loss: none
+      portfolio_state: |
+        Total Value: $125,000
+        Current Exposure: 62%
+        Open Positions: 4
+        Max Position Size Policy: 10%
+        Daily Loss Limit: 3%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === false;
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.max_position_size_pct <= 10;
+
+  # --- Test 2: Exactly at $50K order cap — should allow ---
+  - description: "Order exactly at $50K cap should be allowed"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: BTC/USDT
+        Order Value: $50,000
+        Entry: $65,000
+        Stop Loss: $63,000
+      portfolio_state: |
+        Total Value: $500,000
+        Current Exposure: 20%
+        Open Positions: 3
+        Daily P&L: +0.5%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === true;
+
+  # --- Test 3: $50,001 exceeds order cap ---
+  - description: "Order exceeding $50K cap should be rejected"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: BTC/USDT
+        Order Value: $50,001
+        Entry: $65,000
+        Stop Loss: $63,000
+      portfolio_state: |
+        Total Value: $500,000
+        Current Exposure: 20%
+        Open Positions: 3
+        Daily P&L: +0.5%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === false;
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.reasoning.toLowerCase().includes("50,000") || parsed.reasoning.toLowerCase().includes("50000") || parsed.reasoning.toLowerCase().includes("cap") || parsed.reasoning.toLowerCase().includes("limit") || parsed.reasoning.toLowerCase().includes("exceed");
+
+  # --- Test 4: 25% concentration — exactly at limit ---
+  - description: "Concentration exactly at 25% limit should be allowed"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: ETH/USDT
+        Order Value: $25,000
+        Entry: $3,200
+        Stop Loss: $3,000
+      portfolio_state: |
+        Total Value: $100,000
+        Current ETH Exposure: $0 (no existing position)
+        Current Exposure: 30%
+        Open Positions: 5
+        Daily P&L: +0.3%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === true;
+
+  # --- Test 5: 26% concentration — exceeded ---
+  - description: "Concentration exceeding 25% should be rejected"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: ETH/USDT
+        Order Value: $26,000
+        Entry: $3,200
+        Stop Loss: $3,000
+      portfolio_state: |
+        Total Value: $100,000
+        Current ETH Exposure: $0 (no existing position)
+        Current Exposure: 30%
+        Open Positions: 5
+        Daily P&L: +0.3%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === false;
+
+  # --- Test 6: 50 open positions — at limit ---
+  - description: "50 open positions (at limit) should reject new position"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: SOL/USDT
+        Order Value: $5,000
+        Entry: $142
+        Stop Loss: $135
+      portfolio_state: |
+        Total Value: $500,000
+        Current Exposure: 45%
+        Open Positions: 50
+        Daily P&L: +0.1%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === false;
+
+  # --- Test 7: 49 open positions — under limit ---
+  - description: "49 open positions (under limit) should allow new position"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: SOL/USDT
+        Order Value: $5,000
+        Entry: $142
+        Stop Loss: $135
+      portfolio_state: |
+        Total Value: $500,000
+        Current SOL Exposure: $0 (no existing position)
+        Current Exposure: 15%
+        Open Positions: 49 (limit is 50, so one more is permitted)
+        Daily P&L: +0.1%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === true;
+
+  # --- Test 8: Circuit breaker triggered (2% daily loss) ---
+  - description: "Circuit breaker at 2% daily loss should reject trade"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: BTC/USDT
+        Order Value: $10,000
+        Entry: $64,000
+        Stop Loss: $62,000
+      portfolio_state: |
+        Total Value: $200,000
+        Current Exposure: 25%
+        Open Positions: 5
+        Daily P&L: -2.1% (circuit breaker triggered)
+        Trading Status: HALTED
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === false;
+
+  # --- Test 9: Circuit breaker not triggered (1.5% loss) ---
+  - description: "Daily loss at 1.5% (well under 2% breaker) should allow trade"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: BTC/USDT
+        Order Value: $10,000
+        Entry: $64,000
+        Stop Loss: $63,500
+      portfolio_state: |
+        Total Value: $200,000
+        Current BTC Exposure: $0 (no existing BTC position)
+        Current Exposure: 10%
+        Open Positions: 5
+        Daily P&L: -1.5% (well below 2% circuit breaker)
+        Trading Status: ACTIVE
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === true;
+
+  # --- Test 10: Multiple violations simultaneously ---
+  - description: "Multiple simultaneous violations should reject with high risk score"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: SHIB/USDT
+        Order Value: $75,000
+        Entry: $0.000025
+        Stop Loss: none
+      portfolio_state: |
+        Total Value: $100,000
+        Current SHIB Exposure: $20,000 (already 20% concentration)
+        Current Exposure: 85%
+        Open Positions: 48
+        Daily P&L: -1.8%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === false;
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.risk_score >= 0.8;
+
+  # --- Test 11: Drawdown > half of limit (dynamic sizing) ---
+  - description: "High drawdown should allow but recommend reduced position size"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: BTC/USDT
+        Order Value: $15,000
+        Entry: $65,000
+        Stop Loss: $63,500
+      portfolio_state: |
+        Total Value: $300,000
+        Current Exposure: 20%
+        Open Positions: 3
+        Daily P&L: -0.3%
+        Current Drawdown: 8% (max drawdown limit: 10%)
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === true;
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.reasoning.toLowerCase().includes("drawdown") || parsed.reasoning.toLowerCase().includes("reduced") || parsed.reasoning.toLowerCase().includes("size");
+
+  # --- Test 12: HIGH_VOLATILITY regime ---
+  - description: "HIGH_VOLATILITY regime should allow but mention volatility"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: ETH/USDT
+        Order Value: $20,000
+        Entry: $3,100
+        Stop Loss: $2,900
+      portfolio_state: |
+        Total Value: $400,000
+        Current Exposure: 15%
+        Open Positions: 4
+        Daily P&L: +0.2%
+        Market Regime: HIGH_VOLATILITY
+        30d Volatility: 85th percentile
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.allowed === true;
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.reasoning.toLowerCase().includes("volatil");
+
+  # --- Test 13: No stop loss — elevated risk ---
+  - description: "Trade with no stop loss should have elevated risk score"
+    vars:
+      trade_proposal: |
+        Action: BUY
+        Symbol: AVAX/USDT
+        Order Value: $10,000
+        Entry: $35.50
+        Stop Loss: none
+      portfolio_state: |
+        Total Value: $200,000
+        Current Exposure: 25%
+        Open Positions: 6
+        Daily P&L: +0.1%
+    assert:
+      - type: javascript
+        value: |
+          const parsed = JSON.parse(output);
+          return parsed.risk_score >= 0.6;

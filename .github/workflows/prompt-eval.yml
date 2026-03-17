@@ -1,0 +1,62 @@
+name: Prompt Evaluation & Security
+
+on:
+  pull_request:
+    paths:
+      - 'prompts/**'
+      - 'src/agents/**'
+      - 'promptfooconfig.yaml'
+      - 'promptfoo-risk-assessor.yaml'
+      - 'promptfoo-sentiment.yaml'
+      - 'promptfoo-redteam.yaml'
+      - 'aion-trading/services/sentiment/src/**'
+      - 'aion-trading/services/risk/src/**'
+      - 'aion-trading/services/hot_path/src/**'
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Promptfoo
+        run: npm install -g promptfoo
+
+      - name: Run Trading Signal Evaluations
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          promptfoo eval --config promptfooconfig.yaml --no-cache \
+            --output results/trading-signal-results.json
+
+      - name: Run Risk Assessor Evaluations
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          promptfoo eval --config promptfoo-risk-assessor.yaml --no-cache \
+            --output results/risk-assessor-results.json
+
+      - name: Run Sentiment Scorer Evaluations
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          promptfoo eval --config promptfoo-sentiment.yaml --no-cache \
+            --output results/sentiment-results.json
+
+      - name: Run Red Team Scan
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          promptfoo redteam run --config promptfoo-redteam.yaml
+          promptfoo redteam report --output results/security-report.json
+
+      - name: Upload Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: prompt-eval-results
+          path: results/
