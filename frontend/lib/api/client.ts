@@ -96,7 +96,7 @@ const ProfileResponseSchema = z.object({
   profile_id: z.string(),
   name: z.string(),
   is_active: z.boolean(),
-  rules_json: z.record(z.unknown()),
+  rules_json: z.record(z.string(), z.unknown()),
   allocation_pct: z.number(),
   created_at: z.string(),
   deleted_at: z.string().nullable(),

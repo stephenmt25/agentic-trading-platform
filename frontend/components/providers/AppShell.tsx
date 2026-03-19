@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { href: "/profiles", label: "Profiles" },
   { href: "/backtest", label: "Backtest" },
   { href: "/paper-trading", label: "Paper Trading" },
+  { href: "/docs", label: "Docs" },
 ];
 
 const SETTINGS_ITEM = { href: "/settings", label: "Settings" };
