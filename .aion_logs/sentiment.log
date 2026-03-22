@@ -1,0 +1,8 @@
+INFO:     Started server process [5088]
+INFO:     Waiting for application startup.
+{"service": "sentiment-agent", "event": "Sentiment Agent started", "level": "info", "timestamp": "2026-03-22T08:45:48.896127Z"}
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8092 (Press CTRL+C to quit)
+{"service": "sentiment-agent", "symbol": "BTC/USDT", "score": 0.0, "source": "fallback", "event": "Sentiment score updated", "level": "info", "timestamp": "2026-03-22T08:45:49.175642Z"}
+{"service": "sentiment-agent", "symbol": "ETH/USDT", "score": 0.0, "source": "fallback", "event": "Sentiment score updated", "level": "info", "timestamp": "2026-03-22T08:45:49.208579Z"}
+INFO:     127.0.0.1:54967 - "GET /health HTTP/1.1" 200 OK

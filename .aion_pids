@@ -1,0 +1,17 @@
+1845 validation
+1847 hot_path
+1848 execution
+1849 pnl
+1850 api_gateway
+1851 ingestion
+1852 logger
+1853 backtesting
+1854 analyst
+1855 archiver
+1856 tax
+1857 ta_agent
+1858 regime_hmm
+1859 sentiment
+1860 strategy
+1861 rate_limiter
+1862 frontend

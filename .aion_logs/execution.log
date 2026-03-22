@@ -1,0 +1,11 @@
+INFO:     Started server process [22536]
+INFO:     Waiting for application startup.
+{"service": "secrets-manager", "event": "Using local Fernet encryption (development mode)", "level": "info", "timestamp": "2026-03-22T08:45:51.232030Z"}
+{"service": "secrets-manager", "event": "Using local Fernet encryption (development mode)", "level": "info", "timestamp": "2026-03-22T08:45:51.233609Z"}
+{"service": "execution", "event": "Starting Execution Loop", "level": "info", "timestamp": "2026-03-22T08:45:51.233609Z"}
+{"service": "execution", "event": "Starting Reconciler Cron", "level": "info", "timestamp": "2026-03-22T08:45:51.234634Z"}
+{"service": "execution.executor", "event": "OrderExecutor starting loop", "level": "info", "timestamp": "2026-03-22T08:45:51.234634Z"}
+{"service": "execution.reconciler", "event": "Starting BalanceReconciler 5-min cron", "level": "info", "timestamp": "2026-03-22T08:45:51.235622Z"}
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8083 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54949 - "GET /health HTTP/1.1" 200 OK

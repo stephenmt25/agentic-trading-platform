@@ -1,0 +1,6 @@
+INFO:     Started server process [13568]
+INFO:     Waiting for application startup.
+{"service": "backtesting", "event": "Starting Backtest Job Worker", "level": "info", "timestamp": "2026-03-22T08:45:49.428834Z"}
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8086 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54955 - "GET /health HTTP/1.1" 200 OK

@@ -1,0 +1,6 @@
+INFO:     Started server process [22624]
+INFO:     Waiting for application startup.
+{"service": "logger", "event": "Starting Event Subscriber Loops", "level": "info", "timestamp": "2026-03-22T08:45:47.673804Z"}
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8085 (Press CTRL+C to quit)
+INFO:     127.0.0.1:54953 - "GET /health HTTP/1.1" 200 OK
