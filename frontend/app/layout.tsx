@@ -1,5 +1,5 @@
-import type { Metadata } from 'next'
-import { Chakra_Petch, Share_Tech_Mono } from 'next/font/google'
+import type { Metadata, Viewport } from 'next'
+import { IBM_Plex_Sans, IBM_Plex_Mono } from 'next/font/google'
 import './globals.css'
 import { cn } from "@/lib/utils";
 import { Toaster } from "@/components/ui/sonner";
@@ -7,11 +7,17 @@ import { AuthProvider } from "@/components/providers/AuthProvider";
 import { AppShell } from "@/components/providers/AppShell";
 import { ErrorBoundary } from "@/components/providers/ErrorBoundary";
 
-const chakraPetch = Chakra_Petch({ weight: ["400", "500", "600", "700"], subsets: ['latin'], variable: '--font-sans' });
-const shareTechMonoCode = Share_Tech_Mono({ weight: "400", subsets: ['latin'], variable: '--font-mono' });
+const ibmPlexSans = IBM_Plex_Sans({ weight: ["400", "500", "600", "700"], subsets: ['latin'], variable: '--font-sans' });
+const ibmPlexMono = IBM_Plex_Mono({ weight: ["400", "500", "600"], subsets: ['latin'], variable: '--font-mono' });
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+}
 
 export const metadata: Metadata = {
-  title: 'Control Plane Dashboard | Phase 3',
+  title: 'Aion Trading Platform',
   description: 'Agentic Trading Platform',
 }
 
@@ -21,8 +27,8 @@ export default function RootLayout({
   children: React.ReactNode
 }) {
   return (
-    <html lang="en" className={cn("dark", "font-sans", chakraPetch.variable, shareTechMonoCode.variable)}>
-      <body className={`${chakraPetch.className} bg-slate-950 text-slate-200 min-h-screen selection:bg-indigo-500/30`}>
+    <html lang="en" className={cn("dark", ibmPlexSans.variable, ibmPlexMono.variable)}>
+      <body className={`${ibmPlexSans.className} bg-background text-foreground min-h-screen selection:bg-primary/20`}>
         <ErrorBoundary>
           <AuthProvider>
             <AppShell>

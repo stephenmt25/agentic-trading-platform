@@ -37,11 +37,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
       }
 
       return (
-        <div className="flex items-center justify-center h-screen bg-slate-950">
+        <div className="flex items-center justify-center h-screen bg-background">
           <div className="flex flex-col items-center gap-6 max-w-md text-center p-8">
-            <div className="h-16 w-16 rounded-full bg-rose-500/10 border border-rose-500/20 flex items-center justify-center">
+            <div className="h-16 w-16 rounded-full border border-destructive/30 flex items-center justify-center">
               <svg
-                className="w-8 h-8 text-rose-500"
+                className="w-8 h-8 text-red-500"
                 fill="none"
                 viewBox="0 0 24 24"
                 stroke="currentColor"
@@ -57,18 +57,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             </div>
 
             <div>
-              <h2 className="text-xl font-bold text-white mb-2">
+              <h2 className="text-xl font-bold text-foreground mb-2">
                 Something went wrong
               </h2>
-              <p className="text-sm text-slate-400 leading-relaxed">
+              <p className="text-sm text-muted-foreground leading-relaxed">
                 An unexpected error occurred. You can try reloading the page or
                 resetting the current view.
               </p>
             </div>
 
             {this.state.error && (
-              <div className="w-full p-3 bg-rose-950/30 border border-rose-500/20 rounded-lg">
-                <p className="text-xs text-rose-400 font-mono break-words text-left">
+              <div className="w-full p-3 border border-destructive/30 rounded-md">
+                <p className="text-xs text-red-500 font-mono break-words text-left">
                   {this.state.error.message}
                 </p>
               </div>
@@ -77,13 +77,13 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
             <div className="flex gap-3">
               <button
                 onClick={this.handleReset}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-sm font-bold rounded-lg transition-colors"
+                className="px-4 py-2.5 border border-border hover:bg-accent text-foreground text-sm font-medium rounded-md transition-colors min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               >
                 TRY AGAIN
               </button>
               <button
                 onClick={() => window.location.reload()}
-                className="px-4 py-2 bg-primary hover:bg-primary/90 text-white text-sm font-bold rounded-lg transition-colors"
+                className="px-4 py-2.5 bg-primary hover:bg-primary/90 text-primary-foreground text-sm font-medium rounded-md transition-colors min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
               >
                 RELOAD PAGE
               </button>

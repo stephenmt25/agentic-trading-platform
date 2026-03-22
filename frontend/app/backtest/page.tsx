@@ -3,13 +3,11 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { api } from '../../lib/api/client';
 import { BacktestResult, SimulatedTrade } from '../../lib/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { EquityCurveChart } from '@/components/backtest/EquityCurveChart';
 import { TradesTable } from '@/components/backtest/TradesTable';
-import { Loader2, Play, BarChart3, TrendingUp, TrendingDown, Target, Percent, Activity } from 'lucide-react';
+import { Loader2, Play, BarChart3, TrendingUp, TrendingDown, Target, Percent, Activity, AlertTriangle } from 'lucide-react';
 
 const DEFAULT_RULES = JSON.stringify(
   {
@@ -120,120 +118,117 @@ export default function BacktestPage() {
 
   return (
     <div className="flex flex-col gap-6 h-full">
-      <h1 className="text-3xl font-black tracking-tight text-white border-b border-border pb-4">
-        BACKTEST ENGINE
+      <h1 className="text-xl font-semibold tracking-tight text-foreground border-b border-border pb-4">
+        Backtest Engine
       </h1>
 
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
         {/* Left: Configuration */}
-        <Card className="border-border bg-card shadow-2xl xl:col-span-1">
-          <CardHeader>
-            <CardTitle className="uppercase text-xs font-bold text-muted-foreground tracking-wider">
-              Configuration
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <section className="xl:col-span-1 space-y-4">
+          <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+            Configuration
+          </h2>
+          <div>
+            <label className="text-xs uppercase text-muted-foreground font-medium tracking-wider block mb-1.5">
+              Symbol
+            </label>
+            <Input
+              value={symbol}
+              onChange={(e) => setSymbol(e.target.value)}
+              className="font-mono tabular-nums bg-background border-border min-h-[44px]"
+              placeholder="BTC/USDT"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider block mb-1.5">
-                Symbol
+              <label className="text-xs uppercase text-muted-foreground font-medium tracking-wider block mb-1.5">
+                Start Date
               </label>
               <Input
-                value={symbol}
-                onChange={(e) => setSymbol(e.target.value)}
-                className="font-mono bg-black/20 border-border"
-                placeholder="BTC/USDT"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="font-mono tabular-nums bg-background border-border min-h-[44px]"
               />
             </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider block mb-1.5">
-                  Start Date
-                </label>
-                <Input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="font-mono bg-black/20 border-border text-xs"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider block mb-1.5">
-                  End Date
-                </label>
-                <Input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="font-mono bg-black/20 border-border text-xs"
-                />
-              </div>
-            </div>
-
             <div>
-              <label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider block mb-1.5">
-                Slippage %
+              <label className="text-xs uppercase text-muted-foreground font-medium tracking-wider block mb-1.5">
+                End Date
               </label>
               <Input
-                value={slippage}
-                onChange={(e) => setSlippage(e.target.value)}
-                className="font-mono bg-black/20 border-border"
-                placeholder="0.001"
-                type="number"
-                step="0.0001"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="font-mono tabular-nums bg-background border-border min-h-[44px]"
               />
             </div>
+          </div>
 
-            <div>
-              <label className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider block mb-1.5">
-                Strategy Rules (JSON)
-              </label>
-              <textarea
-                value={rulesJson}
-                onChange={(e) => setRulesJson(e.target.value)}
-                className="w-full h-40 font-mono text-xs bg-black/30 border border-border rounded-lg p-3 text-slate-300 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                spellCheck={false}
-              />
+          <div>
+            <label className="text-xs uppercase text-muted-foreground font-medium tracking-wider block mb-1.5">
+              Slippage %
+            </label>
+            <Input
+              value={slippage}
+              onChange={(e) => setSlippage(e.target.value)}
+              className="font-mono tabular-nums bg-background border-border min-h-[44px]"
+              placeholder="0.001"
+              type="number"
+              step="0.0001"
+            />
+          </div>
+
+          <div>
+            <label className="text-xs uppercase text-muted-foreground font-medium tracking-wider block mb-1.5">
+              Strategy Rules (JSON)
+            </label>
+            <textarea
+              value={rulesJson}
+              onChange={(e) => setRulesJson(e.target.value)}
+              className="w-full h-40 font-mono tabular-nums text-sm bg-background border border-border rounded-md p-3 text-foreground/80 resize-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+              spellCheck={false}
+            />
+          </div>
+
+          <Button
+            onClick={handleSubmit}
+            disabled={isRunning}
+            className="w-full font-medium min-h-[44px]"
+          >
+            {isRunning ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                {status === 'queued' ? 'Queued...' : 'Running...'}
+              </>
+            ) : (
+              <>
+                <Play className="w-4 h-4 mr-2" />
+                Run Backtest
+              </>
+            )}
+          </Button>
+
+          {error && (
+            <div className="text-sm text-red-500 border border-destructive/30 rounded-md p-3 font-mono flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>{error}</span>
             </div>
+          )}
 
-            <Button
-              onClick={handleSubmit}
-              disabled={isRunning}
-              className="w-full font-bold tracking-wider"
-            >
-              {isRunning ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  {status === 'queued' ? 'QUEUED...' : 'RUNNING...'}
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4 mr-2" />
-                  RUN BACKTEST
-                </>
-              )}
-            </Button>
-
-            {error && (
-              <div className="text-xs text-rose-400 bg-rose-950/30 border border-rose-500/30 rounded-lg p-3 font-mono">
-                {error}
-              </div>
-            )}
-
-            {jobId && (
-              <div className="text-[10px] text-muted-foreground font-mono">
-                Job ID: {jobId}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          {jobId && (
+            <div className="text-xs text-muted-foreground font-mono tabular-nums">
+              Job ID: {jobId}
+            </div>
+          )}
+        </section>
 
         {/* Right: Results */}
         <div className="xl:col-span-2 flex flex-col gap-6">
           {result ? (
             <>
               {/* Metrics Grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 <MetricCard
                   label="Total Trades"
                   value={result.total_trades.toString()}
@@ -273,41 +268,30 @@ export default function BacktestPage() {
 
               {/* Equity Curve */}
               {result.equity_curve && result.equity_curve.length > 0 && (
-                <Card className="border-border bg-card shadow-2xl">
-                  <CardHeader>
-                    <CardTitle className="uppercase text-xs font-bold text-muted-foreground tracking-wider">
-                      Equity Curve
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <EquityCurveChart data={result.equity_curve} />
-                  </CardContent>
-                </Card>
+                <section className="border-t border-border pt-4">
+                  <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider mb-4">
+                    Equity Curve
+                  </h2>
+                  <EquityCurveChart data={result.equity_curve} />
+                </section>
               )}
 
               {/* Trades Table */}
               {result.trades && result.trades.length > 0 && (
-                <Card className="border-border bg-card shadow-2xl">
-                  <CardHeader>
-                    <CardTitle className="uppercase text-xs font-bold text-muted-foreground tracking-wider">
-                      Simulated Trades ({result.trades.length})
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <TradesTable trades={result.trades} />
-                  </CardContent>
-                </Card>
+                <section className="border-t border-border pt-4">
+                  <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider mb-4">
+                    Simulated Trades ({result.trades.length})
+                  </h2>
+                  <TradesTable trades={result.trades} />
+                </section>
               )}
             </>
           ) : (
-            <Card className="border-border bg-card shadow-2xl flex-1">
-              <CardContent className="h-full flex flex-col items-center justify-center gap-3 py-20">
-                <BarChart3 className="w-12 h-12 text-muted-foreground/30" />
-                <p className="text-sm text-muted-foreground font-mono">
-                  {isRunning ? 'Running simulation...' : 'Configure and run a backtest to see results'}
-                </p>
-              </CardContent>
-            </Card>
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
+              <p className="text-sm text-muted-foreground">
+                {isRunning ? 'Running simulation...' : 'Configure and run a backtest to see results'}
+              </p>
+            </div>
           )}
         </div>
       </div>
@@ -319,7 +303,7 @@ function MetricCard({
   label,
   value,
   icon,
-  color = 'slate',
+  color = 'neutral',
 }: {
   label: string;
   value: string;
@@ -327,25 +311,23 @@ function MetricCard({
   color?: string;
 }) {
   const colorMap: Record<string, string> = {
-    emerald: 'text-emerald-400',
-    rose: 'text-rose-400',
-    amber: 'text-amber-400',
-    slate: 'text-slate-300',
+    emerald: 'text-emerald-500',
+    rose: 'text-red-500',
+    amber: 'text-amber-500',
+    neutral: 'text-foreground',
   };
 
   return (
-    <Card className="border-border bg-card shadow-lg">
-      <CardContent className="p-4">
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-muted-foreground">{icon}</span>
-          <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">
-            {label}
-          </span>
-        </div>
-        <span className={`text-2xl font-mono font-bold ${colorMap[color] || colorMap.slate}`}>
-          {value}
+    <div className="border border-border rounded-md p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-muted-foreground">{icon}</span>
+        <span className="text-xs uppercase text-muted-foreground font-medium tracking-wider">
+          {label}
         </span>
-      </CardContent>
-    </Card>
+      </div>
+      <span className={`text-2xl font-mono tabular-nums font-semibold ${colorMap[color] || colorMap.neutral}`}>
+        {value}
+      </span>
+    </div>
   );
 }

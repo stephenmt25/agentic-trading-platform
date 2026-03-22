@@ -2,9 +2,6 @@
 
 import React from 'react';
 import { usePortfolioStore } from '../../lib/stores/portfolioStore';
-import { TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
-
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 export const PortfolioSummaryCard: React.FC = () => {
     const pnlData = usePortfolioStore(state => state.pnlData);
@@ -18,50 +15,45 @@ export const PortfolioSummaryCard: React.FC = () => {
     // When no positions exist this shows $0.00 which is correct.
     const totalInvested = totalGross - totalNet + totalFees + totalTaxEst;
 
-    const isPositive = totalNet >= 0;
+    const isPositive = totalNet > 0;
+    const isZero = totalNet === 0;
+    const netColor = isZero ? 'text-muted-foreground' : isPositive ? 'text-emerald-500' : 'text-red-500';
 
     return (
-        <Card className="relative overflow-hidden border-border bg-card shadow-2xl group">
-            <div className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-transparent opacity-50 group-hover:opacity-100 transition-opacity duration-500" />
-            <div className={`absolute -right-16 -top-16 opacity-[0.03] bg-blend-screen scale-150 pointer-events-none transition-transform duration-700 group-hover:scale-[1.6]`}>
-                {isPositive ? <TrendingUp size={200} className="text-emerald-500" /> : <TrendingDown size={200} className="text-rose-500" />}
-            </div>
+        <section>
+            <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider mb-4">
+                Total Portfolio P&L
+            </h2>
 
-            <CardHeader className="relative z-10 pb-2">
-                <CardTitle className="text-primary font-bold uppercase tracking-widest text-xs flex items-center gap-2">
-                    <DollarSign size={16} /> Total Portfolio P&L
-                </CardTitle>
-            </CardHeader>
-
-            <CardContent className="relative z-10 space-y-8">
+            <div className="space-y-6">
                 <div className="flex items-baseline gap-2">
-                    <span className={`text-5xl lg:text-6xl font-mono font-bold tracking-tighter ${isPositive ? 'text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.3)]' : 'text-rose-500 drop-shadow-[0_0_15px_rgba(244,63,94,0.3)]'}`}>
+                    <span className={`text-2xl md:text-4xl font-mono tabular-nums font-semibold tracking-tight ${netColor}`}>
                         {isPositive ? '+' : ''}${(totalNet).toFixed(2)}
                     </span>
-                    <span className="text-muted-foreground font-mono text-sm font-medium">(post-tax)</span>
+                    <span className="text-muted-foreground font-mono text-sm">(post-tax)</span>
                 </div>
 
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 bg-black/40 backdrop-blur-md rounded-xl border border-white/5">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 pt-4 border-t border-border">
                     <div className="flex flex-col space-y-1">
-                        <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">Invested</span>
-                        <span className="text-sm font-mono text-slate-300 font-medium">${totalInvested.toFixed(2)}</span>
+                        <span className="text-xs uppercase text-muted-foreground font-medium tracking-wider">Invested</span>
+                        <span className="text-sm font-mono tabular-nums text-foreground">${totalInvested.toFixed(2)}</span>
                     </div>
                     <div className="flex flex-col space-y-1">
-                        <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">Gross P&L</span>
-                        <span className="text-sm font-mono text-slate-300 font-medium">${(totalGross).toFixed(2)}</span>
+                        <span className="text-xs uppercase text-muted-foreground font-medium tracking-wider">Gross P&L</span>
+                        <span className="text-sm font-mono tabular-nums text-foreground">${(totalGross).toFixed(2)}</span>
                     </div>
                     <div className="flex flex-col space-y-1">
-                        <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider">Trading Fees</span>
-                        <span className="text-sm font-mono text-rose-400/90 font-medium">-${(totalFees).toFixed(2)}</span>
+                        <span className="text-xs uppercase text-muted-foreground font-medium tracking-wider">Trading Fees</span>
+                        <span className="text-sm font-mono tabular-nums text-red-500/80">-${(totalFees).toFixed(2)}</span>
                     </div>
                     <div className="flex flex-col space-y-1">
-                        <span className="text-[10px] uppercase text-muted-foreground font-bold tracking-wider flex items-center gap-1">
-                            Tax Est. <span className="cursor-help w-3 h-3 bg-primary/20 text-primary text-[8px] flex items-center justify-center rounded-full font-bold">i</span>
+                        <span className="text-xs uppercase text-muted-foreground font-medium tracking-wider">
+                            Tax Est.
                         </span>
-                        <span className="text-sm font-mono text-rose-400/90 font-medium">-${totalTaxEst.toFixed(2)}</span>
+                        <span className="text-sm font-mono tabular-nums text-red-500/80">-${totalTaxEst.toFixed(2)}</span>
                     </div>
                 </div>
-            </CardContent>
-        </Card>
+            </div>
+        </section>
     );
 };

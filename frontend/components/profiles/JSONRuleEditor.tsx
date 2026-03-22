@@ -36,15 +36,15 @@ export const JSONRuleEditor: React.FC<RuleEditorProps> = ({ initialJson = '{\n  
     };
 
     return (
-        <div className="flex flex-col h-full bg-slate-900 border border-slate-700 shadow-xl rounded-xl overflow-hidden">
-            <div className="bg-slate-800 p-3 border-b border-slate-700 flex justify-between items-center">
-                <h3 className="text-sm font-semibold text-slate-300 font-mono">Strategy Editor</h3>
+        <div className="flex flex-col h-full border border-border rounded-md overflow-hidden">
+            <div className="p-3 border-b border-border flex justify-between items-center">
+                <h3 className="text-sm font-medium text-foreground font-mono">Strategy Editor</h3>
                 <button
                     onClick={handleValidateAndSave}
                     disabled={isSaving}
-                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 px-4 rounded transition-colors disabled:opacity-50"
+                    className="bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-medium py-2 px-4 rounded-md transition-colors disabled:opacity-50 min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
                 >
-                    {isSaving ? 'VALIDATING...' : 'COMPILE & SAVE'}
+                    {isSaving ? 'Validating...' : 'Compile & Save'}
                 </button>
             </div>
 
@@ -52,14 +52,14 @@ export const JSONRuleEditor: React.FC<RuleEditorProps> = ({ initialJson = '{\n  
                 <textarea
                     value={value}
                     onChange={(e) => setValue(e.target.value)}
-                    className="w-full h-full p-4 bg-[#0d1117] text-slate-300 font-mono text-sm resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500 border-none"
+                    className="w-full h-full p-4 bg-background text-foreground/80 font-mono tabular-nums text-sm resize-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary border-none"
                     spellCheck="false"
                 />
             </div>
 
             {error && (
-                <div className="bg-rose-950/50 p-3 border-t border-rose-900/50">
-                    <p className="text-xs text-rose-400 font-mono break-words">{error}</p>
+                <div className="p-3 border-t border-destructive/30">
+                    <p className="text-sm text-red-500 font-mono break-words">{error}</p>
                 </div>
             )}
         </div>

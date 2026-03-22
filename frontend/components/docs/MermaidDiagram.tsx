@@ -15,18 +15,18 @@ async function initMermaid() {
     startOnLoad: false,
     theme: "dark",
     themeVariables: {
-      primaryColor: "#6366f1",
+      primaryColor: "#3b82f6",
       primaryTextColor: "#e2e8f0",
-      primaryBorderColor: "#4f46e5",
-      lineColor: "#475569",
-      secondaryColor: "#1e1b4b",
-      tertiaryColor: "#0f172a",
-      background: "#0f172a",
-      mainBkg: "#1e1b4b",
-      nodeBorder: "#4f46e5",
-      clusterBkg: "#1e1b4b",
+      primaryBorderColor: "#2563eb",
+      lineColor: "#3f3f46",
+      secondaryColor: "#1c1c22",
+      tertiaryColor: "#111116",
+      background: "#111116",
+      mainBkg: "#1c1c22",
+      nodeBorder: "#2563eb",
+      clusterBkg: "#1c1c22",
       titleColor: "#e2e8f0",
-      edgeLabelBackground: "#1e293b",
+      edgeLabelBackground: "#1c1c22",
     },
     fontFamily: "ui-monospace, monospace",
     flowchart: { htmlLabels: true, curve: "basis" },
@@ -69,11 +69,11 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   if (error) {
     return (
-      <div className="my-4 rounded-lg border border-amber-800/50 bg-amber-950/20 p-4">
-        <p className="mb-2 text-xs font-medium text-amber-400">
+      <div className="my-4 rounded-md border border-amber-500/30 p-4">
+        <p className="mb-2 text-xs font-medium text-amber-500">
           Diagram render error
         </p>
-        <pre className="overflow-x-auto text-xs text-slate-400">
+        <pre className="overflow-x-auto text-xs text-muted-foreground">
           <code>{code.trim()}</code>
         </pre>
       </div>
@@ -82,14 +82,12 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   if (!svg) {
     return (
-      <div className="my-4 flex h-48 items-center justify-center rounded-lg border border-slate-800 bg-slate-900/50">
-        <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-500 border-t-transparent" />
-      </div>
+      <div className="my-4 h-48 rounded-md border border-border bg-accent animate-pulse" />
     );
   }
 
   return (
-    <div className="my-4 overflow-x-auto rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+    <div className="my-4 overflow-x-auto rounded-md border border-border bg-card p-4">
       <div
         ref={containerRef}
         dangerouslySetInnerHTML={{ __html: svg }}

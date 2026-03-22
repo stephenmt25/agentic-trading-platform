@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -175,46 +174,47 @@ export default function ProfilesPage() {
   return (
     <div className="flex flex-col h-full gap-6 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between border-b border-border pb-4 shrink-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border pb-4 gap-3 shrink-0">
         <div>
-          <h1 className="text-3xl font-black tracking-tight text-white mb-1">AGENT PROFILES</h1>
+          <h1 className="text-xl font-semibold tracking-tight text-foreground mb-1">Agent Profiles</h1>
           <p className="text-muted-foreground text-sm">Manage trading agent boundaries, logic, and state.</p>
         </div>
-        <div className="flex items-center gap-4">
-          <Badge variant="outline" className="text-emerald-500 border-emerald-500/30 bg-emerald-500/10 px-3 py-1">
-            <Activity className="w-3 h-3 mr-2 inline" />
-            {activeCount} Active
-          </Badge>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-emerald-500 font-mono tabular-nums">
+            {activeCount} active
+          </span>
           <Button
-            className="bg-primary text-primary-foreground hover:bg-primary/90 font-bold tracking-wider"
+            className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium min-h-[44px]"
             onClick={() => setShowCreateModal(true)}
           >
-            <Plus className="w-4 h-4 mr-2" /> NEW PROFILE
+            <Plus className="w-4 h-4 mr-2" /> New Profile
           </Button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 flex-1 min-h-[600px] overflow-hidden">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-[600px] overflow-hidden">
         {/* Left Column: List */}
-        <div className="lg:col-span-4 flex flex-col gap-4 overflow-hidden">
+        <div className="lg:col-span-4 flex flex-col gap-3 overflow-hidden">
           <Input
             type="search"
             placeholder="Search profiles..."
-            className="bg-card border-border shrink-0"
+            className="bg-card border-border shrink-0 min-h-[44px]"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
           />
-          <div className="flex flex-col gap-3 overflow-y-auto pr-2 pb-4 flex-1">
+          <div className="flex flex-col gap-1 overflow-y-auto pr-1 pb-4 flex-1">
             {isLoading ? (
-              <div className="flex items-center justify-center p-12">
-                <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <div className="flex flex-col gap-2 p-2">
+                <div className="h-14 bg-accent animate-pulse rounded-md" />
+                <div className="h-14 bg-accent animate-pulse rounded-md" />
+                <div className="h-14 bg-accent animate-pulse rounded-md" />
+                <div className="h-14 bg-accent animate-pulse rounded-md" />
               </div>
             ) : filteredProfiles.length === 0 ? (
               <div className="flex flex-col items-center justify-center p-12 text-center">
-                <Code className="w-8 h-8 text-muted-foreground mb-3 opacity-30" />
                 <p className="text-sm text-muted-foreground">
                   {profiles.length === 0
-                    ? "No profiles yet. Click \"NEW PROFILE\" to create one."
+                    ? "No profiles yet. Click \"New Profile\" to create one."
                     : "No profiles match your search."}
                 </p>
               </div>
@@ -222,45 +222,42 @@ export default function ProfilesPage() {
               filteredProfiles.map(p => {
                 const isDeleted = !!p.deleted_at;
                 return (
-                  <Card
+                  <button
                     key={p.profile_id}
                     onClick={() => setSelectedProfileId(p.profile_id)}
-                    className={`cursor-pointer transition-all border shrink-0 ${
+                    className={`cursor-pointer transition-colors border shrink-0 rounded-md text-left w-full min-h-[44px] ${
                       isDeleted
-                        ? 'border-slate-800 bg-slate-900/30 opacity-50'
+                        ? 'border-border bg-card/50 opacity-50'
                         : selectedProfileId === p.profile_id
-                          ? 'border-primary ring-1 ring-primary/50 bg-primary/5'
-                          : 'border-border hover:border-slate-600 bg-card hover:bg-slate-900/50'
+                          ? 'border-primary bg-primary/5'
+                          : 'border-transparent hover:bg-accent'
                     }`}
                   >
-                    <div className="p-4 flex items-center justify-between relative overflow-hidden">
+                    <div className="p-3 flex items-center justify-between relative">
                       {!isDeleted && selectedProfileId === p.profile_id && (
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />
+                        <div className="absolute left-0 top-1 bottom-1 w-0.5 bg-primary rounded-full" />
                       )}
-                      {isDeleted && (
-                        <div className="absolute left-0 top-0 bottom-0 w-1 bg-red-500/50" />
-                      )}
-                      <div className="flex flex-col gap-1">
-                        <span className={`font-mono font-bold text-sm ${isDeleted ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{p.name || p.profile_id}</span>
+                      <div className="flex flex-col gap-0.5 pl-2">
+                        <span className={`font-mono font-medium text-sm ${isDeleted ? 'text-muted-foreground line-through' : 'text-foreground'}`}>{p.name || p.profile_id}</span>
                         <span className="text-xs text-muted-foreground flex items-center gap-1">
                           {isDeleted ? (
                             <><Ban className="w-3 h-3 text-red-500/60" /> <span className="text-red-500/60">Deleted</span></>
                           ) : p.is_active ? (
                             <><Power className="w-3 h-3 text-emerald-500" /> Running</>
                           ) : (
-                            <><PowerOff className="w-3 h-3 text-slate-500" /> Dormant</>
+                            <><PowerOff className="w-3 h-3 text-muted-foreground" /> Dormant</>
                           )}
                         </span>
                       </div>
                       <div>
                         {isDeleted ? (
-                          <Badge variant="outline" className="text-red-500/60 border-red-500/20 bg-red-500/5 text-[10px] font-bold">DELETED</Badge>
+                          <Badge variant="outline" className="text-red-500/60 border-red-500/20 text-xs">DELETED</Badge>
                         ) : p.is_active ? (
-                          <span className="flex h-2 w-2 relative"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span></span>
+                          <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                         ) : null}
                       </div>
                     </div>
-                  </Card>
+                  </button>
                 );
               })
             )}
@@ -268,78 +265,69 @@ export default function ProfilesPage() {
         </div>
 
         {/* Right Column: Editor */}
-        <Card className={`lg:col-span-8 flex flex-col border-border bg-card shadow-xl overflow-hidden h-full ${isSelectedDeleted ? 'opacity-70' : ''}`}>
+        <div className={`lg:col-span-8 flex flex-col border border-border rounded-md overflow-hidden h-full ${isSelectedDeleted ? 'opacity-70' : ''}`}>
           {selectedProfile ? (
             <>
-              <CardHeader className={`border-b py-4 shrink-0 ${isSelectedDeleted ? 'bg-red-950/20 border-red-500/10' : 'bg-slate-900/50 border-border'}`}>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+              <div className={`border-b py-3 px-4 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${isSelectedDeleted ? 'bg-red-950/10 border-red-500/10' : 'border-border'}`}>
+                <div>
+                  <h3 className={`text-base font-mono font-medium ${isSelectedDeleted ? 'text-muted-foreground' : 'text-foreground'}`}>
+                    {selectedProfile.name || selectedProfile.profile_id}
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
                     {isSelectedDeleted ? (
-                      <Ban className="text-red-500/60 w-5 h-5 flex-shrink-0" />
+                      <span className="text-red-500/60 font-medium uppercase tracking-wider">Deleted -- JSON retained for reference</span>
                     ) : (
-                      <Code className="text-primary w-5 h-5 flex-shrink-0" />
+                      'JSON Configuration'
                     )}
-                    <div>
-                      <CardTitle className={`text-lg font-mono font-bold ${isSelectedDeleted ? 'text-slate-500' : 'text-slate-200'}`}>
-                        {selectedProfile.name || selectedProfile.profile_id}
-                      </CardTitle>
-                      <CardDescription className="text-xs">
-                        {isSelectedDeleted ? (
-                          <span className="text-red-500/60 font-bold uppercase tracking-wider">Deleted — JSON retained for reference</span>
-                        ) : (
-                          'JSON Configuration'
-                        )}
-                      </CardDescription>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    {isSelectedDeleted ? (
+                  </p>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {isSelectedDeleted ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleCopyJson}
+                      className="border-border text-foreground/80 hover:bg-accent min-h-[44px]"
+                    >
+                      <Copy className="w-4 h-4 mr-2" /> Copy JSON
+                    </Button>
+                  ) : (
+                    <>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-red-500/30 text-red-500 hover:bg-accent min-h-[44px]"
+                        onClick={() => setShowDeleteConfirm(true)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" /> Delete
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="border-border hover:bg-accent text-foreground/80 min-h-[44px]"
+                        onClick={handleToggle}
+                      >
+                        {selectedProfile.is_active ? 'Deactivate' : 'Activate'}
+                      </Button>
                       <Button
                         size="sm"
-                        variant="outline"
-                        onClick={handleCopyJson}
-                        className="border-slate-700 text-slate-300 hover:bg-slate-800"
+                        onClick={handleSave}
+                        disabled={isSaving}
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium min-h-[44px]"
                       >
-                        <Copy className="w-4 h-4 mr-2" /> COPY JSON
+                        {isSaving ? (
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                        ) : (
+                          <><Save className="w-4 h-4 mr-2" /> Save</>
+                        )}
                       </Button>
-                    ) : (
-                      <>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="border-red-500/30 text-red-400 hover:bg-red-900/20 hover:text-red-300"
-                          onClick={() => setShowDeleteConfirm(true)}
-                        >
-                          <Trash2 className="w-4 h-4 mr-1" /> DELETE
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="border-border hover:bg-slate-800 text-slate-300"
-                          onClick={handleToggle}
-                        >
-                          {selectedProfile.is_active ? 'DEACTIVATE' : 'ACTIVATE'}
-                        </Button>
-                        <Button
-                          size="sm"
-                          onClick={handleSave}
-                          disabled={isSaving}
-                          className="bg-indigo-600 hover:bg-indigo-500 text-white font-bold"
-                        >
-                          {isSaving ? (
-                            <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> SAVING...</>
-                          ) : (
-                            <><Save className="w-4 h-4 mr-2" /> SAVE</>
-                          )}
-                        </Button>
-                      </>
-                    )}
-                  </div>
+                    </>
+                  )}
                 </div>
-              </CardHeader>
-              <div className={`flex-1 relative p-4 text-sm overflow-hidden ${isSelectedDeleted ? 'bg-[#0d1117]/50' : 'bg-[#0d1117]'}`}>
+              </div>
+              <div className={`flex-1 relative p-4 text-sm overflow-hidden ${isSelectedDeleted ? 'bg-background/50' : 'bg-background'}`}>
                 <textarea
-                  className={`w-full h-full bg-transparent font-mono resize-none focus:outline-none font-medium ${isSelectedDeleted ? 'text-slate-600 cursor-default' : 'text-slate-300 placeholder:text-slate-700'}`}
+                  className={`w-full h-full bg-transparent font-mono tabular-nums resize-none focus:outline-none ${isSelectedDeleted ? 'text-muted-foreground cursor-default' : 'text-foreground/80 placeholder:text-muted-foreground/30'}`}
                   value={editorContent}
                   onChange={(e) => !isSelectedDeleted && setEditorContent(e.target.value)}
                   readOnly={isSelectedDeleted}
@@ -348,68 +336,67 @@ export default function ProfilesPage() {
               </div>
             </>
           ) : (
-            <div className="flex-1 flex flex-col items-center justify-center text-slate-500 gap-4">
-              <Code className="w-12 h-12 opacity-20" />
-              <p>Select a profile to view configuration</p>
+            <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground gap-3">
+              <p className="text-sm">Select a profile to view configuration</p>
             </div>
           )}
-        </Card>
+        </div>
       </div>
 
       {/* Create Profile Modal */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800">
-              <h2 className="text-lg font-bold text-white">Create New Profile</h2>
-              <button onClick={() => setShowCreateModal(false)} className="text-slate-500 hover:text-white transition-colors">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-md w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+              <h2 className="text-lg font-medium text-foreground">Create New Profile</h2>
+              <button onClick={() => setShowCreateModal(false)} className="text-muted-foreground hover:text-foreground transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" aria-label="Close dialog">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="px-6 py-5 space-y-4">
               <div>
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Profile Name</label>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">Profile Name</label>
                 <Input
                   type="text"
                   placeholder="e.g. BTC Momentum Scanner"
-                  className="bg-black/50 border-slate-700 text-slate-200"
+                  className="bg-background border-border text-foreground min-h-[44px]"
                   value={newProfileName}
                   onChange={(e) => setNewProfileName(e.target.value)}
                   autoFocus
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1.5 block">Allocation %</label>
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">Allocation %</label>
                 <Input
                   type="number"
                   step="0.1"
                   min="0"
                   max="100"
                   placeholder="1.0"
-                  className="bg-black/50 border-slate-700 text-slate-200 font-mono"
+                  className="bg-background border-border text-foreground font-mono tabular-nums min-h-[44px]"
                   value={newProfileAllocation}
                   onChange={(e) => setNewProfileAllocation(e.target.value)}
                 />
-                <p className="text-[10px] text-slate-600 mt-1">Percentage of portfolio allocated to this agent.</p>
+                <p className="text-xs text-muted-foreground mt-1">Percentage of portfolio allocated to this agent.</p>
               </div>
-              <div className="bg-black/30 border border-slate-800 rounded-lg p-3">
-                <p className="text-[10px] text-slate-500 uppercase tracking-wider font-bold mb-1">Strategy Template</p>
-                <p className="text-xs text-slate-400">A default momentum strategy will be applied. You can edit the JSON rules after creation.</p>
+              <div className="border-t border-border pt-3">
+                <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-1">Strategy Template</p>
+                <p className="text-sm text-muted-foreground">A default momentum strategy will be applied. You can edit the JSON rules after creation.</p>
               </div>
             </div>
-            <div className="flex justify-end gap-3 px-6 py-4 border-t border-slate-800">
-              <Button variant="ghost" onClick={() => setShowCreateModal(false)} className="text-slate-400">
+            <div className="flex justify-end gap-3 px-6 py-4 border-t border-border">
+              <Button variant="ghost" onClick={() => setShowCreateModal(false)} className="text-muted-foreground min-h-[44px]">
                 Cancel
               </Button>
               <Button
                 onClick={handleCreateProfile}
                 disabled={isCreating || !newProfileName.trim()}
-                className="bg-primary text-primary-foreground hover:bg-primary/90 font-bold"
+                className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium min-h-[44px]"
               >
                 {isCreating ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> CREATING...</>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...</>
                 ) : (
-                  <><Plus className="w-4 h-4 mr-2" /> CREATE PROFILE</>
+                  <><Plus className="w-4 h-4 mr-2" /> Create Profile</>
                 )}
               </Button>
             </div>
@@ -419,30 +406,27 @@ export default function ProfilesPage() {
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && selectedProfile && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
-          <div className="bg-slate-900 border border-red-500/30 rounded-xl shadow-2xl w-full max-w-sm mx-4 animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-card border border-border rounded-md w-full max-w-sm mx-4 animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-5 text-center">
-              <div className="w-12 h-12 rounded-full bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-red-400" />
-              </div>
-              <h2 className="text-lg font-bold text-white mb-2">Delete Profile?</h2>
-              <p className="text-sm text-slate-400">
-                This will permanently deactivate <strong className="text-white">{selectedProfile.name || selectedProfile.profile_id}</strong>. This action cannot be undone.
+              <h2 className="text-lg font-medium text-foreground mb-2">Delete Profile?</h2>
+              <p className="text-sm text-muted-foreground">
+                This will permanently deactivate <strong className="text-foreground">{selectedProfile.name || selectedProfile.profile_id}</strong>. This action cannot be undone.
               </p>
             </div>
-            <div className="flex gap-3 px-6 py-4 border-t border-slate-800">
-              <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)} className="flex-1 text-slate-400">
+            <div className="flex gap-3 px-6 py-4 border-t border-border">
+              <Button variant="ghost" onClick={() => setShowDeleteConfirm(false)} className="flex-1 text-muted-foreground min-h-[44px]">
                 Cancel
               </Button>
               <Button
                 onClick={handleDeleteProfile}
                 disabled={isDeleting}
-                className="flex-1 bg-red-600 hover:bg-red-500 text-white font-bold"
+                className="flex-1 bg-red-600 hover:bg-red-500 text-white font-medium min-h-[44px]"
               >
                 {isDeleting ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> DELETING...</>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Deleting...</>
                 ) : (
-                  "DELETE"
+                  "Delete"
                 )}
               </Button>
             </div>

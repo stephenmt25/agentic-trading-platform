@@ -7,26 +7,26 @@ interface RegimeBadgeProps {
 }
 
 export const RegimeBadge: React.FC<RegimeBadgeProps> = ({ regime }) => {
-    let config = { icon: <Minus size={14} />, color: 'bg-slate-700 text-slate-300', label: 'RANGING' };
+    let config = { icon: <Minus size={14} />, color: 'text-muted-foreground border-border', label: 'RANGING' };
 
     switch (regime) {
         case 'TRENDING_UP':
-            config = { icon: <TrendingUp size={14} />, color: 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30', label: 'UPTREND' };
+            config = { icon: <TrendingUp size={14} />, color: 'text-emerald-500 border-emerald-500/30', label: 'UPTREND' };
             break;
         case 'TRENDING_DOWN':
-            config = { icon: <TrendingDown size={14} />, color: 'bg-rose-500/20 text-rose-400 border-rose-500/30', label: 'DOWNTREND' };
+            config = { icon: <TrendingDown size={14} />, color: 'text-red-500 border-red-500/30', label: 'DOWNTREND' };
             break;
         case 'HIGH_VOLATILITY':
-            config = { icon: <AlertTriangle size={14} />, color: 'bg-amber-500/20 text-amber-400 border-amber-500/30', label: 'HIGH VOL' };
+            config = { icon: <AlertTriangle size={14} />, color: 'text-amber-500 border-amber-500/30', label: 'HIGH VOL' };
             break;
         case 'CRISIS':
-            config = { icon: <Skull size={14} />, color: 'bg-red-600/20 text-red-500 border-red-600/50 animate-pulse', label: 'CRISIS' };
+            config = { icon: <Skull size={14} />, color: 'text-red-500 border-red-500/40', label: 'CRISIS' };
             break;
     }
 
     return (
         <div
-            className={`px-3 py-1 flex items-center space-x-2 rounded-full text-xs font-bold font-mono tracking-wider border ${config.color}`}
+            className={`px-2 py-1 flex items-center space-x-1.5 rounded-md text-xs font-medium font-mono tracking-wider border ${config.color}`}
             title={`Current Market Regime: ${regime}`}
         >
             {config.icon}

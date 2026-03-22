@@ -57,3 +57,8 @@ node_modules/
 out/
 build/
 dist/
+
+# OpenViking
+viking-data/
+ov.conf
+test_viking.py

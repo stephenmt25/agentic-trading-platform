@@ -11,15 +11,12 @@ async def get_paper_trading_status(
     db: TimescaleClient = Depends(get_timescale),
 ):
     """Return paper trading summary: days elapsed, metrics, and daily reports."""
-    # Count days with reports (scoped to user's profiles)
+    # Count days with reports (paper_trading_reports is a global table, not per-profile)
     days_row = await db.fetchrow(
         """
-        SELECT COUNT(DISTINCT ptr.report_date) as days_count, MIN(ptr.report_date) as start_date
-        FROM paper_trading_reports ptr
-        JOIN trading_profiles tp ON ptr.profile_id = tp.profile_id
-        WHERE tp.user_id = $1
+        SELECT COUNT(DISTINCT report_date) as days_count, MIN(report_date) as start_date
+        FROM paper_trading_reports
         """,
-        user_id,
     )
     days_elapsed = int(days_row["days_count"]) if days_row and days_row["days_count"] else 0
     start_date = str(days_row["start_date"]) if days_row and days_row["start_date"] else None
@@ -27,26 +24,21 @@ async def get_paper_trading_status(
     # Get aggregate metrics
     metrics_row = await db.fetchrow("""
         SELECT
-            COALESCE(SUM(ptr.total_trades), 0) as total_trades,
-            COALESCE(AVG(ptr.win_rate), 0) as avg_win_rate,
-            COALESCE(SUM(ptr.gross_pnl), 0) as total_gross_pnl,
-            COALESCE(SUM(ptr.net_pnl), 0) as total_net_pnl,
-            COALESCE(MAX(ptr.max_drawdown), 0) as max_drawdown,
-            COALESCE(AVG(ptr.sharpe_ratio), 0) as avg_sharpe
-        FROM paper_trading_reports ptr
-        JOIN trading_profiles tp ON ptr.profile_id = tp.profile_id
-        WHERE tp.user_id = $1
-    """, user_id)
+            COALESCE(SUM(total_trades), 0) as total_trades,
+            COALESCE(AVG(win_rate), 0) as avg_win_rate,
+            COALESCE(SUM(gross_pnl), 0) as total_gross_pnl,
+            COALESCE(SUM(net_pnl), 0) as total_net_pnl,
+            COALESCE(MAX(max_drawdown), 0) as max_drawdown,
+            COALESCE(AVG(sharpe_ratio), 0) as avg_sharpe
+        FROM paper_trading_reports
+    """)
 
     # Get daily reports (most recent first)
     reports = await db.fetch(
         """
-        SELECT ptr.* FROM paper_trading_reports ptr
-        JOIN trading_profiles tp ON ptr.profile_id = tp.profile_id
-        WHERE tp.user_id = $1
-        ORDER BY ptr.report_date DESC LIMIT 30
+        SELECT * FROM paper_trading_reports
+        ORDER BY report_date DESC LIMIT 30
         """,
-        user_id,
     )
 
     return {

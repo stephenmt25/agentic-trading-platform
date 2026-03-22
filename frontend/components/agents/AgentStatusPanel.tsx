@@ -4,14 +4,9 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api/client';
 import { AgentScore } from '../../lib/types';
 import { RegimeBadge } from '../profiles/RegimeBadge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
-  Brain,
-  Activity,
-  MessageSquare,
   RefreshCw,
-  Wifi,
   WifiOff,
 } from 'lucide-react';
 
@@ -47,140 +42,129 @@ export const AgentStatusPanel: React.FC = () => {
   );
 
   return (
-    <Card className="border-border bg-card shadow-2xl">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="uppercase text-xs font-bold text-muted-foreground tracking-wider flex items-center gap-2">
-            <Brain className="w-3.5 h-3.5" />
-            ML Agent Scores
-          </CardTitle>
-          <div className="flex items-center gap-2">
-            {lastUpdated && (
-              <span className="text-[9px] text-muted-foreground font-mono">
-                {lastUpdated.toLocaleTimeString()}
-              </span>
-            )}
-            <button
-              onClick={fetchAgents}
-              className="p-1 rounded hover:bg-white/5 transition-colors"
-              title="Refresh"
-            >
-              <RefreshCw className={`w-3 h-3 text-muted-foreground ${loading ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider flex items-center gap-2">
+          ML Agent Scores
+        </h2>
+        <div className="flex items-center gap-2">
+          {lastUpdated && (
+            <span className="text-xs text-muted-foreground font-mono tabular-nums">
+              {lastUpdated.toLocaleTimeString()}
+            </span>
+          )}
+          <button
+            onClick={fetchAgents}
+            className="p-2 rounded-md hover:bg-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            aria-label="Refresh agent scores"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${loading ? 'animate-spin' : ''}`} />
+          </button>
         </div>
-      </CardHeader>
-      <CardContent>
-        {error ? (
-          <div className="flex flex-col items-center gap-2 py-6 text-center">
-            <WifiOff className="w-5 h-5 text-muted-foreground/50" />
-            <p className="text-xs text-muted-foreground">
-              Agent API unavailable
-            </p>
-          </div>
-        ) : !hasAnyData ? (
-          <div className="flex flex-col items-center gap-2 py-6 text-center">
-            <Wifi className="w-5 h-5 text-muted-foreground/30" />
-            <p className="text-xs text-muted-foreground font-mono">
-              NO AGENT DATA
-            </p>
-            <p className="text-[10px] text-muted-foreground/70">
-              Agent services will populate scores once running
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {agents.map((agent) => (
-              <div
-                key={agent.symbol}
-                className="p-4 rounded-lg bg-black/20 border border-border/50 space-y-3"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-bold font-mono text-cyan-400">
-                    {agent.symbol}
+      </div>
+
+      {error ? (
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <WifiOff className="w-5 h-5 text-muted-foreground/50" />
+          <p className="text-xs text-muted-foreground">
+            Agent API unavailable
+          </p>
+        </div>
+      ) : !hasAnyData ? (
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <p className="text-xs text-muted-foreground font-mono">
+            NO AGENT DATA
+          </p>
+          <p className="text-xs text-muted-foreground/70">
+            Agent services will populate scores once running
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {agents.map((agent) => (
+            <div
+              key={agent.symbol}
+              className="p-3 rounded-md border border-border space-y-3"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium font-mono text-foreground">
+                  {agent.symbol}
+                </span>
+                {agent.hmm_regime && (
+                  <RegimeBadge regime={agent.hmm_regime} />
+                )}
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                {/* TA Score */}
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs uppercase text-muted-foreground font-medium tracking-wider">
+                    TA Score
                   </span>
-                  {agent.hmm_regime && (
-                    <RegimeBadge regime={agent.hmm_regime} />
+                  {agent.ta_score !== null ? (
+                    <div className="flex items-center gap-2">
+                      <ScoreBar value={agent.ta_score} />
+                      <span className="text-xs font-mono tabular-nums font-medium text-foreground/80">
+                        {agent.ta_score > 0 ? '+' : ''}
+                        {agent.ta_score.toFixed(2)}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-xs text-muted-foreground/50 font-mono">
+                      --
+                    </span>
                   )}
                 </div>
 
-                <div className="grid grid-cols-3 gap-3">
-                  {/* TA Score */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-1.5">
-                      <Activity className="w-3 h-3 text-indigo-400" />
-                      <span className="text-[9px] uppercase text-muted-foreground font-bold tracking-wider">
-                        TA Score
+                {/* Sentiment Score */}
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs uppercase text-muted-foreground font-medium tracking-wider">
+                    Sentiment
+                  </span>
+                  {agent.sentiment_score !== null ? (
+                    <div className="flex items-center gap-2">
+                      <ScoreBar value={agent.sentiment_score} />
+                      <span className="text-xs font-mono tabular-nums font-medium text-foreground/80">
+                        {agent.sentiment_score > 0 ? '+' : ''}
+                        {agent.sentiment_score.toFixed(2)}
                       </span>
                     </div>
-                    {agent.ta_score !== null ? (
-                      <div className="flex items-center gap-2">
-                        <ScoreBar value={agent.ta_score} />
-                        <span className="text-xs font-mono font-bold text-slate-300">
-                          {agent.ta_score > 0 ? '+' : ''}
-                          {agent.ta_score.toFixed(2)}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground/50 font-mono">
-                        --
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Sentiment Score */}
-                  <div className="flex flex-col gap-1">
-                    <div className="flex items-center gap-1.5">
-                      <MessageSquare className="w-3 h-3 text-violet-400" />
-                      <span className="text-[9px] uppercase text-muted-foreground font-bold tracking-wider">
-                        Sentiment
-                      </span>
-                    </div>
-                    {agent.sentiment_score !== null ? (
-                      <div className="flex items-center gap-2">
-                        <ScoreBar value={agent.sentiment_score} />
-                        <span className="text-xs font-mono font-bold text-slate-300">
-                          {agent.sentiment_score > 0 ? '+' : ''}
-                          {agent.sentiment_score.toFixed(2)}
-                        </span>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground/50 font-mono">
-                        --
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Sentiment Source */}
-                  <div className="flex flex-col gap-1">
-                    <span className="text-[9px] uppercase text-muted-foreground font-bold tracking-wider">
-                      Source
+                  ) : (
+                    <span className="text-xs text-muted-foreground/50 font-mono">
+                      --
                     </span>
-                    {agent.sentiment_source ? (
-                      <Badge
-                        className={`text-[9px] w-fit ${
-                          agent.sentiment_source === 'llm'
-                            ? 'bg-violet-500/10 text-violet-400'
-                            : agent.sentiment_source === 'cache'
-                            ? 'bg-cyan-500/10 text-cyan-400'
-                            : 'bg-slate-500/10 text-slate-400'
-                        }`}
-                      >
-                        {agent.sentiment_source.toUpperCase()}
-                      </Badge>
-                    ) : (
-                      <span className="text-[10px] text-muted-foreground/50 font-mono">
-                        --
-                      </span>
-                    )}
-                  </div>
+                  )}
+                </div>
+
+                {/* Sentiment Source */}
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs uppercase text-muted-foreground font-medium tracking-wider">
+                    Source
+                  </span>
+                  {agent.sentiment_source ? (
+                    <Badge
+                      className={`text-xs w-fit ${
+                        agent.sentiment_source === 'llm'
+                          ? 'text-muted-foreground'
+                          : agent.sentiment_source === 'cache'
+                          ? 'text-muted-foreground'
+                          : 'text-muted-foreground'
+                      }`}
+                    >
+                      {agent.sentiment_source.toUpperCase()}
+                    </Badge>
+                  ) : (
+                    <span className="text-xs text-muted-foreground/50 font-mono">
+                      --
+                    </span>
+                  )}
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </CardContent>
-    </Card>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 };
 
@@ -192,15 +176,15 @@ function ScoreBar({ value }: { value: number }) {
   const color = isBullish
     ? 'bg-emerald-500'
     : isBearish
-    ? 'bg-rose-500'
-    : 'bg-slate-500';
+    ? 'bg-red-500'
+    : 'bg-muted-foreground/50';
 
   return (
-    <div className="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden relative">
+    <div className="flex-1 h-1.5 bg-accent rounded-full overflow-hidden relative">
       {/* Center marker */}
-      <div className="absolute left-1/2 top-0 w-px h-full bg-slate-600 z-10" />
+      <div className="absolute left-1/2 top-0 w-px h-full bg-border z-10" />
       <div
-        className={`absolute top-0 h-full rounded-full transition-all duration-500 ${color}`}
+        className={`absolute top-0 h-full rounded-full transition-[width] duration-500 ${color}`}
         style={{
           left: value >= 0 ? '50%' : `${pct}%`,
           width: `${Math.abs(value) * 50}%`,

@@ -22,26 +22,34 @@ export const TradesTable: React.FC<TradesTableProps> = ({ trades }) => {
   const totalPages = Math.ceil(sorted.length / PAGE_SIZE);
   const paginated = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
+  if (trades.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-12 text-center">
+        <p className="text-sm text-muted-foreground">No trades found</p>
+      </div>
+    );
+  }
+
   return (
     <div>
       <div className="overflow-x-auto">
-        <table className="w-full text-xs font-mono">
+        <table className="w-full text-sm font-mono tabular-nums">
           <thead>
-            <tr className="border-b border-border text-muted-foreground">
-              <th className="text-left py-2 px-3 font-bold uppercase tracking-wider text-[10px]">
+            <tr className="border-b border-border">
+              <th className="text-left px-4 py-2.5 text-xs uppercase text-muted-foreground font-medium">
                 #
               </th>
-              <th className="text-left py-2 px-3 font-bold uppercase tracking-wider text-[10px]">
+              <th className="text-left px-4 py-2.5 text-xs uppercase text-muted-foreground font-medium">
                 Direction
               </th>
-              <th className="text-left py-2 px-3 font-bold uppercase tracking-wider text-[10px]">
+              <th className="text-right px-4 py-2.5 text-xs uppercase text-muted-foreground font-medium">
                 Entry
               </th>
-              <th className="text-left py-2 px-3 font-bold uppercase tracking-wider text-[10px]">
+              <th className="text-right px-4 py-2.5 text-xs uppercase text-muted-foreground font-medium">
                 Exit
               </th>
               <th
-                className="text-right py-2 px-3 font-bold uppercase tracking-wider text-[10px] cursor-pointer select-none"
+                className="text-right px-4 py-2.5 text-xs uppercase text-muted-foreground font-medium cursor-pointer select-none"
                 onClick={() => setSortDesc(!sortDesc)}
               >
                 <span className="inline-flex items-center gap-1">
@@ -49,7 +57,7 @@ export const TradesTable: React.FC<TradesTableProps> = ({ trades }) => {
                   {sortDesc ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
                 </span>
               </th>
-              <th className="text-left py-2 px-3 font-bold uppercase tracking-wider text-[10px]">
+              <th className="text-left px-4 py-2.5 text-xs uppercase text-muted-foreground font-medium">
                 Entry Time
               </th>
             </tr>
@@ -57,41 +65,42 @@ export const TradesTable: React.FC<TradesTableProps> = ({ trades }) => {
           <tbody>
             {paginated.map((trade, i) => {
               const isWin = trade.pnl_pct > 0;
+              const isZero = trade.pnl_pct === 0;
               return (
                 <tr
                   key={page * PAGE_SIZE + i}
-                  className="border-b border-border/50 hover:bg-white/[0.02] transition-colors"
+                  className="border-b border-border/50 hover:bg-accent/50 transition-colors"
                 >
-                  <td className="py-2 px-3 text-muted-foreground">
+                  <td className="px-4 py-2.5 text-muted-foreground">
                     {page * PAGE_SIZE + i + 1}
                   </td>
-                  <td className="py-2 px-3">
-                    <Badge
-                      className={`text-[10px] font-bold ${
+                  <td className="px-4 py-2.5">
+                    <span
+                      className={`text-xs font-medium ${
                         trade.direction === 'BUY'
-                          ? 'bg-emerald-500/10 text-emerald-400'
-                          : 'bg-rose-500/10 text-rose-400'
+                          ? 'text-emerald-500'
+                          : 'text-red-500'
                       }`}
                     >
                       {trade.direction}
-                    </Badge>
+                    </span>
                   </td>
-                  <td className="py-2 px-3 text-slate-300">
+                  <td className="px-4 py-2.5 text-right text-foreground">
                     ${trade.entry_price.toFixed(2)}
                   </td>
-                  <td className="py-2 px-3 text-slate-300">
-                    {trade.exit_price != null ? `$${trade.exit_price.toFixed(2)}` : '-'}
+                  <td className="px-4 py-2.5 text-right text-foreground">
+                    {trade.exit_price != null ? `$${trade.exit_price.toFixed(2)}` : <span className="text-muted-foreground">--</span>}
                   </td>
                   <td
-                    className={`py-2 px-3 text-right font-bold ${
-                      isWin ? 'text-emerald-400' : 'text-rose-400'
+                    className={`px-4 py-2.5 text-right font-medium ${
+                      isZero ? 'text-muted-foreground' : isWin ? 'text-emerald-500' : 'text-red-500'
                     }`}
                   >
                     {isWin ? '+' : ''}
                     {(trade.pnl_pct * 100).toFixed(2)}%
                   </td>
-                  <td className="py-2 px-3 text-muted-foreground text-[10px]">
-                    {trade.entry_time || '-'}
+                  <td className="px-4 py-2.5 text-muted-foreground text-xs truncate max-w-[140px]">
+                    {trade.entry_time || '--'}
                   </td>
                 </tr>
               );
@@ -102,21 +111,21 @@ export const TradesTable: React.FC<TradesTableProps> = ({ trades }) => {
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-          <span className="text-[10px] text-muted-foreground font-mono">
+          <span className="text-xs text-muted-foreground font-mono tabular-nums">
             Page {page + 1} of {totalPages}
           </span>
           <div className="flex gap-2">
             <button
               onClick={() => setPage(Math.max(0, page - 1))}
               disabled={page === 0}
-              className="px-3 py-1 text-xs font-mono bg-black/20 border border-border rounded disabled:opacity-30 hover:bg-white/5 transition-colors"
+              className="px-3 py-2 text-xs font-mono border border-border rounded-md disabled:opacity-30 hover:bg-accent transition-colors min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               Prev
             </button>
             <button
               onClick={() => setPage(Math.min(totalPages - 1, page + 1))}
               disabled={page >= totalPages - 1}
-              className="px-3 py-1 text-xs font-mono bg-black/20 border border-border rounded disabled:opacity-30 hover:bg-white/5 transition-colors"
+              className="px-3 py-2 text-xs font-mono border border-border rounded-md disabled:opacity-30 hover:bg-accent transition-colors min-h-[44px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >
               Next
             </button>

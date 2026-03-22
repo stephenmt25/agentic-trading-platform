@@ -37,7 +37,9 @@ class ExchangeKeyTest(ExchangeKeyCreate):
 
 class ExchangeKeyResponse(BaseModel):
     id: str
-    exchange_id: str
+    exchange_name: str
+    label: str
+    is_active: bool
     created_at: str
 
 
@@ -48,7 +50,7 @@ async def list_exchange_keys(
 ):
     """List connected exchange keys for the current user."""
     query = """
-        SELECT id, exchange_id, created_at
+        SELECT id, exchange_name, label, is_active, created_at
         FROM exchange_keys
         WHERE user_id = $1 AND deleted_at IS NULL
     """
@@ -56,7 +58,9 @@ async def list_exchange_keys(
     return [
         {
             "id": str(r["id"]),
-            "exchange_id": r["exchange_id"],
+            "exchange_name": r["exchange_name"],
+            "label": r["label"] or r["exchange_name"],
+            "is_active": r["is_active"],
             "created_at": str(r["created_at"])
         }
         for r in records
@@ -74,10 +78,11 @@ async def test_exchange_connection(data: ExchangeKeyTest):
         "apiKey": data.api_key,
         "secret": data.api_secret,
         "enableRateLimit": True,
+        "options": {"adjustForTimeDifference": True},
     }
 
     if data.exchange_id == "binance" and settings.BINANCE_TESTNET:
-        exchange_params["options"] = {"defaultType": "future"}
+        exchange_params["options"]["defaultType"] = "spot"
         exchange = exchange_class(exchange_params)
         exchange.set_sandbox_mode(True)
     elif data.exchange_id == "coinbase" and settings.COINBASE_SANDBOX:
@@ -90,25 +95,31 @@ async def test_exchange_connection(data: ExchangeKeyTest):
         await exchange.fetch_balance()
 
         # Verify withdrawal permissions are NOT enabled — AION should never have withdrawal access
-        has_withdraw = False
-        try:
-            permissions = getattr(exchange, 'has', {})
-            if permissions.get('withdraw') or permissions.get('fetchWithdrawals'):
-                has_withdraw = True
-        except Exception:
-            pass
+        # Skip this check on testnet/sandbox — testnet keys always have full permissions
+        is_sandbox = (
+            (data.exchange_id == "binance" and settings.BINANCE_TESTNET) or
+            (data.exchange_id == "coinbase" and settings.COINBASE_SANDBOX)
+        )
+        if not is_sandbox:
+            has_withdraw = False
+            try:
+                permissions = getattr(exchange, 'has', {})
+                if permissions.get('withdraw') or permissions.get('fetchWithdrawals'):
+                    has_withdraw = True
+            except Exception:
+                pass
 
-        if has_withdraw:
-            logger.warning(
-                "Exchange key has withdrawal permissions — rejecting for safety",
-                exchange=data.exchange_id,
-            )
-            raise HTTPException(
-                status_code=422,
-                detail="API key has withdrawal permissions enabled. "
-                       "For security, AION requires keys with ONLY trading and balance read permissions. "
-                       "Please create a new API key with withdrawals disabled."
-            )
+            if has_withdraw:
+                logger.warning(
+                    "Exchange key has withdrawal permissions — rejecting for safety",
+                    exchange=data.exchange_id,
+                )
+                raise HTTPException(
+                    status_code=422,
+                    detail="API key has withdrawal permissions enabled. "
+                           "For security, AION requires keys with ONLY trading and balance read permissions. "
+                           "Please create a new API key with withdrawals disabled."
+                )
 
         return {"status": "success", "message": "Connection verified successfully — no withdrawal permissions detected"}
     except HTTPException:
@@ -146,13 +157,13 @@ async def save_exchange_key(
         raise HTTPException(status_code=500, detail="Failed to store credentials securely")
 
     query = """
-        INSERT INTO exchange_keys (user_id, exchange_id, key_ref)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (user_id, exchange_id)
-        DO UPDATE SET key_ref = EXCLUDED.key_ref, deleted_at = NULL, updated_at = NOW()
+        INSERT INTO exchange_keys (user_id, exchange_name, gcp_secret_id, label)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (user_id, exchange_name, label)
+        DO UPDATE SET gcp_secret_id = EXCLUDED.gcp_secret_id, deleted_at = NULL
         RETURNING id
     """
-    row = await db.fetchrow(query, user_id, data.exchange_id, secret_ref)
+    row = await db.fetchrow(query, user_id, data.exchange_id, secret_ref, data.exchange_id)
 
     return {"status": "success", "id": str(row["id"]), "message": "Exchange keys securely stored"}
 
@@ -164,13 +175,13 @@ async def delete_exchange_key(
     user_id: str = Depends(require_user)
 ):
     """Destroy exchange key from Secret Manager and soft-delete from DB."""
-    query = "SELECT key_ref FROM exchange_keys WHERE id = $1 AND user_id = $2"
+    query = "SELECT gcp_secret_id FROM exchange_keys WHERE id = $1::uuid AND user_id = $2::uuid"
     record = await db.fetchrow(query, key_id, user_id)
 
     if not record:
         raise HTTPException(status_code=404, detail="Exchange key not found")
 
-    secret_ref = record["key_ref"]
+    secret_ref = record["gcp_secret_id"]
 
     try:
         secret_manager = _get_secret_manager()
@@ -181,7 +192,7 @@ async def delete_exchange_key(
         logger.error("Failed to destroy exchange secret", error=str(e), key_id=key_id)
         raise HTTPException(status_code=500, detail="Failed to destroy credentials")
 
-    delete_query = "UPDATE exchange_keys SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1"
+    delete_query = "UPDATE exchange_keys SET deleted_at = NOW() WHERE id = $1::uuid"
     await db.execute(delete_query, key_id)
 
     return {"status": "success", "message": "Exchange key permanently destroyed"}

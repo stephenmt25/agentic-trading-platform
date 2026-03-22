@@ -24,27 +24,54 @@ class JobRunner:
         self._backtest_repo = backtest_repo
         self._redis = redis_client
         self._queue_channel = "auto_backtest_queue"
+        self._group_created = False
+
+    async def _ensure_group(self):
+        if self._group_created:
+            return
+        try:
+            await self._redis.xgroup_create(self._queue_channel, "backtest_engine", id="0", mkstream=True)
+        except Exception as e:
+            if "BUSYGROUP" not in str(e):
+                raise
+        self._group_created = True
 
     async def run(self):
         while True:
-            events = await self._consumer.consume(
-                self._queue_channel, "backtest_engine", "worker_1", count=1, block_ms=5000
+            # Read raw from Redis stream — the gateway writes {"data": json.dumps(payload)}
+            # so we bypass the StreamConsumer's msgpack decoding and read directly.
+            await self._ensure_group()
+
+            results = await self._redis.xreadgroup(
+                "backtest_engine", "worker_1",
+                {self._queue_channel: ">"},
+                count=1, block=5000,
             )
+
+            events = []
+            for stream_name, messages in results:
+                for message_id, raw_data in messages:
+                    try:
+                        raw = raw_data.get(b"data") or raw_data.get("data")
+                        if raw:
+                            parsed = json.loads(raw)
+                            events.append((message_id, parsed))
+                        else:
+                            events.append((message_id, None))
+                    except Exception:
+                        events.append((message_id, None))
 
             for msg_id, ev in events:
                 if not ev:
                     continue
 
-                payload = {}
-                if hasattr(ev, "payload"):
-                    payload = ev.payload
-                elif isinstance(ev, dict):
-                    payload = ev
+                payload = ev
 
                 sym = payload.get("symbol", "BTC/USDT")
                 strategy_rules = payload.get("strategy_rules", {})
                 slippage_pct = float(payload.get("slippage_pct", 0.001))
                 job_id = payload.get("job_id", str(uuid.uuid4()))
+                user_id = payload.get("user_id", "")
                 profile_id = payload.get("profile_id", "")
 
                 start_str = payload.get("start_date")
@@ -63,7 +90,7 @@ class JobRunner:
                 if self._redis:
                     await self._redis.set(
                         f"backtest:status:{job_id}",
-                        json.dumps({"status": "running", "job_id": job_id}),
+                        json.dumps({"status": "running", "job_id": job_id, "user_id": user_id}),
                         ex=3600,
                     )
 
@@ -106,13 +133,13 @@ class JobRunner:
                 if self._redis:
                     await self._redis.set(
                         f"backtest:status:{job_id}",
-                        json.dumps({"status": "completed", **res_payload}),
+                        json.dumps({"status": "completed", "user_id": user_id, **res_payload}),
                         ex=3600,
                     )
 
                 await self._publisher.publish("backtest_completed", res_payload)
 
             if events:
-                await self._consumer.ack(
-                    self._queue_channel, "backtest_engine", [m for m, _ in events]
-                )
+                msg_ids = [m for m, _ in events]
+                if msg_ids:
+                    await self._redis.xack(self._queue_channel, "backtest_engine", *msg_ids)

@@ -8,7 +8,7 @@ export default function DocsLayout({
   return (
     <div className="flex min-h-full">
       {/* Docs sidebar */}
-      <aside className="hidden w-56 shrink-0 overflow-y-auto border-r border-slate-800 p-4 lg:block">
+      <aside className="hidden w-56 shrink-0 overflow-y-auto border-r border-border p-4 lg:block">
         <DocsNav />
       </aside>
 

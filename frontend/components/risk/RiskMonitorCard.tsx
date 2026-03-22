@@ -3,16 +3,13 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api/client';
 import { RiskStatus } from '../../lib/types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import {
-  Shield,
   AlertTriangle,
   TrendingDown,
   BarChart3,
   RefreshCw,
   ShieldAlert,
-  ShieldCheck,
 } from 'lucide-react';
 
 const POLL_INTERVAL = 10000; // 10 seconds
@@ -57,39 +54,35 @@ export const RiskMonitorCard: React.FC<RiskMonitorCardProps> = ({ profileIds }) 
   const hasAnyData = riskData.length > 0;
 
   return (
-    <Card className="border-border bg-card shadow-2xl">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="uppercase text-xs font-bold text-muted-foreground tracking-wider flex items-center gap-2">
-            <Shield className="w-3.5 h-3.5" />
-            Risk Monitor
-          </CardTitle>
-          <button
-            onClick={fetchRisk}
-            className="p-1 rounded hover:bg-white/5 transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className={`w-3 h-3 text-muted-foreground ${loading ? 'animate-spin' : ''}`} />
-          </button>
+    <section>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider flex items-center gap-2">
+          Risk Monitor
+        </h2>
+        <button
+          onClick={fetchRisk}
+          className="p-2 rounded-md hover:bg-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          aria-label="Refresh risk data"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${loading ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
+
+      {error ? (
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <ShieldAlert className="w-5 h-5 text-muted-foreground/50" />
+          <p className="text-xs text-muted-foreground">Risk API unavailable</p>
         </div>
-      </CardHeader>
-      <CardContent>
-        {error ? (
-          <div className="flex flex-col items-center gap-2 py-6 text-center">
-            <ShieldAlert className="w-5 h-5 text-muted-foreground/50" />
-            <p className="text-xs text-muted-foreground">Risk API unavailable</p>
-          </div>
-        ) : !hasAnyData ? (
-          <div className="flex flex-col items-center gap-2 py-6 text-center">
-            <ShieldCheck className="w-5 h-5 text-emerald-500/30" />
-            <p className="text-xs text-muted-foreground font-mono">ALL CLEAR</p>
-            <p className="text-[10px] text-muted-foreground/70">
-              No active risk data. Metrics appear after trading activity.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {riskData.map((risk) => {
+      ) : !hasAnyData ? (
+        <div className="flex flex-col items-center gap-2 py-6 text-center">
+          <p className="text-xs text-muted-foreground font-mono">ALL CLEAR</p>
+          <p className="text-xs text-muted-foreground/70">
+            No active risk data. Metrics appear after trading activity.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {riskData.map((risk) => {
               const cbThreshold = risk.circuit_breaker_threshold || DEFAULT_CB_THRESHOLD;
               const dailyLoss = -risk.daily_pnl_pct;
               const cbPct = Math.min(100, (dailyLoss / cbThreshold) * 100);
@@ -103,19 +96,19 @@ export const RiskMonitorCard: React.FC<RiskMonitorCardProps> = ({ profileIds }) 
               return (
                 <div
                   key={risk.profile_id}
-                  className={`p-4 rounded-lg border space-y-3 ${
+                  className={`p-3 rounded-md border space-y-3 ${
                     cbTripped
-                      ? 'bg-rose-950/20 border-rose-500/50'
-                      : 'bg-black/20 border-border/50'
+                      ? 'border-red-500/40'
+                      : 'border-border'
                   }`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono text-muted-foreground truncate max-w-[180px]">
+                    <span className="text-xs font-mono tabular-nums text-muted-foreground truncate max-w-[180px]">
                       {risk.profile_id.slice(0, 12)}...
                     </span>
                     {cbTripped && (
-                      <Badge className="bg-rose-500/20 text-rose-400 text-[9px] font-bold animate-pulse">
-                        CIRCUIT BREAKER TRIPPED
+                      <Badge variant="outline" className="text-red-500 border-red-500/30 text-xs font-medium">
+                        CIRCUIT BREAKER
                       </Badge>
                     )}
                   </div>
@@ -163,8 +156,7 @@ export const RiskMonitorCard: React.FC<RiskMonitorCardProps> = ({ profileIds }) 
             })}
           </div>
         )}
-      </CardContent>
-    </Card>
+    </section>
   );
 };
 
@@ -190,7 +182,7 @@ function RiskBar({
   warning: boolean;
 }) {
   const barColor = danger
-    ? 'bg-rose-500'
+    ? 'bg-red-500'
     : warning
     ? 'bg-amber-500'
     : 'bg-emerald-500';
@@ -199,24 +191,24 @@ function RiskBar({
     <div className="space-y-1">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5">
-          <span className={danger ? 'text-rose-400' : 'text-muted-foreground'}>
+          <span className={danger ? 'text-red-500' : 'text-muted-foreground'}>
             {icon}
           </span>
-          <span className="text-[9px] uppercase font-bold tracking-wider text-muted-foreground">
+          <span className="text-xs uppercase font-medium tracking-wider text-muted-foreground">
             {label}
           </span>
         </div>
-        <div className="flex items-center gap-2 text-[10px] font-mono">
-          <span className={danger ? 'text-rose-400 font-bold' : warning ? 'text-amber-400' : 'text-slate-400'}>
+        <div className="flex items-center gap-2 text-xs font-mono tabular-nums">
+          <span className={danger ? 'text-red-500 font-medium' : warning ? 'text-amber-500' : 'text-muted-foreground'}>
             {format(current)}
           </span>
           <span className="text-muted-foreground/50">/</span>
           <span className="text-muted-foreground/70">{limitFormat(limit)}</span>
         </div>
       </div>
-      <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+      <div className="h-1.5 bg-accent rounded-full overflow-hidden">
         <div
-          className={`h-full rounded-full transition-all duration-700 ${barColor}`}
+          className={`h-full rounded-full transition-[width] duration-700 ${barColor}`}
           style={{ width: `${Math.max(0, Math.min(100, pct))}%` }}
         />
       </div>

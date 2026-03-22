@@ -87,9 +87,8 @@ const ExchangeKeyInfoSchema = z.object({
 });
 
 const TestConnectionResponseSchema = z.object({
-  success: z.boolean(),
+  status: z.string(),
   message: z.string(),
-  permissions: z.array(z.string()),
 });
 
 const ProfileResponseSchema = z.object({
@@ -118,9 +117,8 @@ export interface ExchangeKeyInfo {
 }
 
 export interface TestConnectionResponse {
-  success: boolean;
+  status: string;
   message: string;
-  permissions: string[];
 }
 
 export interface StoreKeyResponse {
@@ -213,10 +211,9 @@ export const api = {
       validatedRequest(z.array(ExchangeKeyInfoSchema), "/exchange-keys"),
 
     store: (data: {
-      exchange_name: string;
+      exchange_id: string;
       api_key: string;
       api_secret: string;
-      label?: string;
     }) =>
       apiRequest<StoreKeyResponse>("/exchange-keys", {
         method: "POST",
@@ -226,7 +223,7 @@ export const api = {
     test: (data: {
       api_key: string;
       api_secret: string;
-      exchange_name: string;
+      exchange_id: string;
     }) =>
       validatedRequest(TestConnectionResponseSchema, "/exchange-keys/test", {
         method: "POST",

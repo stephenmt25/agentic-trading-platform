@@ -27,7 +27,7 @@ export const EquityCurveChart: React.FC<EquityCurveChartProps> = ({ data }) => {
 
   const finalEquity = chartData[chartData.length - 1]?.equity ?? 100;
   const isPositive = finalEquity >= 100;
-  const strokeColor = isPositive ? '#34d399' : '#f43f5e';
+  const strokeColor = isPositive ? '#10b981' : '#ef4444';
   const fillColor = isPositive ? 'url(#greenGradient)' : 'url(#redGradient)';
 
   return (
@@ -36,34 +36,34 @@ export const EquityCurveChart: React.FC<EquityCurveChartProps> = ({ data }) => {
         <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
           <defs>
             <linearGradient id="greenGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#34d399" stopOpacity={0.3} />
-              <stop offset="100%" stopColor="#34d399" stopOpacity={0.0} />
+              <stop offset="0%" stopColor="#10b981" stopOpacity={0.25} />
+              <stop offset="100%" stopColor="#10b981" stopOpacity={0.0} />
             </linearGradient>
             <linearGradient id="redGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.3} />
-              <stop offset="100%" stopColor="#f43f5e" stopOpacity={0.0} />
+              <stop offset="0%" stopColor="#ef4444" stopOpacity={0.25} />
+              <stop offset="100%" stopColor="#ef4444" stopOpacity={0.0} />
             </linearGradient>
           </defs>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
           <XAxis
             dataKey="index"
-            tick={{ fontSize: 10, fill: '#64748b' }}
+            tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }}
             tickLine={false}
-            axisLine={{ stroke: '#334155' }}
+            axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
           />
           <YAxis
             domain={[minEquity - padding, maxEquity + padding]}
-            tick={{ fontSize: 10, fill: '#64748b' }}
+            tick={{ fontSize: 10, fill: 'rgba(255,255,255,0.35)' }}
             tickLine={false}
-            axisLine={{ stroke: '#334155' }}
+            axisLine={{ stroke: 'rgba(255,255,255,0.08)' }}
             tickFormatter={(v) => `${v.toFixed(0)}%`}
           />
           <Tooltip
             contentStyle={{
-              backgroundColor: '#0f172a',
-              border: '1px solid #334155',
-              borderRadius: '8px',
-              fontSize: '12px',
+              backgroundColor: 'rgba(15,18,25,0.95)',
+              border: '1px solid rgba(255,255,255,0.08)',
+              borderRadius: '6px',
+              fontSize: '13px',
               fontFamily: 'monospace',
             }}
             labelFormatter={(idx) => `Candle #${idx}`}

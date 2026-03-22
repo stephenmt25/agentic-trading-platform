@@ -40,18 +40,25 @@ async def get_profiles(
 ):
     """Return all trading profiles for the current user."""
     profiles = await repo.get_all_profiles_for_user(user_id)
-    return [
-        ProfileResponse(
+    results = []
+    for p in profiles:
+        raw_rules = p.get("strategy_rules", {})
+        if isinstance(raw_rules, str):
+            import json as _json
+            try:
+                raw_rules = _json.loads(raw_rules)
+            except (ValueError, TypeError):
+                raw_rules = {}
+        results.append(ProfileResponse(
             profile_id=str(p.get("profile_id", "")),
             name=p.get("name", ""),
             is_active=p.get("is_active", False),
-            rules_json=p.get("strategy_rules", {}),
+            rules_json=raw_rules,
             allocation_pct=float(p.get("allocation_pct", 0)),
             created_at=str(p.get("created_at", "")),
             deleted_at=str(p.get("deleted_at", "")) if p.get("deleted_at") else None,
-        )
-        for p in profiles
-    ]
+        ))
+    return results
 
 
 @router.post("/", status_code=201)

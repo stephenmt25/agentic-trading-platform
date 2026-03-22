@@ -17,10 +17,10 @@ export function DocsNav() {
       <div>
         <Link
           href="/docs"
-          className={`block rounded px-2 py-1 text-sm font-medium transition-colors ${
+          className={`block rounded-md px-2 py-1 text-sm font-medium transition-colors ${
             pathname === "/docs"
-              ? "bg-indigo-500/10 text-indigo-400"
-              : "text-slate-400 hover:text-slate-200"
+              ? "bg-primary/10 text-primary"
+              : "text-muted-foreground hover:text-foreground"
           }`}
         >
           Documentation Index
@@ -29,7 +29,7 @@ export function DocsNav() {
 
       {DOC_SECTIONS.map((section) => (
         <div key={section.title}>
-          <h3 className="mb-1.5 px-2 text-xs font-semibold uppercase tracking-wider text-slate-500">
+          <h3 className="mb-1.5 px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {section.title}
           </h3>
           <ul className="space-y-0.5">
@@ -45,10 +45,10 @@ export function DocsNav() {
                 <li key={doc.slug}>
                   <Link
                     href={href}
-                    className={`block rounded px-2 py-1 text-sm transition-colors ${
+                    className={`block rounded-md px-2 py-1 text-sm transition-colors ${
                       isActive
-                        ? "bg-indigo-500/10 text-indigo-400"
-                        : "text-slate-400 hover:bg-slate-800/50 hover:text-slate-200"
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-accent hover:text-foreground"
                     }`}
                   >
                     {doc.label}

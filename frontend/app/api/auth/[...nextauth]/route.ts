@@ -1,8 +1,19 @@
 import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import GitHubProvider from "next-auth/providers/github";
+import { SignJWT } from "jose";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+/** Create a plain HS256-signed JWT that the Python backend can verify with pyjwt. */
+async function createBackendToken(payload: Record<string, unknown>): Promise<string> {
+  const secret = new TextEncoder().encode(process.env.NEXTAUTH_SECRET || "");
+  return new SignJWT(payload)
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime("5m")
+    .sign(secret);
+}
 
 const handler = NextAuth({
   providers: [
@@ -34,11 +45,10 @@ const handler = NextAuth({
       // Get backend token if we don't have one yet (initial sign-in or retry)
       if (!token.backendAccessToken && token.email) {
         try {
-          // Encode a session token signed with NEXTAUTH_SECRET for backend verification
-          const jwt = await import("next-auth/jwt");
-          const sessionToken = await (jwt as any).encode({
-            token: { email: token.email, sub: token.sub },
-            secret: process.env.NEXTAUTH_SECRET || "",
+          // Create a plain HS256 JWT the Python backend can verify with pyjwt
+          const sessionToken = await createBackendToken({
+            email: token.email,
+            sub: token.sub,
           });
 
           const res = await fetch(`${BACKEND_URL}/auth/callback`, {
