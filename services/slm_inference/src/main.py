@@ -1,0 +1,199 @@
+"""Local SLM Inference Service.
+
+Hosts a quantized GGUF model via llama-cpp-python, exposing:
+- POST /v1/completions  — OpenAI-compatible text completion
+- POST /v1/sentiment    — Structured sentiment analysis (returns JSON score)
+- GET  /health          — Health check with GPU memory and inference latency
+"""
+
+import json
+import time
+from contextlib import asynccontextmanager
+from typing import Optional
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field
+import uvicorn
+
+from libs.config import settings
+from libs.observability import get_logger
+
+logger = get_logger("slm-inference")
+
+# Global model reference (loaded at startup)
+_llm = None
+_model_info = {"model_path": "", "loaded": False, "load_time_ms": 0}
+
+
+# ---------------------------------------------------------------------------
+# Request / Response models
+# ---------------------------------------------------------------------------
+
+class CompletionRequest(BaseModel):
+    prompt: str
+    max_tokens: int = Field(default=256, ge=1, le=4096)
+    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    stop: Optional[list[str]] = None
+
+
+class CompletionResponse(BaseModel):
+    text: str
+    tokens_used: int
+    latency_ms: float
+
+
+class SentimentRequest(BaseModel):
+    symbol: str
+    headlines: list[str]
+
+
+class SentimentResponse(BaseModel):
+    score: float       # -1.0 to 1.0
+    confidence: float  # 0.0 to 1.0
+    latency_ms: float
+
+
+# ---------------------------------------------------------------------------
+# Model loading
+# ---------------------------------------------------------------------------
+
+def _load_model():
+    """Load the GGUF model. Imports llama-cpp-python lazily."""
+    global _llm
+    model_path = settings.SLM_MODEL_PATH
+    if not model_path:
+        logger.warning("SLM_MODEL_PATH not set — inference will use mock responses")
+        return
+
+    try:
+        from llama_cpp import Llama
+
+        start = time.monotonic()
+        _llm = Llama(
+            model_path=model_path,
+            n_ctx=settings.SLM_CONTEXT_LENGTH,
+            n_gpu_layers=settings.SLM_GPU_LAYERS,
+            verbose=False,
+        )
+        load_time = (time.monotonic() - start) * 1000
+        _model_info["model_path"] = model_path
+        _model_info["loaded"] = True
+        _model_info["load_time_ms"] = load_time
+        logger.info("SLM model loaded", model_path=model_path, load_time_ms=f"{load_time:.0f}")
+    except ImportError:
+        logger.error("llama-cpp-python not installed — run: pip install llama-cpp-python")
+    except Exception as e:
+        logger.error("Failed to load SLM model", error=str(e), model_path=model_path)
+
+
+def _generate(prompt: str, max_tokens: int = 256, temperature: float = 0.1,
+              stop: Optional[list[str]] = None) -> tuple[str, int]:
+    """Generate text from the loaded model. Returns (text, tokens_used)."""
+    if _llm is None:
+        # Mock response for development without a model
+        return '{"score": 0.0, "confidence": 0.3}', 10
+
+    output = _llm(
+        prompt,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stop=stop or [],
+    )
+    text = output["choices"][0]["text"]
+    tokens = output["usage"]["total_tokens"]
+    return text, tokens
+
+
+# ---------------------------------------------------------------------------
+# App lifecycle
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    _load_model()
+    logger.info("SLM Inference Service started")
+    yield
+    logger.info("SLM Inference Service shutdown")
+
+
+app = FastAPI(title="SLM Inference Service", lifespan=lifespan)
+
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
+@app.post("/v1/completions", response_model=CompletionResponse)
+async def completions(req: CompletionRequest):
+    start = time.monotonic()
+    try:
+        text, tokens = _generate(req.prompt, req.max_tokens, req.temperature, req.stop)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    latency = (time.monotonic() - start) * 1000
+
+    return CompletionResponse(text=text, tokens_used=tokens, latency_ms=round(latency, 1))
+
+
+@app.post("/v1/sentiment", response_model=SentimentResponse)
+async def sentiment(req: SentimentRequest):
+    if not req.headlines:
+        return SentimentResponse(score=0.0, confidence=0.1, latency_ms=0.0)
+
+    prompt = (
+        f"Analyze the market sentiment for {req.symbol} based on these headlines:\n"
+        + "\n".join(f"- {h[:200]}" for h in req.headlines[:5])
+        + "\n\nYou MUST respond with ONLY raw valid JSON (no markdown, no extra text).\n"
+        + 'Respond with exactly: {"score": <float -1.0 to 1.0>, "confidence": <float 0.0 to 1.0>}'
+    )
+
+    start = time.monotonic()
+    try:
+        text, _ = _generate(prompt, max_tokens=100, temperature=0.1, stop=["\n\n"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    latency = (time.monotonic() - start) * 1000
+
+    # Parse structured output
+    try:
+        # Try to find JSON in the response
+        text = text.strip()
+        if not text.startswith("{"):
+            # Find first { in response
+            idx = text.find("{")
+            if idx >= 0:
+                text = text[idx:]
+        parsed = json.loads(text)
+        score = max(-1.0, min(1.0, float(parsed["score"])))
+        confidence = max(0.0, min(1.0, float(parsed["confidence"])))
+    except (json.JSONDecodeError, KeyError, ValueError):
+        logger.warning("Failed to parse SLM sentiment response", raw=text[:200])
+        score = 0.0
+        confidence = 0.3
+
+    return SentimentResponse(score=score, confidence=confidence, latency_ms=round(latency, 1))
+
+
+@app.get("/health")
+def health():
+    info = {
+        "status": "healthy",
+        "model_loaded": _model_info["loaded"],
+        "model_path": _model_info["model_path"],
+        "load_time_ms": _model_info["load_time_ms"],
+    }
+
+    # GPU memory info if available
+    try:
+        import torch
+        if torch.cuda.is_available():
+            info["gpu_memory_allocated_mb"] = round(torch.cuda.memory_allocated() / 1024 / 1024, 1)
+            info["gpu_memory_reserved_mb"] = round(torch.cuda.memory_reserved() / 1024 / 1024, 1)
+    except ImportError:
+        pass
+
+    return info
+
+
+if __name__ == "__main__":
+    uvicorn.run("services.slm_inference.src.main:app", host="0.0.0.0", port=8095)

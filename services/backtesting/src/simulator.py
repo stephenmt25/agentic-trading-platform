@@ -69,6 +69,13 @@ class TradingSimulator:
             macd_val = indicators.macd.update(close)
             atr_val = indicators.atr.update(high, low, close)
 
+            # New indicators (None-safe — still priming returns None)
+            adx_val = indicators.adx.update(high, low, close) if indicators.adx else None
+            bb_val = indicators.bollinger.update(close) if indicators.bollinger else None
+            volume = float(candle.get("volume", 0))
+            obv_val = indicators.obv.update(close, volume) if indicators.obv else None
+            chop_val = indicators.choppiness.update(high, low, close) if indicators.choppiness else None
+
             # Skip burn-in period
             if rsi_val is None or macd_val is None or atr_val is None:
                 equity_curve.append(equity)
@@ -81,6 +88,17 @@ class TradingSimulator:
                 "macd.histogram": macd_val.histogram,
                 "atr": atr_val,
             }
+            if adx_val is not None:
+                eval_dict["adx"] = adx_val
+            if bb_val is not None:
+                eval_dict["bb.pct_b"] = bb_val.pct_b
+                eval_dict["bb.bandwidth"] = bb_val.bandwidth
+                eval_dict["bb.upper"] = bb_val.upper
+                eval_dict["bb.lower"] = bb_val.lower
+            if obv_val is not None:
+                eval_dict["obv"] = obv_val
+            if chop_val is not None:
+                eval_dict["choppiness"] = chop_val
 
             result = compiled.evaluate(eval_dict)
 

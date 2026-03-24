@@ -1,6 +1,7 @@
 import { useAuthStore } from '../stores/authStore';
 import { usePortfolioStore } from '../stores/portfolioStore';
 import { useAlertStore } from '../stores/alertStore';
+import { useHITLStore } from '../stores/hitlStore';
 
 function getWsUrl(): string {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -67,6 +68,22 @@ class WebSocketClient {
                             check_type: 'ESCALATION',
                             mode: 'ASYNC',
                             reason: data.reason
+                        });
+                        break;
+                    case 'pubsub:hitl_pending':
+                        useHITLStore.getState().addRequest({
+                            event_id: data.event_id,
+                            profile_id: data.profile_id,
+                            symbol: data.symbol,
+                            side: data.side,
+                            quantity: data.quantity,
+                            price: data.price,
+                            confidence: data.confidence,
+                            trigger_reason: data.trigger_reason,
+                            agent_scores: data.agent_scores || {},
+                            risk_metrics: data.risk_metrics || {},
+                            timestamp_us: data.timestamp_us,
+                            status: 'PENDING',
                         });
                         break;
                     case 'pubsub:alerts':

@@ -32,6 +32,8 @@ class EventType(str, Enum):
     SYSTEM_ALERT = "SYSTEM_ALERT"
     THRESHOLD_PROXIMITY = "THRESHOLD_PROXIMITY"
     REGIME_DISAGREEMENT = "REGIME_DISAGREEMENT"
+    HITL_PENDING = "HITL_PENDING"
+    HITL_RESPONSE = "HITL_RESPONSE"
 
 class Regime(str, Enum):
     TRENDING_UP = "TRENDING_UP"
@@ -65,3 +67,9 @@ class SignalDirection(str, Enum):
 class PositionStatus(str, Enum):
     OPEN = "OPEN"
     CLOSED = "CLOSED"
+
+class HITLStatus(str, Enum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+    EXPIRED = "EXPIRED"

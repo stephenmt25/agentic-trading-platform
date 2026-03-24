@@ -2,7 +2,7 @@
 
 ## Purpose and Responsibility
 
-The Indicators library provides streaming, tick-by-tick implementations of standard technical analysis indicators used by the Hot-Path Processor for real-time strategy evaluation. Each indicator maintains internal state and updates incrementally with O(1) computation per tick, making them suitable for the low-latency hot path. The library includes RSI, EMA, MACD, ATR, and a market regime classifier.
+The Indicators library provides streaming, tick-by-tick implementations of standard technical analysis indicators used by the Hot-Path Processor for real-time strategy evaluation. Each indicator maintains internal state and updates incrementally with O(1) computation per tick, making them suitable for the low-latency hot path. The library includes 8 indicators: RSI, EMA, MACD, ATR, ADX, Bollinger Bands, OBV, Choppiness Index, plus a market regime classifier.
 
 ## Public Interface
 
@@ -14,9 +14,15 @@ class IndicatorSet:
     macd: MACDCalculator
     atr: ATRCalculator
     regime: SimpleRegimeClassifier
+    adx: ADXCalculator          # Optional, default None
+    bollinger: BollingerCalculator  # Optional, default None
+    obv: OBVCalculator          # Optional, default None
+    choppiness: ChoppinessCalculator  # Optional, default None
 
 def create_indicator_set(profile_config: Dict[str, Any] = None) -> IndicatorSet
 ```
+
+`create_indicator_set()` instantiates all 8 indicators with default parameters. New indicators default to `None` for backward compatibility when constructing `IndicatorSet` manually, but `create_indicator_set()` always populates them.
 
 ### `RSICalculator`
 
@@ -56,6 +62,54 @@ class ATRCalculator:
     def update(self, high: float, low: float, close: float) -> Optional[float]
 ```
 
+### `ADXCalculator`
+
+```python
+class ADXCalculator:
+    def __init__(self, period: int = 14)
+    def update(self, high: float, low: float, close: float) -> Optional[float]
+```
+
+Returns the Average Directional Index (0-100 scale). ADX > 25 indicates a strong trend; ADX < 20 indicates a weak/ranging market. Uses Wilder smoothing for +DI, -DI, and the ADX itself.
+
+### `BollingerCalculator`
+
+```python
+class BollingerCalculator:
+    def __init__(self, period: int = 20, num_std: float = 2.0)
+    def update(self, close: float) -> Optional[BollingerResult]
+
+@dataclass(frozen=True, slots=True)
+class BollingerResult:
+    upper: float
+    middle: float
+    lower: float
+    bandwidth: float
+    pct_b: float
+```
+
+Returns Bollinger Bands with SMA-based middle band. `pct_b` measures where price sits relative to the bands (0.0 = lower band, 1.0 = upper band). Values outside 0-1 indicate price beyond the bands. `bandwidth` is the band width relative to the middle band.
+
+### `OBVCalculator`
+
+```python
+class OBVCalculator:
+    def __init__(self)
+    def update(self, close: float, volume: float) -> Optional[float]
+```
+
+Cumulative On-Balance Volume. Adds volume on up-closes, subtracts on down-closes. Used for volume-trend confirmation in the TA confluence scorer.
+
+### `ChoppinessCalculator`
+
+```python
+class ChoppinessCalculator:
+    def __init__(self, period: int = 14)
+    def update(self, high: float, low: float, close: float) -> Optional[float]
+```
+
+Returns the Choppiness Index (0-100 scale). Values > 61.8 indicate choppy/ranging conditions; values < 38.2 indicate trending. Formula: `100 * LOG10(sum(TR) / (HH - LL)) / LOG10(period)`. Used as a regime filter in TA confluence scoring — high choppiness dampens signal conviction.
+
 ### `SimpleRegimeClassifier`
 
 ```python
@@ -78,6 +132,10 @@ All indicators return `None` until they have received enough data points to prod
 | EMA | `period` ticks |
 | MACD | `slow` + `signal` - 1 ticks (default 34) |
 | ATR | `period` ticks (default 14) |
+| ADX | 2 * `period` - 1 ticks (default 27) |
+| Bollinger | `period` ticks (default 20) |
+| OBV | 1 tick (returns `None` only on first bar) |
+| Choppiness | `period` ticks (default 14) |
 | Regime | max(`sma_period`, `vol_lookback`) ticks (default 200) |
 
 ### RSI (Relative Strength Index)
@@ -120,6 +178,46 @@ Uses Wilder's smoothing on the True Range:
 5. After priming: `atr = (prev_atr * (period - 1) + tr) / period`.
 6. Exposes `prev_close` as a public attribute for external use (the Hot-Path uses it for tick high/low estimation).
 
+### ADX (Average Directional Index)
+
+Uses Wilder smoothing on Directional Movement:
+
+1. Computes +DM (up-move) and -DM (down-move) from consecutive high/low pairs.
+2. Computes True Range (same as ATR).
+3. Accumulates DM and TR for the first `period` bars (no smoothing).
+4. After `period` bars, applies Wilder smoothing: `smoothed = smoothed - (smoothed / period) + current`.
+5. +DI = 100 * smoothed_+DM / smoothed_TR, -DI = 100 * smoothed_-DM / smoothed_TR.
+6. DX = 100 * |+DI - -DI| / (+DI + -DI).
+7. First ADX = average of first `period` DX values.
+8. After: `ADX = (prev_ADX * (period - 1) + DX) / period`.
+
+### Bollinger Bands
+
+SMA-based bands with configurable standard deviation width:
+
+1. Maintains a ring buffer of `period` close prices.
+2. Tracks running sum and sum-of-squares for O(1) mean and variance.
+3. Middle band = SMA. Upper/lower = SMA +/- `num_std` * std_dev.
+4. `bandwidth` = (upper - lower) / middle.
+5. `pct_b` = (close - lower) / (upper - lower). Values outside [0, 1] mean price is beyond bands.
+
+### OBV (On-Balance Volume)
+
+Simple cumulative indicator:
+
+1. First bar: OBV = volume, returns `None`.
+2. Subsequent bars: if close > prev_close, OBV += volume; if close < prev_close, OBV -= volume; if equal, no change.
+3. Returns running OBV total.
+
+### Choppiness Index
+
+Measures market directionality using ATR sum relative to price range:
+
+1. Maintains rolling buffers of True Range, highs, and lows over `period` bars.
+2. `CHOP = 100 * LOG10(sum(TR) / (highest_high - lowest_low)) / LOG10(period)`.
+3. Clamped to [0, 100].
+4. High values (> 61.8) = choppy/consolidating; low values (< 38.2) = trending.
+
 ### Regime Classifier
 
 Combines a 200-period SMA with ATR percentile analysis using numpy:
@@ -155,10 +253,62 @@ All indicators are designed to be exception-free under normal operation. They re
 | `slow` | MACD | `26` | Slow EMA period |
 | `signal` | MACD | `9` | Signal line EMA period |
 | `period` | ATR | `14` | ATR smoothing period |
+| `period` | ADX | `14` | Wilder smoothing and DX averaging period |
+| `period` | Bollinger | `20` | SMA period for middle band |
+| `num_std` | Bollinger | `2.0` | Standard deviation multiplier for upper/lower bands |
+| (none) | OBV | -- | Cumulative, no configurable parameters |
+| `period` | Choppiness | `14` | Rolling window for TR sum and high/low range |
 | `sma_period` | Regime | `200` | SMA lookback for trend detection |
 | `vol_lookback` | Regime | `90` | ATR history window for percentile calculation |
 
 Note: `create_indicator_set()` accepts a `profile_config` parameter but does not currently use it. All indicators are created with default parameters regardless of the profile configuration.
+
+## TA Confluence Integration
+
+The TA Confluence Scorer (`services/ta_agent/src/confluence.py`) uses indicators across 4 timeframes (1m, 5m, 15m, 1h) with weighted averaging [0.1, 0.2, 0.3, 0.4]:
+
+| Signal Dimension | Source | Range | Contribution |
+|---|---|---|---|
+| RSI | `(50 - rsi) / 50` | [-1, 1] | Equal weight with MACD (or 1/3 when Bollinger available) |
+| MACD | Histogram normalized by MACD line | [-1, 1] | Equal weight with RSI |
+| Bollinger %B | `1 - 2 * pct_b` | [-1, 1] | 3rd dimension when primed (makes score avg of 3) |
+| ADX | Trend-strength multiplier on 1h | 0.7x - 1.3x | ADX > 25 amplifies; ADX < 20 dampens |
+| Choppiness | Regime filter on 1h | 0.5x - 1.0x | Chop > 61.8 dampens conviction linearly |
+
+The final score is clamped to [-1.0, 1.0] and written to `agent:ta_score:{symbol}` in Redis.
+
+### Strategy Rule Keys
+
+The strategy compiler evaluates rules against any of these indicator keys in the `eval_dict`:
+
+| Key | Description | Source |
+|-----|-------------|--------|
+| `rsi` | RSI value (0-100) | RSICalculator |
+| `macd.macd_line` | MACD line value | MACDCalculator |
+| `macd.signal_line` | Signal line value | MACDCalculator |
+| `macd.histogram` | MACD histogram | MACDCalculator |
+| `atr` | Average True Range | ATRCalculator |
+| `adx` | ADX value (0-100) | ADXCalculator |
+| `bb.pct_b` | Bollinger %B (0-1 typical) | BollingerCalculator |
+| `bb.bandwidth` | Bollinger bandwidth | BollingerCalculator |
+| `bb.upper` | Upper Bollinger Band | BollingerCalculator |
+| `bb.lower` | Lower Bollinger Band | BollingerCalculator |
+| `obv` | On-Balance Volume (cumulative) | OBVCalculator |
+| `choppiness` | Choppiness Index (0-100) | ChoppinessCalculator |
+
+Example strategy rule using new indicators:
+```json
+{
+  "conditions": [
+    {"indicator": "rsi", "operator": "LT", "value": 30},
+    {"indicator": "bb.pct_b", "operator": "LT", "value": 0.2},
+    {"indicator": "adx", "operator": "GT", "value": 25}
+  ],
+  "logic": "AND",
+  "direction": "BUY",
+  "base_confidence": 0.85
+}
+```
 
 ## Known Issues and Technical Debt
 

@@ -8,6 +8,7 @@ from .agent_modifier import AgentModifier
 from .circuit_breaker import CircuitBreaker
 from .blacklist import BlacklistChecker
 from .risk_gate import RiskGate
+from .hitl_gate import HITLGate
 from .validation_client import ValidationClient
 
 from libs.core.enums import SignalDirection, EventType, ValidationCheck, ValidationVerdict, ValidationMode
@@ -46,6 +47,9 @@ class HotPathProcessor:
 
         # Sprint 9.5: Agent modifier for TA + sentiment scores
         self._agent_modifier = AgentModifier(redis_client) if redis_client else None
+
+        # Phase 3: HITL execution gate
+        self._hitl_gate = HITLGate(redis_client, pubsub) if redis_client else None
 
     async def run(self):
         logger.info("HotPath Processor started consuming loop.")
@@ -127,6 +131,15 @@ class HotPathProcessor:
                         risk_result = RiskGate.check(profile_state, sig_res, tick)
                         if risk_result.blocked:
                             continue
+
+                        # 6b. HITL Gate (between risk_gate and validation)
+                        if self._hitl_gate:
+                            hitl_result = await self._hitl_gate.check(
+                                profile_state, sig_res, tick, inds, risk_result,
+                            )
+                            if hitl_result.blocked:
+                                logger.info(f"HITL blocked trade for {profile_state.profile_id} - {hitl_result.reason}")
+                                continue
 
                         # 7. Validation Fast Gate
                         val_req = ValidationRequestEvent(

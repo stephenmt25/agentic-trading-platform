@@ -52,5 +52,18 @@ class Settings(BaseSettings):
     # Backtest queue limits
     BACKTEST_MAX_QUEUE_DEPTH: int = Field(default=100)
 
+    # Local SLM inference
+    LLM_BACKEND: str = Field(default="cloud")           # "cloud", "local", or "auto" (local with cloud fallback)
+    SLM_INFERENCE_URL: str = Field(default="http://localhost:8095")
+    SLM_MODEL_PATH: str = Field(default="")              # Path to GGUF model file
+    SLM_CONTEXT_LENGTH: int = Field(default=4096)
+    SLM_GPU_LAYERS: int = Field(default=-1)              # -1 = all layers on GPU
+
+    # HITL (Human-in-the-Loop) execution gate
+    HITL_ENABLED: bool = Field(default=False)
+    HITL_SIZE_THRESHOLD_PCT: float = Field(default=5.0)       # Trigger when trade size > X% of allocation
+    HITL_CONFIDENCE_THRESHOLD: float = Field(default=0.5)     # Trigger when confidence < threshold
+    HITL_TIMEOUT_S: int = Field(default=60)                   # Seconds to wait for human response
+
     def is_secret_key_secure(self) -> bool:
         return self.SECRET_KEY != _INSECURE_DEFAULT_KEY

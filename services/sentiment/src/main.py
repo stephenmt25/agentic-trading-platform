@@ -9,7 +9,7 @@ from libs.config import settings
 from libs.storage import RedisClient
 from libs.observability import get_logger
 from .news_client import NewsClient
-from .scorer import LLMSentimentScorer
+from .scorer import LLMSentimentScorer, create_backend
 
 logger = get_logger("sentiment-agent")
 
@@ -52,11 +52,15 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
 async def lifespan(app: FastAPI):
     redis_instance = RedisClient.get_instance(settings.REDIS_URL).get_connection()
     news_client = NewsClient(api_key=settings.NEWS_API_KEY)
+    backends = create_backend(llm_key=settings.LLM_API_KEY)
     scorer = LLMSentimentScorer(
         llm_key=settings.LLM_API_KEY,
         cache_client=redis_instance,
         cache_ttl=SCORE_TTL_S,
+        backends=backends,
     )
+    logger.info("Sentiment scorer initialized", backend_mode=settings.LLM_BACKEND,
+                num_backends=len(backends))
 
     task = asyncio.create_task(sentiment_loop(redis_instance, scorer, news_client))
     logger.info("Sentiment Agent started")

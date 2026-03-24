@@ -2,7 +2,7 @@
 
 > How autonomous agents in Aion coordinate to turn raw market data into validated, risk-checked trading decisions.
 
-Aion is built around **12 single-responsibility agents** that communicate through Redis Streams, Pub/Sub, and cache-aside reads. No agent calls another directly. Every interaction flows through a well-defined messaging channel, making each agent independently deployable and testable.
+Aion is built around **15 single-responsibility agents** that communicate through Redis Streams, Pub/Sub, and cache-aside reads. No agent calls another directly. Every interaction flows through a well-defined messaging channel, making each agent independently deployable and testable.
 
 ---
 
@@ -88,12 +88,16 @@ Scoring agents run as background loops. They compute analytical signals independ
 **Decision logic:**
 1. Check Redis cache first. If a cached result exists and has not expired, return it immediately.
 2. If no headlines are available, return neutral (`score=0.0, confidence=1.0`).
-3. If no LLM API key is configured, return neutral with reduced confidence (`confidence=0.5`).
-4. Call Claude claude-haiku-4-5-20251001 with a structured prompt requesting a JSON response.
-5. Parse the LLM response using direct JSON parse, with regex fallback for malformed output.
-6. Clamp score to `[-1, 1]` and confidence to `[0, 1]`.
-7. Retry up to 2 times on failure. Rate limited to one LLM call every 2 seconds minimum.
-8. On total failure, return neutral with `confidence=0.5` and `source="llm_error"`.
+3. Try backends in order based on `AION_LLM_BACKEND` setting:
+   - `"local"`: `LocalLLMBackend` calls the SLM inference service (`POST /v1/completions`).
+   - `"cloud"`: `CloudLLMBackend` calls Claude claude-haiku-4-5-20251001 via Anthropic API.
+   - `"auto"`: Try local first, fall back to cloud on failure.
+4. Parse the LLM response using direct JSON parse, with regex fallback for malformed output.
+5. Clamp score to `[-1, 1]` and confidence to `[0, 1]`.
+6. Cloud backend retries up to 2 times on failure. Rate limited to one call every 2 seconds.
+7. On total failure (all backends), return neutral with `confidence=0.5` and `source="llm_error"`.
+
+The scorer uses an `LLMBackend` protocol (`async def complete(prompt: str) -> Optional[str]`) enabling pluggable backends. The `create_backend()` factory produces an ordered list of backends based on configuration.
 
 **Source:** `services/sentiment/src/scorer.py`
 
@@ -132,9 +136,95 @@ Scoring agents run as background loops. They compute analytical signals independ
 
 ---
 
+#### 4. Debate Agent
+
+| Property | Value |
+|---|---|
+| **Service** | `services/debate` |
+| **Loop interval** | 300 seconds |
+| **Cache key** | `agent:debate:{symbol}` |
+| **Cache TTL** | 600 seconds |
+| **Responsibility** | Adversarial bull/bear debate producing consensus score |
+
+**Inputs:**
+- Market context from Redis: TA score, sentiment score, regime, indicator values
+- LLM backend (same as Sentiment Agent — local or cloud)
+
+**Outputs:**
+- `agent:debate:{symbol}` Redis key with `{score, confidence, reasoning, num_rounds, latency_ms}`
+
+**Decision logic:**
+1. For each tracked symbol, gather current market context from Redis (indicators, TA score, sentiment, regime).
+2. Run 2 debate rounds:
+   - **Bull agent**: Argues the strongest case for a LONG position using indicator data.
+   - **Bear agent**: Argues the strongest case for a SHORT position using indicator data.
+   - Each agent produces an argument and a conviction score (0-1).
+3. **Judge agent**: Evaluates both sides' arguments and produces a final score (-1.0 bearish to +1.0 bullish) with confidence and reasoning.
+4. If the judge fails to produce valid JSON, falls back to conviction-difference calculation (bull_avg - bear_avg) with reduced confidence (0.3).
+5. Score is clamped to [-1, 1], confidence to [0, 1].
+6. Result written to Redis with 10-minute TTL.
+
+**Prompt templates:** `prompts/debate/bull.txt`, `prompts/debate/bear.txt`, `prompts/debate/judge.txt`
+
+**Source:** `services/debate/src/engine.py`, `services/debate/src/main.py`
+
+---
+
+#### 5. SLM Inference Service
+
+| Property | Value |
+|---|---|
+| **Service** | `services/slm_inference` |
+| **Type** | Always-on HTTP API (not a loop) |
+| **Responsibility** | Host quantized GGUF model for local LLM inference |
+
+**Endpoints:**
+- `POST /v1/completions` — OpenAI-compatible text completion
+- `POST /v1/sentiment` — Structured sentiment analysis returning `{score, confidence}`
+- `GET /health` — Health check with model load status and GPU memory metrics
+
+**Details:**
+- Loads a GGUF model at startup via `llama-cpp-python` (e.g., Phi-3-mini-4k Q4, ~2.3GB VRAM).
+- Model path configured via `AION_SLM_MODEL_PATH`.
+- Returns mock responses when no model is loaded (development mode).
+- GPU layer offloading configurable via `AION_SLM_GPU_LAYERS` (-1 = all).
+
+**Source:** `services/slm_inference/src/main.py`
+
+---
+
+#### 6. Analyst Agent (Weight Engine)
+
+| Property | Value |
+|---|---|
+| **Service** | `services/analyst` |
+| **Loop interval** | 300 seconds |
+| **Responsibility** | Compute dynamic agent weights from closed position outcomes |
+
+**Inputs:**
+- Closed position outcomes from `agent:closed:{symbol}` Redis stream (written by PnL closer)
+- Agent score snapshots from `agent:position_scores:{position_id}` Redis keys (written by Execution service)
+
+**Outputs:**
+- `agent:weights:{symbol}` Redis hash: `{ta: 0.22, sentiment: 0.18, debate: 0.25}`
+- `agent:tracker:{symbol}:{agent}` Redis hash: `{ewma_accuracy, sample_count, last_updated}`
+
+**Decision logic:**
+1. Every 5 minutes, for each traded symbol:
+2. Read recent closed position outcomes (last 500).
+3. For each agent, compute EWMA accuracy: `ewma = alpha * hit + (1 - alpha) * ewma` where `hit = 1.0` for wins, `0.0` for losses (alpha = 0.1).
+4. If sample_count >= 10 (MIN_SAMPLES), map accuracy to weight: `weight = default * (ewma / 0.5)`.
+5. Clamp weight to [0.05, 1.0].
+6. If sample_count < MIN_SAMPLES, use default weights (TA=0.20, sentiment=0.15, debate=0.25).
+7. Write computed weights to Redis hash with 15-minute TTL.
+
+**Source:** `libs/core/agent_registry.py`, `services/analyst/src/main.py`
+
+---
+
 ### Orchestration Agents
 
-#### 4. Hot-Path Processor
+#### 7. Hot-Path Processor
 
 | Property | Value |
 |---|---|

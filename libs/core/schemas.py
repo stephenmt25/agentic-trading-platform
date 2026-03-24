@@ -4,7 +4,7 @@ import os
 import threading
 from pydantic import BaseModel, Field, ConfigDict
 
-from .enums import EventType, OrderSide, OrderStatus, ValidationCheck, ValidationMode, ValidationVerdict
+from .enums import EventType, OrderSide, OrderStatus, ValidationCheck, ValidationMode, ValidationVerdict, HITLStatus
 from .types import Price, ProfileId, Quantity, SymbolPair, Timestamp
 
 
@@ -14,7 +14,7 @@ def _make_monotonic_id_factory():
     Produces valid UUID-shaped strings without syscalls.
     Format: 00000000-0000-4pid-8cnt-cntcntcntcnt
     """
-    _pid = os.getpid() & 0xFFFF
+    _pid = os.getpid() & 0xFFF
     _counter = 0
     _lock = threading.Lock()
 
@@ -124,3 +124,24 @@ class ThresholdProximityEvent(BaseEvent):
     current_value: float
     trigger_threshold: float
     proximity_pct: float
+
+
+class HITLApprovalRequest(BaseEvent):
+    event_type: Literal[EventType.HITL_PENDING] = EventType.HITL_PENDING
+    profile_id: ProfileId
+    symbol: SymbolPair
+    side: OrderSide
+    quantity: Quantity
+    price: Price
+    confidence: float
+    trigger_reason: str
+    agent_scores: Dict[str, Any] = Field(default_factory=dict)
+    risk_metrics: Dict[str, Any] = Field(default_factory=dict)
+
+
+class HITLApprovalResponse(BaseEvent):
+    event_type: Literal[EventType.HITL_RESPONSE] = EventType.HITL_RESPONSE
+    request_id: UUID
+    status: HITLStatus
+    reviewer: Optional[str] = None
+    reason: Optional[str] = None

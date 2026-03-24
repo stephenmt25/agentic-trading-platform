@@ -6,19 +6,39 @@ from contextlib import asynccontextmanager
 from libs.config import settings
 from libs.storage import RedisClient
 from libs.observability import get_logger
+from libs.core.agent_registry import AgentPerformanceTracker
 
 logger = get_logger("analyst")
 
-# NOTE: Sentiment scoring responsibility has been moved to services/sentiment/
-# (Sprint 9.3). The proximity listener that previously triggered sentiment checks
-# is now handled by the dedicated Sentiment Agent service.
-# This service retains its FastAPI shell for any remaining analyst duties
-# (e.g. future research features).
+WEIGHT_RECOMPUTE_INTERVAL_S = 300  # 5 minutes
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("Analyst Agent started (sentiment delegated to services/sentiment/)")
+    redis_conn = RedisClient.get_instance(settings.REDIS_URL).get_connection()
+    tracker = AgentPerformanceTracker(redis_conn)
+
+    async def weight_recompute_loop():
+        """Periodically recompute agent weights from closed position outcomes."""
+        while True:
+            try:
+                for symbol in settings.TRADING_SYMBOLS:
+                    await tracker.recompute_weights(symbol)
+                logger.info(
+                    "Agent weights recomputed",
+                    symbols=settings.TRADING_SYMBOLS,
+                )
+            except Exception as e:
+                logger.error("Weight recomputation failed", error=str(e))
+            await asyncio.sleep(WEIGHT_RECOMPUTE_INTERVAL_S)
+
+    logger.info("Analyst Agent started — weight computation engine")
+    weight_task = asyncio.create_task(weight_recompute_loop())
+
     yield
+
+    weight_task.cancel()
+    await asyncio.gather(weight_task, return_exceptions=True)
     logger.info("Analyst Agent shutdown")
 
 

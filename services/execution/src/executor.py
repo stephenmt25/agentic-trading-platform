@@ -14,6 +14,7 @@ from libs.config import settings
 
 from .ledger import OptimisticLedger
 from libs.observability import get_logger
+from libs.core.agent_registry import AgentPerformanceTracker
 
 logger = get_logger("execution.executor")
 
@@ -37,6 +38,7 @@ class OrderExecutor:
         orders_channel: str,
         profile_repo: ProfileRepository = None,
         secret_manager: SecretManager = None,
+        redis_client=None,
     ):
         self._publisher = publisher
         self._consumer = consumer
@@ -47,6 +49,7 @@ class OrderExecutor:
         self._channel = orders_channel
         self._profile_repo = profile_repo
         self._secret_manager = secret_manager or SecretManager(gcp_project_id=settings.GCP_PROJECT_ID)
+        self._redis_client = redis_client
 
     async def _resolve_adapter(self, profile_id: str):
         """Load the user's exchange keys from SecretManager and return the correct adapter."""
@@ -81,6 +84,41 @@ class OrderExecutor:
             testnet = settings.COINBASE_SANDBOX
 
         return get_adapter(exchange_name, api_key=api_key, secret=api_secret, testnet=testnet), exchange_name
+
+    async def _record_agent_scores(self, symbol: str, position_id: str, side: str):
+        """Snapshot current agent scores from Redis and record for weight feedback."""
+        try:
+            pipe = self._redis_client.pipeline(transaction=False)
+            pipe.get(f"agent:ta_score:{symbol}")
+            pipe.get(f"agent:sentiment:{symbol}")
+            pipe.get(f"agent:debate:{symbol}")
+            ta_raw, sent_raw, debate_raw = await pipe.execute()
+
+            agents = {}
+            direction = side if isinstance(side, str) else side.value
+
+            if ta_raw:
+                data = json.loads(ta_raw)
+                agents["ta"] = {"direction": direction, "score": float(data.get("score", 0))}
+            if sent_raw:
+                data = json.loads(sent_raw)
+                agents["sentiment"] = {"direction": direction, "score": float(data.get("score", 0))}
+            if debate_raw:
+                data = json.loads(debate_raw)
+                agents["debate"] = {"direction": direction, "score": float(data.get("score", 0))}
+
+            if agents:
+                tracker = AgentPerformanceTracker(self._redis_client)
+                await tracker.record_agent_scores(symbol, agents)
+
+                # Also cache agent snapshot for this position (used on close)
+                await self._redis_client.set(
+                    f"agent:position_scores:{position_id}",
+                    json.dumps(agents),
+                    ex=86400 * 7,  # 7 day TTL
+                )
+        except Exception as e:
+            logger.warning("Failed to record agent scores", error=str(e), symbol=symbol)
 
     async def run(self):
         logger.info("OrderExecutor starting loop")
@@ -154,6 +192,10 @@ class OrderExecutor:
                             status=PositionStatus.OPEN
                         )
                         await self._position_repo.create_position(pos)
+
+                        # 6b. Snapshot agent scores at time of execution for weight feedback
+                        if self._redis_client:
+                            await self._record_agent_scores(ev.symbol, str(pos_id), ev.side)
 
                         # 7. Emit executed event
                         executed_ev = OrderExecutedEvent(

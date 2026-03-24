@@ -127,13 +127,42 @@ class TestRegimeDampener:
         assert isinstance(result, DampenerResult)
 
 
+class _FakePipeline:
+    """Minimal pipeline mock for AgentModifier tests."""
+    def __init__(self, store):
+        self._store = store
+        self._commands = []
+
+    def get(self, key):
+        self._commands.append(("get", key))
+        return self
+
+    def hgetall(self, key):
+        self._commands.append(("hgetall", key))
+        return self
+
+    async def execute(self):
+        results = []
+        for cmd, key in self._commands:
+            results.append(self._store.get(key))
+        self._commands = []
+        return results
+
+
+class _FakeRedisForModifier:
+    """Fake Redis that supports pipeline() for AgentModifier tests."""
+    def __init__(self, store=None):
+        self._store = store or {}
+
+    def pipeline(self, transaction=False):
+        return _FakePipeline(self._store)
+
+
 class TestAgentModifier:
     @pytest.mark.asyncio
     async def test_returns_signal_unchanged_when_redis_keys_missing(self):
         """Graceful degradation: no Redis keys → signal unchanged."""
-        redis = AsyncMock()
-        redis.get = AsyncMock(return_value=None)
-
+        redis = _FakeRedisForModifier()
         modifier = AgentModifier(redis)
         signal = _make_signal()
 
@@ -144,16 +173,9 @@ class TestAgentModifier:
     @pytest.mark.asyncio
     async def test_bullish_ta_boosts_buy_confidence(self):
         """Positive TA score should boost BUY signal confidence."""
-        redis = AsyncMock()
-
-        async def mock_get(key):
-            if "ta_score" in key:
-                return json.dumps({"score": 0.8})
-            if "sentiment" in key:
-                return None
-            return None
-
-        redis.get = mock_get
+        redis = _FakeRedisForModifier({
+            "agent:ta_score:BTC/USDT": json.dumps({"score": 0.8}),
+        })
         modifier = AgentModifier(redis)
         signal = SignalResult(direction=SignalDirection.BUY, confidence=0.8, rule_matched=True)
 
@@ -163,16 +185,9 @@ class TestAgentModifier:
     @pytest.mark.asyncio
     async def test_bearish_ta_dampens_buy_confidence(self):
         """Negative TA score should dampen BUY signal confidence."""
-        redis = AsyncMock()
-
-        async def mock_get(key):
-            if "ta_score" in key:
-                return json.dumps({"score": -0.8})
-            if "sentiment" in key:
-                return None
-            return None
-
-        redis.get = mock_get
+        redis = _FakeRedisForModifier({
+            "agent:ta_score:BTC/USDT": json.dumps({"score": -0.8}),
+        })
         modifier = AgentModifier(redis)
         signal = SignalResult(direction=SignalDirection.BUY, confidence=0.8, rule_matched=True)
 

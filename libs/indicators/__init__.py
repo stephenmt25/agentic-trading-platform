@@ -3,17 +3,27 @@ from ._ema import EMACalculator
 from ._macd import MACDCalculator, MACDResult
 from ._atr import ATRCalculator
 from ._regime import SimpleRegimeClassifier
+from ._adx import ADXCalculator
+from ._bollinger import BollingerCalculator, BollingerResult
+from ._obv import OBVCalculator
+from ._choppiness import ChoppinessCalculator
 
 from typing import Dict, Any
 
 class IndicatorSet:
-    __slots__ = ('rsi', 'macd', 'atr', 'regime')
-    
-    def __init__(self, rsi: RSICalculator, macd: MACDCalculator, atr: ATRCalculator, regime: SimpleRegimeClassifier):
+    __slots__ = ('rsi', 'macd', 'atr', 'regime', 'adx', 'bollinger', 'obv', 'choppiness')
+
+    def __init__(self, rsi: RSICalculator, macd: MACDCalculator, atr: ATRCalculator, regime: SimpleRegimeClassifier,
+                 adx: ADXCalculator = None, bollinger: BollingerCalculator = None,
+                 obv: OBVCalculator = None, choppiness: ChoppinessCalculator = None):
         self.rsi = rsi
         self.macd = macd
         self.atr = atr
         self.regime = regime
+        self.adx = adx
+        self.bollinger = bollinger
+        self.obv = obv
+        self.choppiness = choppiness
 
 def create_indicator_set(profile_config: Dict[str, Any] = None) -> IndicatorSet:
     # Later profile_config allows customization of periods
@@ -21,7 +31,11 @@ def create_indicator_set(profile_config: Dict[str, Any] = None) -> IndicatorSet:
         rsi=RSICalculator(),
         macd=MACDCalculator(),
         atr=ATRCalculator(),
-        regime=SimpleRegimeClassifier()
+        regime=SimpleRegimeClassifier(),
+        adx=ADXCalculator(),
+        bollinger=BollingerCalculator(),
+        obv=OBVCalculator(),
+        choppiness=ChoppinessCalculator(),
     )
 
 __all__ = [
@@ -31,6 +45,11 @@ __all__ = [
     "MACDResult",
     "ATRCalculator",
     "SimpleRegimeClassifier",
+    "ADXCalculator",
+    "BollingerCalculator",
+    "BollingerResult",
+    "OBVCalculator",
+    "ChoppinessCalculator",
     "IndicatorSet",
     "create_indicator_set"
 ]

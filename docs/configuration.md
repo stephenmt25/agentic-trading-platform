@@ -124,6 +124,25 @@ environment.  Never commit `.env` files that contain real credentials.
 |----------|------|----------|---------|-------------|-------------|
 | `AION_BACKTEST_MAX_QUEUE_DEPTH` | `int` | No | `100` | Maximum number of pending backtest jobs allowed in the queue. New submissions are rejected with HTTP 429 when this limit is reached. | Backtesting |
 
+### Local SLM Inference
+
+| Variable | Type | Required | Default | Description | Consumed By |
+|----------|------|----------|---------|-------------|-------------|
+| `AION_LLM_BACKEND` | `str` | No | `"cloud"` | LLM backend mode. `"cloud"` = Claude API only. `"local"` = local SLM only. `"auto"` = try local first, fall back to cloud. | Sentiment, Debate |
+| `AION_SLM_INFERENCE_URL` | `str` | No | `"http://localhost:8095"` | URL of the local SLM inference service. | Sentiment, Debate |
+| `AION_SLM_MODEL_PATH` | `str` | No | `""` | Absolute path to the GGUF model file. Empty = mock mode (returns neutral responses). | SLM Inference |
+| `AION_SLM_CONTEXT_LENGTH` | `int` | No | `4096` | Context window size for the loaded SLM model. | SLM Inference |
+| `AION_SLM_GPU_LAYERS` | `int` | No | `-1` | Number of model layers to offload to GPU. `-1` = all layers. `0` = CPU only. | SLM Inference |
+
+### HITL (Human-in-the-Loop)
+
+| Variable | Type | Required | Default | Description | Consumed By |
+|----------|------|----------|---------|-------------|-------------|
+| `AION_HITL_ENABLED` | `bool` | No | `false` | Enable the HITL execution gate in the hot-path pipeline. When disabled, the gate is a no-op pass-through. | Hot Path |
+| `AION_HITL_SIZE_THRESHOLD_PCT` | `float` | No | `5.0` | Trade size as a percentage of max allocation that triggers HITL approval. | Hot Path |
+| `AION_HITL_CONFIDENCE_THRESHOLD` | `float` | No | `0.5` | Signal confidence below this value triggers HITL approval. | Hot Path |
+| `AION_HITL_TIMEOUT_S` | `int` | No | `60` | Seconds to wait for human approval response. Fail-safe: timeout = reject. | Hot Path |
+
 ---
 
 ## Frontend Environment Variables
@@ -425,9 +444,12 @@ cd frontend && npm install && npm run dev
 | PnL | `8084` | HTTP |
 | Logger | `8085` | HTTP |
 | Backtesting | `8086` | HTTP |
+| Analyst (weight engine) | `8087` | HTTP |
 | TA Agent | `8090` | HTTP |
 | Regime HMM | `8091` | HTTP |
 | Sentiment | `8092` | HTTP |
+| SLM Inference | `8095` | HTTP |
+| Debate Agent | `8096` | HTTP |
 | Frontend (Next.js) | `3000` | HTTP |
 | Redis | `6379` | TCP |
 | TimescaleDB | `5432` | TCP |

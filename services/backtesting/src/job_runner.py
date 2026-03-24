@@ -6,6 +6,7 @@ from libs.messaging import StreamConsumer, StreamPublisher
 from libs.core.schemas import BaseEvent
 from libs.storage.repositories.backtest_repo import BacktestRepository
 from .simulator import TradingSimulator, BacktestJob
+from .vectorbt_runner import VectorBTRunner
 from .data_loader import BacktestDataLoader
 
 
@@ -97,8 +98,12 @@ class JobRunner:
                 print(f"Loading data for backtest {job.job_id}...")
                 data = await self._data_loader.load(sym, start, end)
 
-                print(f"Running simulation for {job.job_id}...")
-                result = TradingSimulator.run(job, data)
+                engine = payload.get("engine", "sequential")
+                print(f"Running simulation for {job.job_id} (engine={engine})...")
+                if engine == "vectorbt":
+                    result = VectorBTRunner.run(job, data)
+                else:
+                    result = TradingSimulator.run(job, data)
 
                 res_payload = {
                     "job_id": result.job_id,

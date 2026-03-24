@@ -82,8 +82,8 @@ functional implementation.
 
 | # | Description | Location | Severity |
 |---|-------------|----------|----------|
-| D-8 | Kill switch / emergency shutdown is **not implemented**. Referenced in comments but no code exists to halt all trading globally. | N/A (missing) | **CRITICAL** |
-| D-9 | Position-level stop-loss enforcement is **not implemented**. `risk_limits` contains `stop_loss_pct` but no code checks or enforces it against open positions. | `risk_limits` schema | **CRITICAL** |
+| D-8 | Kill switch / emergency shutdown is **partially addressed**. The HITL execution gate (Phase 3) provides a configurable human approval layer that can block trades when `AION_HITL_ENABLED=true`. A full global kill switch is still not implemented. | `services/hot_path/src/hitl_gate.py` | **HIGH** (reduced from CRITICAL) |
+| D-9 | Position-level stop-loss enforcement is **not implemented**. `risk_limits` contains `stop_loss_pct` but no code checks or enforces it against open positions. The `PositionCloser` (Phase 2) provides the close mechanism but no stop-loss trigger. | `risk_limits` schema, `services/pnl/src/closer.py` | **CRITICAL** |
 | D-10 | CHECK_3 (Bias validation) is **stubbed**. Always returns `GREEN` regardless of input. | Validation service, CHECK_3 handler | HIGH |
 | D-11 | Rate limiter service is a **stub**. Always returns `allowed=True`. No actual rate limiting occurs. | `libs/exchange/_rate_limiter_client.py` | HIGH |
 | D-12 | `/commands/` endpoint returns `501 Not Implemented`. | API router | LOW |
@@ -110,7 +110,7 @@ Conflicts between existing documentation files and the actual codebase.
 | A-2 | `WALKTHROUGH.md` | `POST /auth/login` endpoint | No `/auth/login` endpoint exists. Authentication uses `/auth/callback` (OAuth flow). | HIGH |
 | A-3 | `RUNTIME_ARCHITECTURE.md` | "Fast Gate responds in 35ms" | `constants.py` sets the fast gate timeout to 50ms. 35ms is not referenced anywhere in code. | MEDIUM |
 | A-4 | `SHUTDOWN.md` | Lists 8 services for graceful shutdown | 17 services exist in the codebase. 9 services have no documented shutdown procedure. | HIGH |
-| A-5 | `README.md` (root) | Lists a subset of services | Does not mention Strategy, Ingestion, Validation, Logger, Risk, Rate Limiter, Archiver, Analyst, or Tax services. | HIGH |
+| A-5 | `README.md` (root) | Lists a subset of services | **RESOLVED** (2026-03-24). README updated with all services including Analyst, SLM Inference, Debate, and HITL. | ~~HIGH~~ RESOLVED |
 | A-6 | `RUNTIME_ARCHITECTURE.md` | "migrate.py applies 001 to 005" | `migrate.py` applies migrations `001` through `008`. | MEDIUM |
 | A-7 | Multiple docs | Services documented on port 8080 | At least 4 services claim port 8080 with no documented conflict resolution strategy. | HIGH |
 
@@ -131,6 +131,27 @@ Items required for production-grade deployment that are scaffolded but not yet c
 
 ---
 
+## SLM Multi-Agent Implementation Status (2026-03-24)
+
+The following 6 phases from `SLM-Multi-Agent-Implementation-Plan.md` have been implemented and documented:
+
+| Phase | Feature | Status | Tests | Documentation |
+|-------|---------|--------|-------|---------------|
+| 1 | Extended Indicators (ADX, Bollinger, OBV, Choppiness) | **COMPLETE** | 20 tests | `modules/indicators.md` updated |
+| 2 | Dynamic Agent Weighting (EWMA) | **COMPLETE** | 15 tests | `agent-architecture.md` updated (Analyst agent) |
+| 3 | HITL Execution Gate | **COMPLETE** | 8 tests | `modules/hot-path.md` updated, `configuration.md` updated |
+| 4 | Local SLM Inference | **COMPLETE** | 20 tests | `agent-architecture.md` updated (SLM Inference service) |
+| 5 | Adversarial Bull/Bear Debate | **COMPLETE** | 20 tests | `agent-architecture.md` updated (Debate agent) |
+| 6 | VectorBT Backtesting | **COMPLETE** | 18 tests | `README.md` updated |
+
+**Total new tests:** 101 | **Total test suite:** 126 passed, 0 failed
+
+### Additional fixes during implementation:
+- Fixed pre-existing PID-width bug in monotonic UUID generator (`libs/core/schemas.py` — `0xFFFF` → `0xFFF`)
+- Updated existing `AgentModifier` tests to work with pipeline-based Redis reads
+
+---
+
 ## How to Use This Document
 
 **For engineers**: Treat CRITICAL items as bugs. File tickets and prioritize them in the
@@ -145,4 +166,4 @@ for the full context of how financial values flow through the system.
 
 ---
 
-*Last updated: 2026-03-19*
+*Last updated: 2026-03-24*
