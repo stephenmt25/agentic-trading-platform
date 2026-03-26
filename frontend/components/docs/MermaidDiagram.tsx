@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 
 interface MermaidDiagramProps {
   code: string;
@@ -13,30 +13,41 @@ async function initMermaid() {
   const mermaid = (await import("mermaid")).default;
   mermaid.initialize({
     startOnLoad: false,
-    theme: "dark",
+    theme: "default",
     themeVariables: {
-      primaryColor: "#3b82f6",
-      primaryTextColor: "#e2e8f0",
-      primaryBorderColor: "#2563eb",
-      lineColor: "#3f3f46",
-      secondaryColor: "#1c1c22",
-      tertiaryColor: "#111116",
-      background: "#111116",
-      mainBkg: "#1c1c22",
-      nodeBorder: "#2563eb",
-      clusterBkg: "#1c1c22",
-      titleColor: "#e2e8f0",
-      edgeLabelBackground: "#1c1c22",
+      primaryColor: "#dbeafe",
+      primaryTextColor: "#1e293b",
+      primaryBorderColor: "#3b82f6",
+      lineColor: "#94a3b8",
+      secondaryColor: "#f1f5f9",
+      tertiaryColor: "#e2e8f0",
+      background: "#ffffff",
+      mainBkg: "#dbeafe",
+      nodeBorder: "#3b82f6",
+      clusterBkg: "#f8fafc",
+      clusterBorder: "#cbd5e1",
+      titleColor: "#0f172a",
+      edgeLabelBackground: "#ffffff",
+      textColor: "#1e293b",
+      nodeTextColor: "#1e293b",
+      labelTextColor: "#334155",
+      loopTextColor: "#334155",
+      noteBkgColor: "#fef9c3",
+      noteTextColor: "#1e293b",
+      actorTextColor: "#1e293b",
+      signalTextColor: "#1e293b",
+      fontSize: "16px",
     },
-    fontFamily: "ui-monospace, monospace",
+    fontFamily: "ui-sans-serif, system-ui, sans-serif",
+    fontSize: 16,
     flowchart: { htmlLabels: true, curve: "basis" },
     sequence: { actorMargin: 50, mirrorActors: false },
+    c4: { c4ShapeMargin: 20, c4ShapePadding: 10 },
   });
   mermaidInitialized = true;
 }
 
 export function MermaidDiagram({ code }: MermaidDiagramProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
   const uniqueId = useId().replace(/:/g, "_");
   const [svg, setSvg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -69,11 +80,11 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   if (error) {
     return (
-      <div className="my-4 rounded-md border border-amber-500/30 p-4">
-        <p className="mb-2 text-xs font-medium text-amber-500">
+      <div className="my-4 rounded-md border border-amber-300 bg-amber-50 p-4">
+        <p className="mb-2 text-xs font-medium text-amber-700">
           Diagram render error
         </p>
-        <pre className="overflow-x-auto text-xs text-muted-foreground">
+        <pre className="overflow-x-auto text-xs text-amber-900">
           <code>{code.trim()}</code>
         </pre>
       </div>
@@ -82,16 +93,15 @@ export function MermaidDiagram({ code }: MermaidDiagramProps) {
 
   if (!svg) {
     return (
-      <div className="my-4 h-48 rounded-md border border-border bg-accent animate-pulse" />
+      <div className="my-4 h-48 rounded-md border border-slate-200 bg-slate-100 animate-pulse" />
     );
   }
 
   return (
-    <div className="my-4 overflow-x-auto rounded-md border border-border bg-card p-4">
+    <div className="my-4 overflow-x-auto rounded-md border border-slate-200 bg-white p-4">
       <div
-        ref={containerRef}
         dangerouslySetInnerHTML={{ __html: svg }}
-        className="flex justify-center [&_svg]:max-w-full"
+        className="flex justify-center [&_svg]:max-w-full [&_svg]:min-h-[300px]"
       />
     </div>
   );

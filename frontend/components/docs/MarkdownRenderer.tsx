@@ -63,7 +63,7 @@ const components: Components = {
     if (!className) {
       return (
         <code
-          className="rounded bg-accent px-1.5 py-0.5 text-sm text-primary"
+          className="rounded bg-slate-100 px-1.5 py-0.5 text-sm text-blue-700"
           {...props}
         >
           {children}
@@ -83,7 +83,7 @@ const components: Components = {
   pre({ children, ...props }) {
     return (
       <pre
-        className="overflow-x-auto rounded-md border border-border bg-card p-4 text-sm"
+        className="overflow-x-auto rounded-md border border-slate-200 bg-slate-50 p-4 text-sm text-slate-800"
         {...props}
       >
         {children}
@@ -105,7 +105,7 @@ const components: Components = {
   th({ children, ...props }) {
     return (
       <th
-        className="border border-border bg-accent/50 px-4 py-2.5 text-left text-xs uppercase text-muted-foreground font-medium"
+        className="border border-slate-200 bg-slate-100 px-4 py-2.5 text-left text-xs uppercase text-slate-600 font-medium"
         {...props}
       >
         {children}
@@ -116,7 +116,7 @@ const components: Components = {
   td({ children, ...props }) {
     return (
       <td
-        className="border border-border px-4 py-2.5 text-sm"
+        className="border border-slate-200 px-4 py-2.5 text-sm text-slate-700"
         {...props}
       >
         {children}
@@ -129,17 +129,17 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   return (
     <div
       className={[
-        "prose prose-invert max-w-none",
-        "prose-headings:font-bold prose-headings:tracking-tight prose-headings:text-foreground",
-        "prose-h1:text-3xl prose-h1:border-b prose-h1:border-border prose-h1:pb-3 prose-h1:mb-6",
+        "prose max-w-none",
+        "prose-headings:font-bold prose-headings:tracking-tight prose-headings:text-slate-900",
+        "prose-h1:text-3xl prose-h1:border-b prose-h1:border-slate-200 prose-h1:pb-3 prose-h1:mb-6",
         "prose-h2:text-2xl prose-h2:mt-10 prose-h2:mb-4",
         "prose-h3:text-xl prose-h3:mt-8 prose-h3:mb-3",
-        "prose-a:text-primary prose-a:no-underline hover:prose-a:text-primary/80 hover:prose-a:underline",
-        "prose-strong:text-foreground",
-        "prose-p:text-foreground/80 prose-p:leading-relaxed",
-        "prose-li:text-foreground/80",
-        "prose-hr:border-border",
-        "prose-blockquote:border-primary/50 prose-blockquote:text-muted-foreground",
+        "prose-a:text-blue-600 prose-a:no-underline hover:prose-a:text-blue-800 hover:prose-a:underline",
+        "prose-strong:text-slate-900",
+        "prose-p:text-slate-700 prose-p:leading-relaxed",
+        "prose-li:text-slate-700",
+        "prose-hr:border-slate-200",
+        "prose-blockquote:border-blue-300 prose-blockquote:text-slate-600",
       ].join(" ")}
     >
       <ReactMarkdown

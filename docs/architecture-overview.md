@@ -110,6 +110,8 @@ C4Container
     Rel(logger_svc, timescale, "Writes audit records", "asyncpg")
     Rel(execution, timescale, "Persists orders", "asyncpg")
     Rel(pnl, timescale, "Persists PnL snapshots", "asyncpg")
+    System_Ext(gcs, "Google Cloud Storage", "Long-term archival")
+
     Rel(archiver, gcs, "Uploads archives", "HTTPS")
 ```
 
@@ -143,6 +145,9 @@ C4Component
         Component(validation_client, "Validation Client", "validation_client.py", "Sends signals to Validation service via Redis list RPC")
         Component(pnl_sync, "PnL Sync", "pnl_sync.py", "Subscribes to PnL updates for risk calculations")
     }
+
+    Component_Ext(validation_svc, "Validation Service", "Dual-layer signal validation")
+    Component_Ext(redis, "Redis", "Pub/Sub messaging")
 
     Rel(processor, state, "Reads/writes pipeline state")
     Rel(processor, strategy_eval, "Stage 1: Evaluate strategy rules")
