@@ -1,6 +1,0 @@
-INFO:     Started server process [23428]
-INFO:     Waiting for application startup.
-{"service": "regime-hmm", "event": "Regime HMM Agent started", "level": "info", "timestamp": "2026-03-22T08:45:55.298889Z"}
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8091 (Press CTRL+C to quit)
-INFO:     127.0.0.1:54965 - "GET /health HTTP/1.1" 200 OK

@@ -1,6 +1,0 @@
-INFO:     Started server process [7680]
-INFO:     Waiting for application startup.
-{"service": "archiver", "event": "Starting Archiver Daily Task", "level": "info", "timestamp": "2026-03-22T08:45:49.209597Z"}
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8088 (Press CTRL+C to quit)
-INFO:     127.0.0.1:54959 - "GET /health HTTP/1.1" 200 OK

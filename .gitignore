@@ -51,6 +51,11 @@ frontend/.env.local
 # Secrets — NEVER commit
 .dev_secrets/
 
+# Logs
+.aion_logs/
+*.log
+lint_output.txt
+
 # Node/Frontend
 node_modules/
 .next/

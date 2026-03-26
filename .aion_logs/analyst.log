@@ -1,6 +1,0 @@
-INFO:     Started server process [4452]
-INFO:     Waiting for application startup.
-{"service": "analyst", "event": "Analyst Agent started (sentiment delegated to services/sentiment/)", "level": "info", "timestamp": "2026-03-22T08:45:47.477437Z"}
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8087 (Press CTRL+C to quit)
-INFO:     127.0.0.1:54957 - "GET /health HTTP/1.1" 200 OK

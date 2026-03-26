@@ -1,6 +1,0 @@
-INFO:     Started server process [21932]
-INFO:     Waiting for application startup.
-{"service": "ta-agent", "event": "TA Agent started", "level": "info", "timestamp": "2026-03-22T08:45:49.779246Z"}
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8090 (Press CTRL+C to quit)
-INFO:     127.0.0.1:54963 - "GET /health HTTP/1.1" 200 OK

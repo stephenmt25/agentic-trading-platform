@@ -1,6 +1,0 @@
-{"service": "strategy", "event": "Starting Strategy Agent Service", "level": "info", "timestamp": "2026-03-22T08:45:48.497979Z"}
-{"service": "strategy", "event": "Initializing DB connections for hydrator", "level": "info", "timestamp": "2026-03-22T08:45:48.497979Z"}
-{"service": "strategy.hydrator", "event": "Starting profile hydration", "level": "info", "timestamp": "2026-03-22T08:45:49.518902Z"}
-{"service": "strategy.hydrator", "event": "No candles found for hydration: BTC/USDT", "level": "warning", "timestamp": "2026-03-22T08:45:49.611719Z"}
-{"service": "strategy.hydrator", "event": "No candles found for hydration: ETH/USDT", "level": "warning", "timestamp": "2026-03-22T08:45:49.619309Z"}
-{"service": "strategy.hydrator", "event": "Hydration complete for 1 profiles", "level": "info", "timestamp": "2026-03-22T08:45:49.633924Z"}

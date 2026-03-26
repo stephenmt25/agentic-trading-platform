@@ -1,6 +1,0 @@
-INFO:     Started server process [23624]
-INFO:     Waiting for application startup.
-{"service": "api-gateway", "event": "API Gateway Started", "level": "info", "timestamp": "2026-03-22T08:45:51.119255Z"}
-INFO:     Application startup complete.
-INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-INFO:     127.0.0.1:54941 - "GET /health HTTP/1.1" 200 OK
