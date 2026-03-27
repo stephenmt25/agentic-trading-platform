@@ -61,18 +61,9 @@ def health():
     return {"status": "healthy"}
 
 
-from pydantic import BaseModel, Field
-from typing import Dict, Any, List
 from datetime import datetime
 
-
-class SweepRequest(BaseModel):
-    symbol: str = "BTC/USDT"
-    strategy_rules: Dict[str, Any]
-    param_grid: Dict[str, List[Any]]
-    slippage_pct: float = Field(default=0.001)
-    start_date: str = ""
-    end_date: str = ""
+from libs.core.schemas import SweepRequest
 
 
 @app.post("/backtest/sweep")

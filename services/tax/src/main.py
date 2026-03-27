@@ -1,15 +1,9 @@
 from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import Optional
 from .us_tax import USTaxCalculator
+from libs.core.schemas import TaxRequest
 import uvicorn
 
 app = FastAPI(title="Tax Calculation Service")
-
-class TaxRequest(BaseModel):
-    holding_duration_days: int
-    net_pnl: float
-    tax_bracket: Optional[str] = None
     
 @app.post("/calculate")
 def calculate_tax(req: TaxRequest):

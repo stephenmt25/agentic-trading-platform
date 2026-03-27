@@ -5,13 +5,12 @@ and refresh token rotation.
 """
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from pydantic import BaseModel
 from datetime import timedelta
-from typing import Optional
 import uuid
 
 import jwt as pyjwt
 
+from libs.core.schemas import OAuthCallbackRequest, AuthResponse, RefreshRequest, UserProfile
 from libs.config import settings
 from libs.observability import get_logger
 from ..middleware.auth import create_access_token, create_refresh_token, verify_refresh_token, revoke_refresh_token, is_refresh_token_revoked
@@ -20,38 +19,6 @@ from ..deps import get_timescale, get_current_user, get_redis
 logger = get_logger("auth-routes")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-
-
-class OAuthCallbackRequest(BaseModel):
-    """Payload sent from the NextAuth.js frontend after OAuth completion."""
-    email: str
-    name: str
-    image: Optional[str] = None
-    provider: str  # "google" or "github"
-    provider_account_id: str
-    id_token: str  # OAuth ID token for server-side verification
-
-
-class AuthResponse(BaseModel):
-    """JWT tokens returned to the frontend for API authentication."""
-    access_token: str
-    refresh_token: str
-    token_type: str = "bearer"
-    user_id: str
-    display_name: str
-
-
-class RefreshRequest(BaseModel):
-    refresh_token: str
-
-
-class UserProfile(BaseModel):
-    """Current user profile returned by /auth/me."""
-    user_id: str
-    email: str
-    display_name: str
-    avatar_url: Optional[str] = None
-    provider: str
 
 
 @router.post("/callback", response_model=AuthResponse)

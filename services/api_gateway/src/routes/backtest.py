@@ -1,33 +1,14 @@
 import json
 import uuid
 from datetime import datetime
-from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field
 
+from libs.core.schemas import BacktestRequest, BacktestResponse
 from libs.config import settings
 from libs.storage import RedisClient
 from ..deps import get_redis, get_current_user
 
 router = APIRouter()
-
-
-class BacktestRequest(BaseModel):
-    symbol: str = Field(..., example="BTC/USDT")
-    strategy_rules: dict = Field(..., example={
-        "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-        "logic": "AND",
-        "direction": "BUY",
-        "base_confidence": 0.85,
-    })
-    start_date: str = Field(..., example="2025-01-01T00:00:00")
-    end_date: str = Field(..., example="2025-06-01T00:00:00")
-    slippage_pct: float = Field(default=0.001, ge=0.0, le=0.05)
-
-
-class BacktestResponse(BaseModel):
-    job_id: str
-    status: str
 
 
 @router.post("", response_model=BacktestResponse)

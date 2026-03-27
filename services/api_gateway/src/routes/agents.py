@@ -1,32 +1,13 @@
 """API routes for ML agent status and risk monitoring (Phase 3)."""
 import json
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException
 
-from pydantic import BaseModel
-
+from libs.core.schemas import AgentScore, RiskStatus
 from ..deps import get_redis, get_current_user, get_profile_repo
 from libs.storage.repositories.profile_repo import ProfileRepository
 
 router = APIRouter()
-
-
-class AgentScore(BaseModel):
-    symbol: str
-    ta_score: Optional[float] = None
-    sentiment_score: Optional[float] = None
-    sentiment_confidence: Optional[float] = None
-    sentiment_source: Optional[str] = None
-    hmm_regime: Optional[str] = None
-    hmm_state_index: Optional[int] = None
-
-
-class RiskStatus(BaseModel):
-    profile_id: str
-    daily_pnl_pct: float = 0.0
-    drawdown_pct: float = 0.0
-    allocation_pct: float = 0.0
-    circuit_breaker_threshold: Optional[float] = None
 
 
 TRACKED_SYMBOLS = ["BTC/USDT", "ETH/USDT"]

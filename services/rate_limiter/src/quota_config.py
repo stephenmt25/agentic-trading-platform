@@ -1,8 +1,4 @@
-from pydantic import BaseModel
-
-class QuotaConfig(BaseModel):
-    limit: int
-    window_sec: int
+from libs.core.schemas import QuotaConfig
 
 EXCHANGE_QUOTAS = {
     # 1200 req per min

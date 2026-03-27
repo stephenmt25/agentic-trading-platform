@@ -1,9 +1,9 @@
-from typing import List, Optional
+from typing import List
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 import json
 import ccxt.async_support as ccxt
 
+from libs.core.schemas import ExchangeKeyCreate, ExchangeKeyTest, ExchangeKeyResponse
 from libs.core.secrets import SecretManager
 from libs.config import settings
 from libs.observability import get_logger
@@ -22,25 +22,6 @@ def _get_secret_manager() -> SecretManager:
     if _secret_manager is None:
         _secret_manager = SecretManager(gcp_project_id=settings.GCP_PROJECT_ID)
     return _secret_manager
-
-
-class ExchangeKeyCreate(BaseModel):
-    exchange_id: str
-    api_key: str
-    api_secret: str
-    passphrase: Optional[str] = None
-
-
-class ExchangeKeyTest(ExchangeKeyCreate):
-    pass
-
-
-class ExchangeKeyResponse(BaseModel):
-    id: str
-    exchange_name: str
-    label: str
-    is_active: bool
-    created_at: str
 
 
 @router.get("/", response_model=List[ExchangeKeyResponse])

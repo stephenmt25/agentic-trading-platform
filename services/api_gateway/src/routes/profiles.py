@@ -1,36 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
-from typing import Dict, List, Optional, Any
+from typing import List
 from ..deps import get_profile_repo, get_current_user
+from libs.core.schemas import ProfileCreate, ProfileUpdate, ProfileToggle, ProfileResponse
 from libs.storage.repositories.profile_repo import ProfileRepository
 
 router = APIRouter(prefix="/profiles", tags=["profiles"])
-
-
-class ProfileCreate(BaseModel):
-    name: str = Field(default="Untitled Profile", min_length=1, max_length=200)
-    rules_json: Dict[str, Any] = Field(default_factory=dict)
-    risk_limits: Dict[str, Any] = Field(default_factory=dict)
-    allocation_pct: float = Field(default=1.0, ge=0.0, le=100.0)
-
-
-class ProfileUpdate(BaseModel):
-    rules_json: Dict[str, Any]
-    is_active: bool = True
-
-
-class ProfileToggle(BaseModel):
-    is_active: bool
-
-
-class ProfileResponse(BaseModel):
-    profile_id: str
-    name: str
-    is_active: bool
-    rules_json: Dict[str, Any]
-    allocation_pct: float
-    created_at: str
-    deleted_at: Optional[str] = None
 
 
 @router.get("/", response_model=List[ProfileResponse])

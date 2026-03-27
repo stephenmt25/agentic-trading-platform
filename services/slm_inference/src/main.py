@@ -12,10 +12,10 @@ from contextlib import asynccontextmanager
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
 import uvicorn
 
 from libs.config import settings
+from libs.core.schemas import CompletionRequest, CompletionResponse, SentimentRequest, SentimentResponse
 from libs.observability import get_logger
 
 logger = get_logger("slm-inference")
@@ -23,34 +23,6 @@ logger = get_logger("slm-inference")
 # Global model reference (loaded at startup)
 _llm = None
 _model_info = {"model_path": "", "loaded": False, "load_time_ms": 0}
-
-
-# ---------------------------------------------------------------------------
-# Request / Response models
-# ---------------------------------------------------------------------------
-
-class CompletionRequest(BaseModel):
-    prompt: str
-    max_tokens: int = Field(default=256, ge=1, le=4096)
-    temperature: float = Field(default=0.1, ge=0.0, le=2.0)
-    stop: Optional[list[str]] = None
-
-
-class CompletionResponse(BaseModel):
-    text: str
-    tokens_used: int
-    latency_ms: float
-
-
-class SentimentRequest(BaseModel):
-    symbol: str
-    headlines: list[str]
-
-
-class SentimentResponse(BaseModel):
-    score: float       # -1.0 to 1.0
-    confidence: float  # 0.0 to 1.0
-    latency_ms: float
 
 
 # ---------------------------------------------------------------------------

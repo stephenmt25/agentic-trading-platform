@@ -1,13 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from typing import Dict, Any
 from ..deps import get_current_user
+from libs.core.schemas import CommandIntent
 
 router = APIRouter(prefix="/commands", tags=["commands"])
-
-
-class CommandIntent(BaseModel):
-    natural_language: str
 
 
 @router.post("/")
