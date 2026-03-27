@@ -1,7 +1,7 @@
 # Glossary and Domain Model
 
 > Canonical definitions for trading terms, technical indicators, market regimes, and
-> system-specific concepts used throughout the Aion Trading Platform codebase.
+> system-specific concepts used throughout the Praxis Trading Platform codebase.
 
 ---
 

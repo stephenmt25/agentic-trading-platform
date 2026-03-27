@@ -45,11 +45,11 @@ class Alerter:
         pd_payload = {
             "routing_key": self.pd_key,
             "event_action": "trigger",
-            "dedup_key": f"aion-{payload['type']}-{payload['profile_id']}-{payload['timestamp']}",
+            "dedup_key": f"praxis-{payload['type']}-{payload['profile_id']}-{payload['timestamp']}",
             "payload": {
-                "summary": f"[AION] {payload['type']}: {payload['reason']}",
+                "summary": f"[PRAXIS] {payload['type']}: {payload['reason']}",
                 "severity": "critical" if "RED" in str(payload.get("type", "")) else "warning",
-                "source": "aion-trading-platform",
+                "source": "praxis-trading-platform",
                 "component": "validation",
                 "custom_details": payload,
             },
@@ -68,7 +68,7 @@ class Alerter:
         """Send an alert to a Slack Incoming Webhook."""
         level_emoji = ":rotating_light:" if "RED" in str(payload.get("type", "")) else ":warning:"
         slack_payload = {
-            "text": f"{level_emoji} *AION Alert — {payload['type']}*\n"
+            "text": f"{level_emoji} *PRAXIS Alert — {payload['type']}*\n"
                     f"*Profile:* `{payload['profile_id']}`\n"
                     f"*Reason:* {payload['reason']}\n"
                     f"*Timestamp:* {payload['timestamp']}",

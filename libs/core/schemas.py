@@ -5,7 +5,7 @@ import threading
 from pydantic import BaseModel, Field, ConfigDict, root_validator
 
 from .enums import EventType, OrderSide, OrderStatus, SignalDirection, ValidationCheck, ValidationMode, ValidationVerdict, HITLStatus
-from .types import Price, ProfileId, Quantity, SymbolPair, Timestamp
+from .types import Percentage, Price, ProfileId, Quantity, SymbolPair, Timestamp
 
 
 def _make_monotonic_id_factory():
@@ -57,7 +57,7 @@ class SignalEvent(BaseEvent):
     profile_id: ProfileId
     symbol: SymbolPair
     direction: Literal["BUY", "SELL", "ABSTAIN"]
-    confidence: float
+    confidence: Percentage
 
 class OrderApprovedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_APPROVED] = EventType.ORDER_APPROVED
@@ -103,7 +103,7 @@ class PnlUpdateEvent(BaseEvent):
     symbol: SymbolPair
     gross_pnl: Price
     net_pnl: Price
-    pct_return: float
+    pct_return: Percentage
 
 class CircuitBreakerEvent(BaseEvent):
     event_type: Literal[EventType.CIRCUIT_BREAKER_TRIGGERED] = EventType.CIRCUIT_BREAKER_TRIGGERED
@@ -121,9 +121,9 @@ class ThresholdProximityEvent(BaseEvent):
     profile_id: ProfileId
     symbol: SymbolPair
     indicator_name: str
-    current_value: float
-    trigger_threshold: float
-    proximity_pct: float
+    current_value: Price
+    trigger_threshold: Price
+    proximity_pct: Percentage
 
 
 class HITLApprovalRequest(BaseEvent):

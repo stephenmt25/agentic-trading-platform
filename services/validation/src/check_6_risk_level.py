@@ -1,8 +1,11 @@
 import json
+from decimal import Decimal
 from .check_1_strategy import CheckResult
 from libs.observability import get_logger
 
 logger = get_logger("validation.risk_level")
+
+_ZERO = Decimal("0")
 
 
 class RiskLevelRecheck:
@@ -14,8 +17,8 @@ class RiskLevelRecheck:
         Validates the pre-execution order against portfolio-level risk limits
         loaded from the trading profile in the database.
         """
-        quantity = float(request.payload.get("quantity", 0))
-        price = float(request.payload.get("price", 0))
+        quantity = Decimal(str(request.payload.get("quantity", 0)))
+        price = Decimal(str(request.payload.get("price", 0)))
         order_value = quantity * price if price > 0 else quantity
 
         # Load the profile and its risk_limits from DB
@@ -26,7 +29,6 @@ class RiskLevelRecheck:
             profile = None
 
         if not profile:
-            # If we cannot load the profile, block as a safety measure
             return CheckResult(passed=False, reason="Profile not found — cannot verify risk limits")
 
         # Parse risk_limits from the profile record
@@ -40,34 +42,33 @@ class RiskLevelRecheck:
             risk_limits = raw_limits if isinstance(raw_limits, dict) else {}
 
         # (a) Max allocation percentage check
-        max_allocation_pct = float(risk_limits.get("max_allocation_pct", 1.0))
-        profile_allocation = float(profile.get("allocation_pct", 1.0))
-        # order_value as fraction of profile allocation (simplified: treat allocation_pct as USD budget)
+        max_allocation_pct = Decimal(str(risk_limits.get("max_allocation_pct", 1)))
+        profile_allocation = Decimal(str(profile.get("allocation_pct", 1)))
         if profile_allocation > 0 and order_value > 0:
-            alloc_fraction = order_value / (profile_allocation * 10_000)  # normalize to notional
+            alloc_fraction = order_value / (profile_allocation * 10_000)
             if alloc_fraction > max_allocation_pct:
                 return CheckResult(
                     passed=False,
-                    reason=f"Order value ${order_value:.2f} exceeds max allocation "
-                           f"({max_allocation_pct*100:.0f}% of profile budget)"
+                    reason=f"Order value ${float(order_value):.2f} exceeds max allocation "
+                           f"({float(max_allocation_pct)*100:.0f}% of profile budget)"
                 )
 
         # (b) Stop-loss tolerance check
-        stop_loss_pct = float(risk_limits.get("stop_loss_pct", 0.05))
-        order_stop_loss = float(request.payload.get("stop_loss_pct", 0))
+        stop_loss_pct = Decimal(str(risk_limits.get("stop_loss_pct", "0.05")))
+        order_stop_loss = Decimal(str(request.payload.get("stop_loss_pct", 0)))
         if order_stop_loss > 0 and order_stop_loss > stop_loss_pct:
             return CheckResult(
                 passed=False,
-                reason=f"Stop-loss {order_stop_loss*100:.1f}% exceeds profile limit of {stop_loss_pct*100:.1f}%"
+                reason=f"Stop-loss {float(order_stop_loss)*100:.1f}% exceeds profile limit of {float(stop_loss_pct)*100:.1f}%"
             )
 
         # (c) Max drawdown circuit breaker
-        max_drawdown_pct = float(risk_limits.get("max_drawdown_pct", 0.10))
-        current_drawdown = float(request.payload.get("current_drawdown_pct", 0))
+        max_drawdown_pct = Decimal(str(risk_limits.get("max_drawdown_pct", "0.10")))
+        current_drawdown = Decimal(str(request.payload.get("current_drawdown_pct", 0)))
         if current_drawdown >= max_drawdown_pct:
             return CheckResult(
                 passed=False,
-                reason=f"Current drawdown {current_drawdown*100:.1f}% at/above max allowed {max_drawdown_pct*100:.1f}%"
+                reason=f"Current drawdown {float(current_drawdown)*100:.1f}% at/above max allowed {float(max_drawdown_pct)*100:.1f}%"
             )
 
         # (d) Hard safety cap — absolute quantity guard

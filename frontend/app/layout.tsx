@@ -17,7 +17,7 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Aion Trading Platform',
+  title: 'Praxis Trading Platform',
   description: 'Agentic Trading Platform',
 }
 

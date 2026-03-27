@@ -24,24 +24,24 @@ Before starting, make sure you have these installed:
 
 ## Step 1 — Environment Configuration
 
-The platform reads all configuration from environment variables prefixed with `AION_`. Defaults are defined in [settings.py](file:///c:/Users/stevo/DEV/agent_trader_1/aion-trading/libs/config/settings.py).
+The platform reads all configuration from environment variables prefixed with `PRAXIS_`. Defaults are defined in [settings.py](file:///c:/Users/stevo/DEV/agent_trader_1/aion-trading/libs/config/settings.py).
 
 Create a `.env` file in the project root (this file is git-ignored):
 
 ```env
-AION_REDIS_URL=redis://localhost:6379/1
-AION_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/aion_trading
-AION_BINANCE_TESTNET=true
-AION_COINBASE_SANDBOX=true
-AION_TRADING_ENABLED=true
-AION_PAPER_TRADING_MODE=true
-AION_LOG_LEVEL=INFO
-AION_FAST_GATE_TIMEOUT_MS=50
-AION_CIRCUIT_BREAKER_DAILY_LOSS_PCT=0.02
+PRAXIS_REDIS_URL=redis://localhost:6379/1
+PRAXIS_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/praxis_trading
+PRAXIS_BINANCE_TESTNET=true
+PRAXIS_COINBASE_SANDBOX=true
+PRAXIS_TRADING_ENABLED=true
+PRAXIS_PAPER_TRADING_MODE=true
+PRAXIS_LOG_LEVEL=INFO
+PRAXIS_FAST_GATE_TIMEOUT_MS=50
+PRAXIS_CIRCUIT_BREAKER_DAILY_LOSS_PCT=0.02
 ```
 
 > [!NOTE]
-> `AION_TRADING_ENABLED=true` with `AION_PAPER_TRADING_MODE=true` means the system will process real market data but only execute on **testnet** exchanges. No real money is at risk.
+> `PRAXIS_TRADING_ENABLED=true` with `PRAXIS_PAPER_TRADING_MODE=true` means the system will process real market data but only execute on **testnet** exchanges. No real money is at risk.
 
 ---
 
@@ -69,7 +69,7 @@ You should see both containers with status `Up` and `(healthy)`. Wait ~10 second
 
 ## Step 3 — Run Database Migrations
 
-Apply the 5 SQL migration scripts to create all tables:
+Apply the 9 SQL migration scripts to create all tables:
 
 ```powershell
 python -m poetry run python scripts/migrate.py
@@ -83,6 +83,10 @@ Applying migrations/versions\002_audit_tables.sql...
 Applying migrations/versions\003_validation_log.sql...
 Applying migrations/versions\004_pnl_snapshots.sql...
 Applying migrations/versions\005_paper_trading.sql...
+Applying migrations/versions\006_users_and_exchange_keys.sql...
+Applying migrations/versions\007_profile_soft_delete.sql...
+Applying migrations/versions\008_backtest_results.sql...
+Applying migrations/versions\009_backtest_decimal_precision.sql...
 Migrations complete.
 ```
 
@@ -95,10 +99,14 @@ Migrations complete.
 | `003_validation_log.sql` | `validation_events` (hypertable), `auto_backtest_queue` |
 | `004_pnl_snapshots.sql` | `pnl_snapshots` (hypertable), `market_data_ohlcv` (hypertable) |
 | `005_paper_trading.sql` | `paper_trading_reports` |
+| `006_users_and_exchange_keys.sql` | `users` updates, `exchange_keys` |
+| `007_profile_soft_delete.sql` | Adds soft-delete columns to `trading_profiles` |
+| `008_backtest_results.sql` | `backtest_results` |
+| `009_backtest_decimal_precision.sql` | Converts `backtest_results` columns to `NUMERIC` |
 
 **Verify manually** (optional):
 ```powershell
-docker exec -it deploy-timescaledb-1 psql -U postgres -d aion_trading -c "\dt"
+docker exec -it deploy-timescaledb-1 psql -U postgres -d praxis_trading -c "\dt"
 ```
 
 ---
@@ -282,7 +290,7 @@ Open `http://localhost:3000` in your browser.
 Connect to TimescaleDB directly:
 
 ```powershell
-docker exec -it deploy-timescaledb-1 psql -U postgres -d aion_trading
+docker exec -it deploy-timescaledb-1 psql -U postgres -d praxis_trading
 ```
 
 **Useful queries:**
@@ -360,7 +368,7 @@ The `-v` flag removes the persistent volumes (Redis data + TimescaleDB data), gi
 |---|---|
 | `ModuleNotFoundError: No module named 'asyncpg'` | Run `python -m poetry run pip install asyncpg` |
 | `ModuleNotFoundError: No module named 'numpy'` | Python 3.14 may lack prebuilt wheels. Use Python 3.12 or install via `python -m poetry run pip install numpy` |
-| `database "aion_trading" does not exist` | You started `docker-compose.test.yml` instead of `docker-compose.yml`. Run `docker-compose -f deploy/docker-compose.yml up -d` |
+| `database "praxis_trading" does not exist` | You started `docker-compose.test.yml` instead of `docker-compose.yml`. Run `docker-compose -f deploy/docker-compose.yml up -d` |
 | `'poetry' is not recognized` | Use `python -m poetry` instead of `poetry` |
 | Hot-Path hangs on startup | It's waiting for hydration keys. Make sure Strategy Agent ran first |
 | WebSocket disconnects immediately | JWT token missing or expired. Check `localStorage.getItem('jwt')` in browser console |

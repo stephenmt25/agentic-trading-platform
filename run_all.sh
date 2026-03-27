@@ -1,15 +1,25 @@
 #!/usr/bin/env bash
-# Aion Trading Platform — Full System Launcher
+# Praxis Trading Platform — Full System Launcher
 # Usage: bash run_all.sh [--stop]
 set -euo pipefail
 cd "$(dirname "$0")"
 
-PIDFILE=".aion_pids"
-LOGDIR=".aion_logs"
+# Resolve poetry — check common Windows paths (WSL /mnt/c and Git Bash /c)
+POETRY=""
+for p in \
+    "/mnt/c/Users/stevo/AppData/Local/Programs/Python/Python312/Scripts/poetry.exe" \
+    "/c/Users/stevo/AppData/Local/Programs/Python/Python312/Scripts/poetry.exe"; do
+    [[ -f "$p" ]] && POETRY="$p" && break
+done
+[[ -n "$POETRY" ]] || POETRY="$(command -v poetry 2>/dev/null || true)"
+[[ -n "$POETRY" ]] || { echo "ERROR: poetry not found"; exit 1; }
+
+PIDFILE=".praxis_pids"
+LOGDIR=".praxis_logs"
 
 # ---------- Stop mode ----------
 if [[ "${1:-}" == "--stop" ]]; then
-    echo "=== Stopping Aion Trading Platform ==="
+    echo "=== Stopping Praxis Trading Platform ==="
     if [[ -f "$PIDFILE" ]]; then
         while read -r pid name; do
             if kill -0 "$pid" 2>/dev/null; then
@@ -43,7 +53,7 @@ mkdir -p "$LOGDIR"
 > "$PIDFILE"
 
 echo "============================================"
-echo "   Aion Trading Platform — Full Startup"
+echo "   Praxis Trading Platform — Full Startup"
 echo "============================================"
 echo ""
 
@@ -64,7 +74,7 @@ done
 
 # Wait for TimescaleDB
 for i in $(seq 1 30); do
-    if docker compose -f deploy/docker-compose.yml exec -T timescaledb pg_isready -U postgres -d aion_trading 2>/dev/null | grep -q "accepting"; then
+    if docker compose -f deploy/docker-compose.yml exec -T timescaledb pg_isready -U postgres -d praxis_trading 2>/dev/null | grep -q "accepting"; then
         echo "  TimescaleDB: ready"
         break
     fi
@@ -75,7 +85,7 @@ echo ""
 
 # ---------- 2. Migrations ----------
 echo "=== [2/4] Running Database Migrations ==="
-poetry run python scripts/migrate.py
+$POETRY run python scripts/migrate.py
 echo ""
 
 # ---------- Helper: launch a background service ----------
@@ -85,7 +95,7 @@ launch() {
     local port=$3
 
     echo "  Starting $name on :$port"
-    poetry run python -m $module > "$LOGDIR/$name.log" 2>&1 &
+    $POETRY run python -m $module > "$LOGDIR/$name.log" 2>&1 &
     local pid=$!
     echo "$pid $name" >> "$PIDFILE"
 }
@@ -95,7 +105,7 @@ launch_async() {
     local module=$2
 
     echo "  Starting $name (async worker)"
-    poetry run python -m $module > "$LOGDIR/$name.log" 2>&1 &
+    $POETRY run python -m $module > "$LOGDIR/$name.log" 2>&1 &
     local pid=$!
     echo "$pid $name" >> "$PIDFILE"
 }
@@ -126,7 +136,7 @@ launch "sentiment"     "services.sentiment.src.main"     8092
 
 # Standalone async services (no HTTP server)
 launch_async "strategy"     "services.strategy.src.main"
-launch_async "rate_limiter" "services.rate_limiter.src.main"
+launch "rate_limiter" "services.rate_limiter.src.main" 8094
 
 echo ""
 

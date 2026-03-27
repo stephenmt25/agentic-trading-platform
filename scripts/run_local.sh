@@ -17,7 +17,7 @@ done
 echo "Applying migrations..."
 for f in migrations/versions/*.sql; do
     echo "Running $f"
-    docker exec -i $(docker compose -f deploy/docker-compose.yml ps -q timescaledb) psql -U postgres -d aion_trading < "$f"
+    docker exec -i $(docker compose -f deploy/docker-compose.yml ps -q timescaledb) psql -U postgres -d praxis_trading < "$f"
 done
 
 echo "Infrastructure is up and running."

@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: aion-trading
+  name: praxis-trading
   labels:
-    app.kubernetes.io/name: aion-trading
-    app.kubernetes.io/part-of: aion-platform
+    app.kubernetes.io/name: praxis-trading
+    app.kubernetes.io/part-of: praxis-platform

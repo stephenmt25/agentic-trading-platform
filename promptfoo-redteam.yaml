@@ -1,5 +1,5 @@
 # promptfoo-redteam.yaml
-description: "AION Trader — Red Team Security Scan"
+description: "Praxis Trader — Red Team Security Scan"
 
 targets:
   - id: anthropic:messages:claude-sonnet-4-20250514

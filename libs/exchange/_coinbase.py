@@ -45,12 +45,13 @@ class CoinbaseAdapter(ExchangeAdapter):
         self.reconnect_delay = min(self.reconnect_delay * 2, 30.0)
 
     async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price) -> OrderResult:
+        # CCXT requires float — convert at the exchange boundary only
         res = await self.exchange.create_order(
             symbol=symbol,
             type='limit',
             side=side.name.lower(),
             amount=float(qty),
-            price=float(price)
+            price=float(price),
         )
         return OrderResult(
             order_id=res['id'],

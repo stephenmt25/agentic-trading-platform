@@ -15,7 +15,7 @@ These must be started before any Python service. They are containers defined in 
 
 | Script | When | What It Does |
 |---|---|---|
-| [migrate.py](file:///c:/Users/stevo/DEV/agent_trader_1/aion-trading/scripts/migrate.py) | After DB starts, before services | Applies all SQL migrations (`001` → `005`) creating tables |
+| [migrate.py](file:///c:/Users/stevo/DEV/agent_trader_1/aion-trading/scripts/migrate.py) | After DB starts, before services | Applies all SQL migrations (`001` through `009`) creating tables |
 | [daily_report.py](file:///c:/Users/stevo/DEV/agent_trader_1/aion-trading/scripts/daily_report.py) | Once daily (cron) during paper trading | Writes performance metrics to `paper_trading_reports` table |
 
 ---

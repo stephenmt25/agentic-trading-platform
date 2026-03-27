@@ -22,7 +22,7 @@ export async function generateMetadata({
   }
 
   return {
-    title: `${doc.title} | Aion Docs`,
+    title: `${doc.title} | Praxis Docs`,
     description: `Documentation: ${doc.title}`,
   };
 }

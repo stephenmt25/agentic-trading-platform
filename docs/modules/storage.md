@@ -2,7 +2,7 @@
 
 ## Purpose and Responsibility
 
-The Storage library provides the data access layer for the Aion Trading Platform. It manages connections to Redis (for caching, streams, and real-time state) and TimescaleDB (for persistent time-series and relational data), and exposes domain-specific repositories for orders, positions, PnL snapshots, and other entities. All database interactions across the platform flow through this library.
+The Storage library provides the data access layer for the Praxis Trading Platform. It manages connections to Redis (for caching, streams, and real-time state) and TimescaleDB (for persistent time-series and relational data), and exposes domain-specific repositories for orders, positions, PnL snapshots, and other entities. All database interactions across the platform flow through this library.
 
 ## Public Interface
 

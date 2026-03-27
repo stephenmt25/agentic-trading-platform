@@ -1,7 +1,7 @@
-# Aion Trading Platform -- Configuration Reference
+# Praxis Trading Platform -- Configuration Reference
 
 > Complete reference for every environment variable, constant, feature flag, and
-> tunable parameter in the Aion Trading Platform.  All settings use the `AION_`
+> tunable parameter in the Praxis Trading Platform.  All settings use the `PRAXIS_`
 > prefix and are managed through Pydantic `BaseSettings`
 > (see `libs/config/settings.py`).
 
@@ -43,8 +43,8 @@
 ## Environment Variables
 
 Every application-level setting is read from the process environment (or a
-`.env` file) with the `AION_` prefix.  For example, the setting `REDIS_URL` in
-`libs/config/settings.py` maps to the environment variable `AION_REDIS_URL`.
+`.env` file) with the `PRAXIS_` prefix.  For example, the setting `REDIS_URL` in
+`libs/config/settings.py` maps to the environment variable `PRAXIS_REDIS_URL`.
 
 Copy `config/.env.example` to `config/.env` and edit the values for your
 environment.  Never commit `.env` files that contain real credentials.
@@ -53,95 +53,95 @@ environment.  Never commit `.env` files that contain real credentials.
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_REDIS_URL` | `str` | No | `redis://localhost:6379/1` | Redis connection URL. Used for pub/sub messaging between agents, rolling-window caches, and the sentiment cache. | All agents, Hot-Path, Sentiment |
-| `AION_DATABASE_URL` | `str` | No | `postgresql://postgres:postgres@localhost:5432/aion_trading` | TimescaleDB connection string. Stores OHLCV data, PnL snapshots, audit logs, backtest results, and user accounts. | All agents that persist data, API Gateway, Backtesting |
-| `AION_LOG_LEVEL` | `str` | No | `INFO` | Logging verbosity. Accepts `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. Uses `structlog` throughout. | All services |
+| `PRAXIS_REDIS_URL` | `str` | No | `redis://localhost:6379/1` | Redis connection URL. Used for pub/sub messaging between agents, rolling-window caches, and the sentiment cache. | All agents, Hot-Path, Sentiment |
+| `PRAXIS_DATABASE_URL` | `str` | No | `postgresql://postgres:postgres@localhost:5432/praxis_trading` | TimescaleDB connection string. Stores OHLCV data, PnL snapshots, audit logs, backtest results, and user accounts. | All agents that persist data, API Gateway, Backtesting |
+| `PRAXIS_LOG_LEVEL` | `str` | No | `INFO` | Logging verbosity. Accepts `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. Uses `structlog` throughout. | All services |
 
 ### Exchange Connectivity
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_BINANCE_TESTNET` | `bool` | No | `True` | When `true`, all Binance API calls route to the testnet endpoint. Set to `false` only when you are ready for live trading. | Ingestion, Execution |
-| `AION_COINBASE_SANDBOX` | `bool` | No | `True` | When `true`, all Coinbase API calls route to the sandbox endpoint. Set to `false` only when you are ready for live trading. | Ingestion, Execution |
+| `PRAXIS_BINANCE_TESTNET` | `bool` | No | `True` | When `true`, all Binance API calls route to the testnet endpoint. Set to `false` only when you are ready for live trading. | Ingestion, Execution |
+| `PRAXIS_COINBASE_SANDBOX` | `bool` | No | `True` | When `true`, all Coinbase API calls route to the sandbox endpoint. Set to `false` only when you are ready for live trading. | Ingestion, Execution |
 
 ### Feature Flags
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_TRADING_ENABLED` | `bool` | No | `False` | Master kill-switch for live order execution. When `false`, the Execution agent rejects all order requests regardless of other flags. Must be explicitly set to `true` to allow any orders. | Execution, Validation |
-| `AION_PAPER_TRADING_MODE` | `bool` | No | `False` | When `true`, Execution simulates fills locally instead of sending orders to exchange APIs. Useful for end-to-end testing without exchange credentials. | Execution |
+| `PRAXIS_TRADING_ENABLED` | `bool` | No | `False` | Master kill-switch for live order execution. When `false`, the Execution agent rejects all order requests regardless of other flags. Must be explicitly set to `true` to allow any orders. | Execution, Validation |
+| `PRAXIS_PAPER_TRADING_MODE` | `bool` | No | `False` | When `true`, Execution simulates fills locally instead of sending orders to exchange APIs. Useful for end-to-end testing without exchange credentials. | Execution |
 
 ### Validation and Safety
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_FAST_GATE_TIMEOUT_MS` | `int` | No | `50` | Maximum milliseconds allowed for fast-gate validation checks. If validation exceeds this SLA, the signal is rejected. | Validation |
-| `AION_CIRCUIT_BREAKER_DAILY_LOSS_PCT` | `Decimal` | No | `0.02` | Portfolio-wide daily loss threshold (as a decimal fraction, e.g., `0.02` = 2%). When cumulative realized + unrealized losses hit this level, the circuit breaker halts all trading for the remainder of the day. | PnL, Risk, Execution |
-| `AION_HOT_DATA_RETENTION_DAYS` | `int` | No | `7` | Number of days to keep OHLCV and tick data in the hot (TimescaleDB) tier before the Archiver moves it to cold storage. | Archiver, TA Agent, Hot-Path |
-| `AION_SENTIMENT_CACHE_TTL_S` | `int` | No | `900` | Time-to-live in seconds for cached sentiment scores in Redis. Prevents redundant LLM/news API calls for the same asset within the TTL window. | Sentiment |
+| `PRAXIS_FAST_GATE_TIMEOUT_MS` | `int` | No | `50` | Maximum milliseconds allowed for fast-gate validation checks. If validation exceeds this SLA, the signal is rejected. | Validation |
+| `PRAXIS_CIRCUIT_BREAKER_DAILY_LOSS_PCT` | `Decimal` | No | `0.02` | Portfolio-wide daily loss threshold (as a decimal fraction, e.g., `0.02` = 2%). When cumulative realized + unrealized losses hit this level, the circuit breaker halts all trading for the remainder of the day. | PnL, Risk, Execution |
+| `PRAXIS_HOT_DATA_RETENTION_DAYS` | `int` | No | `7` | Number of days to keep OHLCV and tick data in the hot (TimescaleDB) tier before the Archiver moves it to cold storage. | Archiver, TA Agent, Hot-Path |
+| `PRAXIS_SENTIMENT_CACHE_TTL_S` | `int` | No | `900` | Time-to-live in seconds for cached sentiment scores in Redis. Prevents redundant LLM/news API calls for the same asset within the TTL window. | Sentiment |
 
 ### External API Keys
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_LLM_API_KEY` | `str` | No | `""` | API key for the LLM service (used by the Analyst agent for trade reasoning and the Sentiment agent for news summarization). Leave empty to disable LLM-dependent features. | Analyst, Sentiment |
-| `AION_NEWS_API_KEY` | `str` | No | `""` | API key for the news data provider. Required for the Sentiment agent to fetch headlines. | Sentiment |
-| `AION_PAGERDUTY_API_KEY` | `str` | No | `""` | PagerDuty integration key for alerting on circuit breaker trips, service crashes, and drift threshold violations. | Logger, Risk |
-| `AION_GCS_BUCKET_NAME` | `str` | No | `""` | Google Cloud Storage bucket for cold-tier archival of historical OHLCV data. Leave empty to skip archival (data remains in TimescaleDB). | Archiver |
+| `PRAXIS_LLM_API_KEY` | `str` | No | `""` | API key for the LLM service (used by the Analyst agent for trade reasoning and the Sentiment agent for news summarization). Leave empty to disable LLM-dependent features. | Analyst, Sentiment |
+| `PRAXIS_NEWS_API_KEY` | `str` | No | `""` | API key for the news data provider. Required for the Sentiment agent to fetch headlines. | Sentiment |
+| `PRAXIS_PAGERDUTY_API_KEY` | `str` | No | `""` | PagerDuty integration key for alerting on circuit breaker trips, service crashes, and drift threshold violations. | Logger, Risk |
+| `PRAXIS_GCS_BUCKET_NAME` | `str` | No | `""` | Google Cloud Storage bucket for cold-tier archival of historical OHLCV data. Leave empty to skip archival (data remains in TimescaleDB). | Archiver |
 
 ### Authentication and Secrets
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_SECRET_KEY` | `str` | **Yes (production)** | `aion-dev-secret-key-change-in-production` | JWT signing key for access tokens. The default value is intentionally insecure. The `Settings.is_secret_key_secure()` method returns `False` if the default is still in use. You **must** change this before deploying. | API Gateway |
-| `AION_REFRESH_SECRET_KEY` | `str` | **Yes (production)** | `""` | Separate signing key for refresh tokens. Must differ from `SECRET_KEY`. | API Gateway |
-| `AION_NEXTAUTH_SECRET` | `str` | **Yes (production)** | `""` | Must match the `NEXTAUTH_SECRET` value configured in the frontend `.env.local`. Used to validate session tokens across the backend and NextAuth.js. Generate with `openssl rand -base64 32`. | API Gateway, Frontend |
-| `AION_GCP_PROJECT_ID` | `str` | No | `""` | GCP project ID for Secret Manager integration. When empty, the platform falls back to local Fernet encryption for exchange API key storage. | API Gateway |
+| `PRAXIS_SECRET_KEY` | `str` | **Yes (production)** | `praxis-dev-secret-key-change-in-production` | JWT signing key for access tokens. The default value is intentionally insecure. The `Settings.is_secret_key_secure()` method returns `False` if the default is still in use. You **must** change this before deploying. | API Gateway |
+| `PRAXIS_REFRESH_SECRET_KEY` | `str` | **Yes (production)** | `""` | Separate signing key for refresh tokens. Must differ from `SECRET_KEY`. | API Gateway |
+| `PRAXIS_NEXTAUTH_SECRET` | `str` | **Yes (production)** | `""` | Must match the `NEXTAUTH_SECRET` value configured in the frontend `.env.local`. Used to validate session tokens across the backend and NextAuth.js. Generate with `openssl rand -base64 32`. | API Gateway, Frontend |
+| `PRAXIS_GCP_PROJECT_ID` | `str` | No | `""` | GCP project ID for Secret Manager integration. When empty, the platform falls back to local Fernet encryption for exchange API key storage. | API Gateway |
 
 ### CORS
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_CORS_ORIGINS` | `List[str]` | No | `["http://localhost:3000"]` | Allowed CORS origins for the API Gateway. In production, set this to your frontend domain(s). Accepts a JSON array string. | API Gateway |
+| `PRAXIS_CORS_ORIGINS` | `List[str]` | No | `["http://localhost:3000"]` | Allowed CORS origins for the API Gateway. In production, set this to your frontend domain(s). Accepts a JSON array string. | API Gateway |
 
 ### Database Connection Pool
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_DB_POOL_MIN_SIZE` | `int` | No | `5` | Minimum number of connections maintained in the asyncpg connection pool. | All services using TimescaleDB |
-| `AION_DB_POOL_MAX_SIZE` | `int` | No | `20` | Maximum number of connections the pool will open. Size this based on the number of concurrent agents. | All services using TimescaleDB |
-| `AION_DB_POOL_TIMEOUT` | `int` | No | `30` | Seconds to wait for a connection from the pool before raising a timeout error. | All services using TimescaleDB |
+| `PRAXIS_DB_POOL_MIN_SIZE` | `int` | No | `5` | Minimum number of connections maintained in the asyncpg connection pool. | All services using TimescaleDB |
+| `PRAXIS_DB_POOL_MAX_SIZE` | `int` | No | `20` | Maximum number of connections the pool will open. Size this based on the number of concurrent agents. | All services using TimescaleDB |
+| `PRAXIS_DB_POOL_TIMEOUT` | `int` | No | `30` | Seconds to wait for a connection from the pool before raising a timeout error. | All services using TimescaleDB |
 
 ### Trading Symbols
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_TRADING_SYMBOLS` | `List[str]` | No | `["BTC/USDT", "ETH/USDT"]` | The list of trading pairs the platform monitors and trades. This is the single source of truth -- all agents read symbols from this setting. Accepts a JSON array string. | Ingestion, Strategy, TA Agent, Execution, PnL |
+| `PRAXIS_TRADING_SYMBOLS` | `List[str]` | No | `["BTC/USDT", "ETH/USDT"]` | The list of trading pairs the platform monitors and trades. This is the single source of truth -- all agents read symbols from this setting. Accepts a JSON array string. | Ingestion, Strategy, TA Agent, Execution, PnL |
 
 ### Backtesting
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_BACKTEST_MAX_QUEUE_DEPTH` | `int` | No | `100` | Maximum number of pending backtest jobs allowed in the queue. New submissions are rejected with HTTP 429 when this limit is reached. | Backtesting |
+| `PRAXIS_BACKTEST_MAX_QUEUE_DEPTH` | `int` | No | `100` | Maximum number of pending backtest jobs allowed in the queue. New submissions are rejected with HTTP 429 when this limit is reached. | Backtesting |
 
 ### Local SLM Inference
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_LLM_BACKEND` | `str` | No | `"cloud"` | LLM backend mode. `"cloud"` = Claude API only. `"local"` = local SLM only. `"auto"` = try local first, fall back to cloud. | Sentiment, Debate |
-| `AION_SLM_INFERENCE_URL` | `str` | No | `"http://localhost:8095"` | URL of the local SLM inference service. | Sentiment, Debate |
-| `AION_SLM_MODEL_PATH` | `str` | No | `""` | Absolute path to the GGUF model file. Empty = mock mode (returns neutral responses). | SLM Inference |
-| `AION_SLM_CONTEXT_LENGTH` | `int` | No | `4096` | Context window size for the loaded SLM model. | SLM Inference |
-| `AION_SLM_GPU_LAYERS` | `int` | No | `-1` | Number of model layers to offload to GPU. `-1` = all layers. `0` = CPU only. | SLM Inference |
+| `PRAXIS_LLM_BACKEND` | `str` | No | `"cloud"` | LLM backend mode. `"cloud"` = Claude API only. `"local"` = local SLM only. `"auto"` = try local first, fall back to cloud. | Sentiment, Debate |
+| `PRAXIS_SLM_INFERENCE_URL` | `str` | No | `"http://localhost:8095"` | URL of the local SLM inference service. | Sentiment, Debate |
+| `PRAXIS_SLM_MODEL_PATH` | `str` | No | `""` | Absolute path to the GGUF model file. Empty = mock mode (returns neutral responses). | SLM Inference |
+| `PRAXIS_SLM_CONTEXT_LENGTH` | `int` | No | `4096` | Context window size for the loaded SLM model. | SLM Inference |
+| `PRAXIS_SLM_GPU_LAYERS` | `int` | No | `-1` | Number of model layers to offload to GPU. `-1` = all layers. `0` = CPU only. | SLM Inference |
 
 ### HITL (Human-in-the-Loop)
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `AION_HITL_ENABLED` | `bool` | No | `false` | Enable the HITL execution gate in the hot-path pipeline. When disabled, the gate is a no-op pass-through. | Hot Path |
-| `AION_HITL_SIZE_THRESHOLD_PCT` | `float` | No | `5.0` | Trade size as a percentage of max allocation that triggers HITL approval. | Hot Path |
-| `AION_HITL_CONFIDENCE_THRESHOLD` | `float` | No | `0.5` | Signal confidence below this value triggers HITL approval. | Hot Path |
-| `AION_HITL_TIMEOUT_S` | `int` | No | `60` | Seconds to wait for human approval response. Fail-safe: timeout = reject. | Hot Path |
+| `PRAXIS_HITL_ENABLED` | `bool` | No | `false` | Enable the HITL execution gate in the hot-path pipeline. When disabled, the gate is a no-op pass-through. | Hot Path |
+| `PRAXIS_HITL_SIZE_THRESHOLD_PCT` | `float` | No | `5.0` | Trade size as a percentage of max allocation that triggers HITL approval. | Hot Path |
+| `PRAXIS_HITL_CONFIDENCE_THRESHOLD` | `float` | No | `0.5` | Signal confidence below this value triggers HITL approval. | Hot Path |
+| `PRAXIS_HITL_TIMEOUT_S` | `int` | No | `60` | Seconds to wait for human approval response. Fail-safe: timeout = reject. | Hot Path |
 
 ---
 
@@ -154,7 +154,7 @@ the values.
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `NEXTAUTH_URL` | Yes | `http://localhost:3000` | Canonical URL of the frontend. Used by NextAuth.js for callback URLs. |
-| `NEXTAUTH_SECRET` | Yes | -- | Session signing secret. Must match `AION_NEXTAUTH_SECRET` on the backend. Generate with `openssl rand -base64 32`. |
+| `NEXTAUTH_SECRET` | Yes | -- | Session signing secret. Must match `PRAXIS_NEXTAUTH_SECRET` on the backend. Generate with `openssl rand -base64 32`. |
 | `GOOGLE_CLIENT_ID` | No | -- | OAuth client ID from Google Cloud Console. Required for Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | No | -- | OAuth client secret from Google Cloud Console. |
 | `GITHUB_CLIENT_ID` | No | -- | OAuth client ID from GitHub Developer Settings. Required for GitHub sign-in. |
@@ -166,14 +166,14 @@ the values.
 ## Docker / Compose Variables
 
 These variables are consumed by `deploy/docker-compose.yml` directly (no
-`AION_` prefix). Set them in a `.env` file alongside the compose file or export
+`PRAXIS_` prefix). Set them in a `.env` file alongside the compose file or export
 them in your shell.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REDIS_PASSWORD` | `changeme_redis_dev` | Redis `requirepass` value. Must match the password segment in `AION_REDIS_URL`. |
+| `REDIS_PASSWORD` | `changeme_redis_dev` | Redis `requirepass` value. Must match the password segment in `PRAXIS_REDIS_URL`. |
 | `POSTGRES_USER` | `postgres` | TimescaleDB superuser name. |
-| `POSTGRES_PASSWORD` | `postgres` | TimescaleDB superuser password. Must match the password in `AION_DATABASE_URL`. |
+| `POSTGRES_PASSWORD` | `postgres` | TimescaleDB superuser password. Must match the password in `PRAXIS_DATABASE_URL`. |
 
 ---
 
@@ -206,7 +206,7 @@ To change them, edit the source file and redeploy.
 
 | Constant | Value | Description |
 |----------|-------|-------------|
-| `HOT_DATA_RETENTION_DAYS` | `7` | Mirrors `AION_HOT_DATA_RETENTION_DAYS`. Used by the Archiver to decide which rows to move to cold storage. |
+| `HOT_DATA_RETENTION_DAYS` | `7` | Mirrors `PRAXIS_HOT_DATA_RETENTION_DAYS`. Used by the Archiver to decide which rows to move to cold storage. |
 | `COLD_BACKTEST_BOUNDARY_MONTHS` | `12` | Backtests can request up to 12 months of cold-tier historical data. Requests beyond this boundary are rejected. |
 
 ### Performance
@@ -228,14 +228,14 @@ accounts.
 
 ### Binance
 
-- Controlled by `AION_BINANCE_TESTNET`.
+- Controlled by `PRAXIS_BINANCE_TESTNET`.
 - When `true` (the default), ccxt is configured with `{'options': {'defaultType': 'future'}, 'sandbox': True}`, routing all requests to `testnet.binancefuture.com`.
 - When `false`, requests go to the production Binance API.
 - API key and secret are per-user and loaded from the encrypted `exchange_keys` table.
 
 ### Coinbase
 
-- Controlled by `AION_COINBASE_SANDBOX`.
+- Controlled by `PRAXIS_COINBASE_SANDBOX`.
 - When `true` (the default), ccxt routes to the Coinbase sandbox environment.
 - When `false`, requests go to production Coinbase Advanced Trade.
 - API key and secret are per-user and loaded from the encrypted `exchange_keys` table.
@@ -248,18 +248,18 @@ agent should reject.
 
 ```bash
 # Production configuration (handle with extreme care)
-AION_BINANCE_TESTNET=false
-AION_COINBASE_SANDBOX=false
-AION_TRADING_ENABLED=true
+PRAXIS_BINANCE_TESTNET=false
+PRAXIS_COINBASE_SANDBOX=false
+PRAXIS_TRADING_ENABLED=true
 ```
 
 The recommended progression is:
 
 1. **Development**: All defaults (testnet=true, sandbox=true, trading=false).
    No orders are sent anywhere.
-2. **Paper trading**: Set `AION_PAPER_TRADING_MODE=true` and
-   `AION_TRADING_ENABLED=true`. Orders are simulated locally.
-3. **Testnet trading**: Set `AION_TRADING_ENABLED=true` with testnet/sandbox
+2. **Paper trading**: Set `PRAXIS_PAPER_TRADING_MODE=true` and
+   `PRAXIS_TRADING_ENABLED=true`. Orders are simulated locally.
+3. **Testnet trading**: Set `PRAXIS_TRADING_ENABLED=true` with testnet/sandbox
    still `true`. Real orders hit exchange testnets.
 4. **Live trading**: Flip testnet/sandbox to `false`. Real orders, real money.
 
@@ -296,14 +296,14 @@ that a bug in one layer does not disable the others.
 
 ### Layer 1 -- Fast Gate (per-signal)
 
-- **Setting**: `AION_FAST_GATE_TIMEOUT_MS` (default `50`)
+- **Setting**: `PRAXIS_FAST_GATE_TIMEOUT_MS` (default `50`)
 - **Constant**: `THRESHOLD_PROXIMITY_BAND_PCT` (`0.10`)
 - Rejects signals that take too long to validate or that land within the
   proximity band of a risk threshold.
 
 ### Layer 2 -- Circuit Breaker (portfolio-wide)
 
-- **Setting**: `AION_CIRCUIT_BREAKER_DAILY_LOSS_PCT` (default `0.02`)
+- **Setting**: `PRAXIS_CIRCUIT_BREAKER_DAILY_LOSS_PCT` (default `0.02`)
 - **Constant**: `DEFAULT_CIRCUIT_BREAKER_PCT` (`0.02`)
 - The PnL agent computes cumulative daily P&L. When losses exceed the threshold,
   the circuit breaker fires and the Execution agent stops accepting orders for
@@ -474,7 +474,7 @@ issue in the project changelog.
 
 | File | Purpose |
 |------|---------|
-| `libs/config/settings.py` | Pydantic `BaseSettings` class. Single source of truth for all `AION_` variables. |
+| `libs/config/settings.py` | Pydantic `BaseSettings` class. Single source of truth for all `PRAXIS_` variables. |
 | `libs/core/constants.py` | Compile-time constants for TA indicators, risk thresholds, and data retention. |
 | `config/.env.example` | Template for local development. Copy to `config/.env`. |
 | `config/.env.test` | Pre-configured values for the test suite. Used by `scripts/run_tests.sh`. |

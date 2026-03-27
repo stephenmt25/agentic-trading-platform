@@ -1,4 +1,4 @@
-# Aion Trading Platform -- Developer Guide
+# Praxis Trading Platform -- Developer Guide
 
 > Everything you need to set up a local development environment, run the
 > platform, execute tests, and contribute new features.
@@ -100,7 +100,7 @@ bash scripts/run_local.sh
 | Service | Port | Credentials |
 |---------|------|-------------|
 | Redis 7 (Alpine) | `localhost:6379` | Password: `changeme_redis_dev` |
-| TimescaleDB 2.13.1 (PG15) | `localhost:5432` | User: `postgres`, Password: `postgres`, DB: `aion_trading` |
+| TimescaleDB 2.13.1 (PG15) | `localhost:5432` | User: `postgres`, Password: `postgres`, DB: `praxis_trading` |
 
 Redis is configured with 256 MB max memory and an `allkeys-lru` eviction
 policy. TimescaleDB is allocated 1 GB memory. Both use named Docker volumes
@@ -119,7 +119,7 @@ LLM or news features, add your API keys.
 See `docs/configuration.md` for a complete reference of every variable.
 
 **Important**: The `REDIS_PASSWORD` in your `.env` must match the password
-in `AION_REDIS_URL`. The example file uses `changeme_redis_dev` for both.
+in `PRAXIS_REDIS_URL`. The example file uses `changeme_redis_dev` for both.
 
 ### Step 4: Run Database Migrations
 
@@ -141,7 +141,7 @@ alphabetical order:
 008_backtest_results.sql
 ```
 
-The migration script connects to TimescaleDB using `AION_DATABASE_URL` from
+The migration script connects to TimescaleDB using `PRAXIS_DATABASE_URL` from
 your settings and applies each `.sql` file via the `TimescaleClient`. If a
 migration has already been applied, the script logs the error and continues
 to the next file.
@@ -153,7 +153,7 @@ container):
 for f in migrations/versions/*.sql; do
   echo "Running $f"
   docker exec -i $(docker compose -f deploy/docker-compose.yml ps -q timescaledb) \
-    psql -U postgres -d aion_trading < "$f"
+    psql -U postgres -d praxis_trading < "$f"
 done
 ```
 
@@ -195,7 +195,7 @@ poetry run python -m services.ta_agent.main
 # Regime detection (HMM)
 poetry run python -m services.regime_hmm.main
 
-# Sentiment analysis (requires AION_LLM_API_KEY and AION_NEWS_API_KEY)
+# Sentiment analysis (requires PRAXIS_LLM_API_KEY and PRAXIS_NEWS_API_KEY)
 poetry run python -m services.sentiment.main
 
 # Backtesting engine
@@ -240,9 +240,9 @@ changes are needed for testnet operation -- the defaults handle it.
 **1. Read-only mode (default)**
 
 ```bash
-AION_TRADING_ENABLED=false   # default
-AION_BINANCE_TESTNET=true    # default
-AION_COINBASE_SANDBOX=true   # default
+PRAXIS_TRADING_ENABLED=false   # default
+PRAXIS_BINANCE_TESTNET=true    # default
+PRAXIS_COINBASE_SANDBOX=true   # default
 ```
 
 Signals are generated, validated, and logged. No orders are sent.
@@ -250,8 +250,8 @@ Signals are generated, validated, and logged. No orders are sent.
 **2. Paper trading**
 
 ```bash
-AION_TRADING_ENABLED=true
-AION_PAPER_TRADING_MODE=true
+PRAXIS_TRADING_ENABLED=true
+PRAXIS_PAPER_TRADING_MODE=true
 ```
 
 The Execution agent simulates fills locally. No exchange API calls are made.
@@ -260,10 +260,10 @@ Useful for testing the full pipeline without exchange credentials.
 **3. Testnet trading**
 
 ```bash
-AION_TRADING_ENABLED=true
-AION_PAPER_TRADING_MODE=false
-AION_BINANCE_TESTNET=true
-AION_COINBASE_SANDBOX=true
+PRAXIS_TRADING_ENABLED=true
+PRAXIS_PAPER_TRADING_MODE=false
+PRAXIS_BINANCE_TESTNET=true
+PRAXIS_COINBASE_SANDBOX=true
 ```
 
 Real orders are sent to exchange testnet APIs. You need testnet API keys
@@ -272,13 +272,13 @@ configured per-user in the platform. No real money is at risk.
 **4. Live trading**
 
 ```bash
-AION_TRADING_ENABLED=true
-AION_PAPER_TRADING_MODE=false
-AION_BINANCE_TESTNET=false
-AION_COINBASE_SANDBOX=false
+PRAXIS_TRADING_ENABLED=true
+PRAXIS_PAPER_TRADING_MODE=false
+PRAXIS_BINANCE_TESTNET=false
+PRAXIS_COINBASE_SANDBOX=false
 ```
 
-Real orders on production exchanges. Ensure `AION_SECRET_KEY` is changed from
+Real orders on production exchanges. Ensure `PRAXIS_SECRET_KEY` is changed from
 the default, circuit breaker thresholds are reviewed, and PagerDuty alerting
 is configured.
 
@@ -298,7 +298,7 @@ is configured.
    ```
 
 3. **Add the exchange to the Ingestion agent** so it subscribes to the
-   exchange's WebSocket feed for symbols in `AION_TRADING_SYMBOLS`.
+   exchange's WebSocket feed for symbols in `PRAXIS_TRADING_SYMBOLS`.
 
 4. **Add the exchange to the Execution agent** so it can route orders to the
    new exchange based on symbol configuration.
@@ -406,8 +406,8 @@ bash scripts/run_tests.sh
 The script:
 1. Starts `deploy/docker-compose.test.yml`
 2. Waits for health checks
-3. Exports test environment variables (`AION_REDIS_URL`, `AION_DATABASE_URL`,
-   `AION_TRADING_ENABLED=false`)
+3. Exports test environment variables (`PRAXIS_REDIS_URL`, `PRAXIS_DATABASE_URL`,
+   `PRAXIS_TRADING_ENABLED=false`)
 4. Runs `pytest` with coverage
 5. Tears down containers on exit (via `trap`)
 
@@ -455,8 +455,8 @@ async def test_order_submission(mock_binance):
 ```
 
 For integration tests against exchange testnets, use the test configuration
-in `config/.env.test` which sets `AION_BINANCE_TESTNET=true` and
-`AION_COINBASE_SANDBOX=true`.
+in `config/.env.test` which sets `PRAXIS_BINANCE_TESTNET=true` and
+`PRAXIS_COINBASE_SANDBOX=true`.
 
 ### Backtesting
 
@@ -469,7 +469,7 @@ poetry run python -m services.backtesting.main
 ```
 
 - Backtest jobs are submitted via the API Gateway and queued in the service.
-- The queue depth is limited by `AION_BACKTEST_MAX_QUEUE_DEPTH` (default: 100).
+- The queue depth is limited by `PRAXIS_BACKTEST_MAX_QUEUE_DEPTH` (default: 100).
 - Historical data is available up to `COLD_BACKTEST_BOUNDARY_MONTHS` (12 months)
   back from the cold tier.
 - Results are stored in the `backtest_results` table (migration
@@ -534,7 +534,7 @@ default compose configuration requires authentication:
 redis-cli -a changeme_redis_dev ping
 ```
 
-Ensure `AION_REDIS_URL` includes the password if you changed it from the
+Ensure `PRAXIS_REDIS_URL` includes the password if you changed it from the
 default, e.g., `redis://:mypassword@localhost:6379/1`.
 
 ### TimescaleDB Connection Refused
@@ -549,7 +549,7 @@ docker exec -it $(docker compose -f deploy/docker-compose.yml ps -q timescaledb)
   psql -U postgres -c "\l"
 ```
 
-You should see `aion_trading` in the database list. If not, the container may
+You should see `praxis_trading` in the database list. If not, the container may
 have started with a different `POSTGRES_DB` value. Recreate it:
 
 ```bash
@@ -633,8 +633,8 @@ containers. Another process may be using those ports.
 Ensure the test environment variables match:
 
 ```bash
-export AION_REDIS_URL="redis://localhost:6380/1"
-export AION_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/aion_test"
+export PRAXIS_REDIS_URL="redis://localhost:6380/1"
+export PRAXIS_DATABASE_URL="postgresql://postgres:postgres@localhost:5433/praxis_test"
 ```
 
 ### Linting Failures in CI

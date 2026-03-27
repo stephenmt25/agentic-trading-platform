@@ -27,7 +27,7 @@ function LoginContent() {
         {/* Branding */}
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-foreground tracking-tight">
-            AION
+            PRAXIS
           </h1>
           <p className="text-muted-foreground text-xs tracking-widest uppercase font-medium mt-1">
             Trading Platform

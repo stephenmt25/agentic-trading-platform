@@ -1,11 +1,11 @@
-class AionBaseError(Exception):
-    """Base exception for all aion-trading errors."""
+class PraxisBaseError(Exception):
+    """Base exception for all praxis-trading errors."""
     pass
 
-class ConfigurationError(AionBaseError):
+class ConfigurationError(PraxisBaseError):
     pass
 
-class ExchangeError(AionBaseError):
+class ExchangeError(PraxisBaseError):
     pass
 
 class ExchangeRateLimitError(ExchangeError):
@@ -14,23 +14,23 @@ class ExchangeRateLimitError(ExchangeError):
 class ExchangeTimeoutError(ExchangeError):
     pass
 
-class ValidationError(AionBaseError):
+class ValidationError(PraxisBaseError):
     pass
 
-class CircuitBreakerTriggeredError(AionBaseError):
+class CircuitBreakerTriggeredError(PraxisBaseError):
     pass
 
-class BlacklistBlockedError(AionBaseError):
+class BlacklistBlockedError(PraxisBaseError):
     pass
 
-class RiskGateBlockedError(AionBaseError):
+class RiskGateBlockedError(PraxisBaseError):
     pass
 
-class OrderExecutionError(AionBaseError):
+class OrderExecutionError(PraxisBaseError):
     pass
 
-class ReconciliationDriftError(AionBaseError):
+class ReconciliationDriftError(PraxisBaseError):
     pass
 
-class SchemaVersionMismatchError(AionBaseError):
+class SchemaVersionMismatchError(PraxisBaseError):
     pass

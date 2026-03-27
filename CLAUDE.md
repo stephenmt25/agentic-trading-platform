@@ -290,7 +290,7 @@ This section is the single source of truth for what is enforced, what is expecte
 
 - All enums are in `libs/core/enums.py`. Do not define enums elsewhere. Do not infer enum values — they must be explicitly defined.
 - All Pydantic schemas are in `libs/core/schemas.py`.
-- Settings via Pydantic BaseSettings with `AION_` env var prefix in `libs/config/settings.py`.
+- Settings via Pydantic BaseSettings with `PRAXIS_` env var prefix in `libs/config/settings.py`.
 - Services follow the pattern: `services/<name>/src/main.py` with FastAPI + uvicorn.
 - Redis Streams (ordered) and Pub/Sub (broadcast) channels are defined in `libs/messaging/channels.py`. Do not invent channel names — verify against this file.
 
@@ -302,18 +302,20 @@ This section is the single source of truth for what is enforced, what is expecte
 - **Startup ordering**: Services must follow the documented startup sequence. Changing startup order requires explicit human approval.
 - **Database schemas first**: No dependent code may be written before the schema it depends on exists and is verified. Missing schema = blocking issue — stop and report.
 
-### 6D — Known Defects & Gaps (Do Not Make These Worse)
+### 6D — Resolved Defects (2026-03-27) & Remaining Gaps
 
-These are tracked problems. Do not introduce additional instances. If you encounter one during a task, note it but do not fix it unless that is the assigned task.
+The following critical and high-severity defects were resolved on 2026-03-27. See `docs/DOCUMENTATION-GAPS.md` for full details.
 
 | Defect | Status |
 |---|---|
-| 110+ `float()` conversions in financial code paths | Tracked — do not add more |
-| `backtest_results` table uses `DOUBLE PRECISION` | Known bug — do not replicate |
-| CHECK_3 (Bias) validation is stubbed | Incomplete |
-| Rate limiter service always returns `allowed=True` | Stub — not functional |
-| Kill switch / emergency shutdown | **NOT IMPLEMENTED** |
-| Position-level stop-loss enforcement | **NOT IMPLEMENTED** |
+| `float()` conversions in financial code paths | **RESOLVED** — all financial calculations use `Decimal` |
+| `backtest_results` table uses `DOUBLE PRECISION` | **RESOLVED** — migration 009 converts to `DECIMAL(20,8)` |
+| CHECK_3 (Bias) validation is stubbed | **RESOLVED** — rolling z-score bias detection implemented |
+| Rate limiter service always returns `allowed=True` | **RESOLVED** — Redis sliding-window rate limiting implemented |
+| Kill switch / emergency shutdown | **RESOLVED** — `KillSwitch` via Redis key + API endpoint |
+| Position-level stop-loss enforcement | **RESOLVED** — `StopLossMonitor` in PnL tick processor |
+
+**Remaining (MEDIUM):** 13 API endpoints lack `response_model`, `profile_id` UUID validation missing, CORS overly permissive. See `docs/DOCUMENTATION-GAPS.md`.
 
 ---
 

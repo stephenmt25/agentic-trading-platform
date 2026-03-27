@@ -52,7 +52,7 @@ frontend/.env.local
 .dev_secrets/
 
 # Logs
-.aion_logs/
+.praxis_logs/
 *.log
 lint_output.txt
 

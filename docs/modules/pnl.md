@@ -2,7 +2,7 @@
 
 ## Purpose and Responsibility
 
-The PnL Service computes real-time profit-and-loss for all open positions in the Aion Trading Platform. It subscribes to live price ticks via Pub/Sub, calculates gross PnL, fees, tax estimates, and net returns for each position, and publishes updates through three channels: Pub/Sub for the dashboard, Redis for instant cache reads, and TimescaleDB for historical snapshots. It also maintains daily PnL totals and drawdown metrics in Redis for the risk management pipeline.
+The PnL Service computes real-time profit-and-loss for all open positions in the Praxis Trading Platform. It subscribes to live price ticks via Pub/Sub, calculates gross PnL, fees, tax estimates, and net returns for each position, and publishes updates through three channels: Pub/Sub for the dashboard, Redis for instant cache reads, and TimescaleDB for historical snapshots. It also maintains daily PnL totals and drawdown metrics in Redis for the risk management pipeline.
 
 ## Public Interface
 

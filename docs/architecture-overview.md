@@ -1,4 +1,4 @@
-# Aion Trading Platform -- Architecture Overview
+# Praxis Trading Platform -- Architecture Overview
 
 > Agentic cryptocurrency trading platform that combines multi-agent AI analysis
 > with a latency-optimized execution pipeline to generate, validate, and execute
@@ -27,28 +27,28 @@
 
 ## System Context (C4 Level 1)
 
-This diagram shows Aion as a single system and its relationships to external actors
+This diagram shows Praxis as a single system and its relationships to external actors
 and third-party systems.
 
 ```mermaid
 C4Context
-    title Aion Trading Platform -- System Context
+    title Praxis Trading Platform -- System Context
 
     Person(trader, "Trader", "Monitors portfolio, configures strategies, reviews signals")
 
-    System(aion, "Aion Trading Platform", "Agentic crypto trading system: ingests market data, generates AI-scored signals, validates, and executes orders")
+    System(praxis, "Praxis Trading Platform", "Agentic crypto trading system: ingests market data, generates AI-scored signals, validates, and executes orders")
 
     System_Ext(exchanges, "Cryptocurrency Exchanges", "Binance, Coinbase via CCXT -- market data feeds and order execution")
     System_Ext(llm, "LLM Provider", "Sentiment analysis, hallucination detection, async audit scoring")
     System_Ext(gcs, "Google Cloud Storage", "Long-term archival of historical market data and audit logs")
     System_Ext(oauth, "OAuth Provider", "Authentication via NextAuth.js v4")
 
-    Rel(trader, aion, "Views dashboard, configures strategies, reviews PnL", "HTTPS / WebSocket")
-    Rel(aion, exchanges, "Subscribes to market data, submits orders", "WebSocket / REST")
-    Rel(aion, llm, "Sends prompts for sentiment scoring and validation audits", "HTTPS")
-    Rel(aion, gcs, "Archives historical data", "HTTPS")
+    Rel(trader, praxis, "Views dashboard, configures strategies, reviews PnL", "HTTPS / WebSocket")
+    Rel(praxis, exchanges, "Subscribes to market data, submits orders", "WebSocket / REST")
+    Rel(praxis, llm, "Sends prompts for sentiment scoring and validation audits", "HTTPS")
+    Rel(praxis, gcs, "Archives historical data", "HTTPS")
     Rel(trader, oauth, "Authenticates", "OAuth 2.0")
-    Rel(oauth, aion, "Returns session token", "JWT")
+    Rel(oauth, praxis, "Returns session token", "JWT")
 ```
 
 **Source files**: `services/api_gateway/` (trader-facing), `libs/exchange/` (exchange integration), `services/sentiment/` (LLM calls), `services/archiver/` (GCS), `frontend/` (dashboard)
@@ -57,16 +57,16 @@ C4Context
 
 ## Container Diagram (C4 Level 2)
 
-This diagram decomposes Aion into its 17 services, two data stores, and the frontend.
+This diagram decomposes Praxis into its 17 services, two data stores, and the frontend.
 All backend services communicate through Redis 7 (streams, pub/sub, and list-based RPC).
 
 ```mermaid
 C4Container
-    title Aion Trading Platform -- Container Diagram
+    title Praxis Trading Platform -- Container Diagram
 
     Person(trader, "Trader")
 
-    System_Boundary(aion, "Aion Trading Platform") {
+    System_Boundary(praxis, "Praxis Trading Platform") {
 
         Container(frontend, "Frontend", "Next.js 16, React 19, Zustand, Tailwind CSS 4", "Dashboard: portfolio, PnL charts, signal feed, strategy config")
         Container(gateway, "API Gateway", "FastAPI :8000", "REST API + WebSocket hub, JWT auth, rate limiting middleware")
@@ -240,8 +240,8 @@ to be built.
 | Terraform modules | 3 | Empty | `deploy/terraform/` |
 | Validation: CHECK_3 Bias | 3 | Stubbed | `services/validation/src/check_3_bias.py` |
 | Rate limiter service | 3 | Stubbed | `services/rate_limiter/` |
-| Kill switch (emergency halt) | 3 | Not implemented | -- |
-| Position-level stop-loss | 3 | Not implemented | -- |
+| Kill switch (emergency halt) | 1 | Implemented | `KillSwitch` in hot-path, Redis-backed, API-toggleable, fails safe |
+| Position-level stop-loss | 1 | Implemented | `StopLossMonitor` in PnL service, per-tick enforcement against `stop_loss_pct` |
 
 ---
 
@@ -510,7 +510,7 @@ Redis message headers.
 
 ### Error Handling
 
-A custom exception hierarchy rooted at `AionBaseError` maps domain exceptions to
+A custom exception hierarchy rooted at `PraxisBaseError` maps domain exceptions to
 HTTP status codes. Key exceptions include `CircuitBreakerTriggeredError` (503),
 validation failures (422), and exchange communication errors (502).
 

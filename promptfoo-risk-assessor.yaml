@@ -1,5 +1,5 @@
 # promptfoo-risk-assessor.yaml
-description: "AION Trader — Risk Assessor Evaluation Suite"
+description: "Praxis Trader — Risk Assessor Evaluation Suite"
 
 providers:
   - id: anthropic:messages:claude-sonnet-4-20250514

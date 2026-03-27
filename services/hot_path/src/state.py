@@ -1,4 +1,5 @@
 from __future__ import annotations
+from decimal import Decimal
 from typing import Dict, Optional
 from libs.indicators import IndicatorSet
 from services.strategy.src.compiler import CompiledRuleSet
@@ -33,9 +34,9 @@ class ProfileState:
         self.blacklist = blacklist
         self.indicators = indicators
         self.regime: Optional[Regime] = None
-        self.daily_realised_pnl_pct: float = 0.0
-        self.current_drawdown_pct: float = 0.0
-        self.current_allocation_pct: float = 0.0
+        self.daily_realised_pnl_pct: Decimal = Decimal("0")
+        self.current_drawdown_pct: Decimal = Decimal("0")
+        self.current_allocation_pct: Decimal = Decimal("0")
         self.is_active = True
 
 class ProfileStateCache:

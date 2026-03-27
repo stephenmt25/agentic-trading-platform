@@ -16,8 +16,8 @@ until docker compose -f deploy/docker-compose.test.yml ps timescaledb | grep -q 
 
 echo "Running tests..."
 # Tests are run using poetry which will handle migrations for unit/integration logic
-export AION_REDIS_URL="redis://localhost:6379/1"
-export AION_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/aion_test"
-export AION_TRADING_ENABLED=false
+export PRAXIS_REDIS_URL="redis://localhost:6379/1"
+export PRAXIS_DATABASE_URL="postgresql://postgres:postgres@localhost:5432/praxis_test"
+export PRAXIS_TRADING_ENABLED=false
 
 poetry run pytest tests/ -v --cov=libs --cov=services --cov-report=term-missing

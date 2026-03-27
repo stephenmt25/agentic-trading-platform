@@ -27,7 +27,7 @@ from .enums import (
     ValidationVerdict,
 )
 from .exceptions import (
-    AionBaseError,
+    PraxisBaseError,
     BlacklistBlockedError,
     CircuitBreakerTriggeredError,
     ConfigurationError,
@@ -113,7 +113,7 @@ __all__ = [
     "AlertEvent",
     "ThresholdProximityEvent",
     # exceptions
-    "AionBaseError",
+    "PraxisBaseError",
     "ConfigurationError",
     "ExchangeError",
     "ExchangeRateLimitError",

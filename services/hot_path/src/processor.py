@@ -9,6 +9,7 @@ from .circuit_breaker import CircuitBreaker
 from .blacklist import BlacklistChecker
 from .risk_gate import RiskGate
 from .hitl_gate import HITLGate
+from .kill_switch import KillSwitch
 from .validation_client import ValidationClient
 
 from libs.core.enums import SignalDirection, EventType, ValidationCheck, ValidationVerdict, ValidationMode
@@ -42,6 +43,8 @@ class HotPathProcessor:
         self._orders_channel = orders_channel
         self._proximity_pubsub_channel = proximity_pubsub_channel
 
+        self._redis = redis_client
+
         # Sprint 9.4: Dual-regime dampener with Redis + pubsub
         self._regime_dampener = RegimeDampener(redis_client=redis_client, pubsub=pubsub)
 
@@ -60,6 +63,13 @@ class HotPathProcessor:
             events = await self._consumer.consume(self._tick_channel, group_name, "processor_1", count=100, block_ms=50)
 
             message_ids_to_ack = []
+
+            # Kill switch — checked once per batch, not per tick
+            if self._redis and await KillSwitch.is_active(self._redis):
+                message_ids_to_ack.extend(msg_id for msg_id, _ in events)
+                if message_ids_to_ack:
+                    await self._consumer.ack(self._tick_channel, group_name, message_ids_to_ack)
+                continue
 
             for msg_id, event in events:
                 if not event or not isinstance(event, MarketTickEvent):

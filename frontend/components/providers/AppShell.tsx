@@ -120,7 +120,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Desktop Sidebar — hidden on mobile */}
       <aside className="hidden md:flex w-56 shrink-0 bg-card border-r border-border flex-col py-6 h-full z-20">
         <div className="px-6 mb-8">
-          <span className="text-lg font-bold text-foreground tracking-tight">AION</span>
+          <span className="text-lg font-bold text-foreground tracking-tight">PRAXIS</span>
           <span className="text-xs text-muted-foreground font-mono uppercase tracking-widest ml-2">
             Trading
           </span>
@@ -160,7 +160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="absolute inset-0 bg-black/50" onClick={() => setMobileNavOpen(false)} />
           <nav className="absolute left-0 top-0 bottom-0 w-64 bg-card border-r border-border p-4 flex flex-col gap-1">
             <div className="flex items-center justify-between mb-6 px-2">
-              <span className="text-lg font-bold text-foreground tracking-tight">AION</span>
+              <span className="text-lg font-bold text-foreground tracking-tight">PRAXIS</span>
               <button onClick={() => setMobileNavOpen(false)} className="p-2 min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary" aria-label="Close navigation">
                 <X className="w-5 h-5 text-muted-foreground" />
               </button>

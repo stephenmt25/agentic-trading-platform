@@ -1,6 +1,7 @@
 import asyncio
 import json
 import uuid
+from decimal import Decimal
 from datetime import datetime
 from libs.core.schemas import OrderApprovedEvent, OrderExecutedEvent, OrderRejectedEvent, BaseEvent
 from libs.core.models import Order, Position
@@ -20,10 +21,10 @@ logger = get_logger("execution.executor")
 
 # Exchange-specific taker fee rates
 EXCHANGE_FEE_RATES = {
-    "BINANCE": 0.001,    # 0.10%
-    "COINBASE": 0.006,   # 0.60%
+    "BINANCE": Decimal("0.001"),    # 0.10%
+    "COINBASE": Decimal("0.006"),   # 0.60%
 }
-DEFAULT_FEE_RATE = 0.002  # 0.20% conservative fallback
+DEFAULT_FEE_RATE = Decimal("0.002")  # 0.20% conservative fallback
 
 
 class OrderExecutor:
@@ -170,7 +171,7 @@ class OrderExecutor:
                         # 5. Confirm in ledger — check result
                         confirmed = await self._ledger.confirm(
                             order_id, fill_price=fill_price,
-                            profile_id=str(ev.profile_id), quantity=float(ev.quantity)
+                            profile_id=str(ev.profile_id), quantity=ev.quantity
                         )
                         if not confirmed:
                             logger.error("Ledger confirm failed after exchange success", order_id=str(order_id))
@@ -179,7 +180,7 @@ class OrderExecutor:
 
                         # 6. Create Position immediately after Confirmation
                         pos_id = uuid.uuid4()
-                        entry_fee = fee_rate * float(ev.quantity) * float(fill_price)
+                        entry_fee = fee_rate * ev.quantity * fill_price
                         pos = Position(
                             position_id=pos_id,
                             profile_id=ev.profile_id,

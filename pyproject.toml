@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "aion-trading"
+name = "praxis-trading"
 version = "0.1.0"
 description = "Agentic Trading Platform - Phase 1"
 authors = ["Stevo <stevo@example.com>"]

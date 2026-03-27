@@ -1,6 +1,6 @@
 # Trading Engine
 
-> Signal-to-position execution pipeline: how the Aion Trading Platform evaluates market data, approves orders through a 9-stage hot-path, executes them on exchanges, and reconciles the resulting positions.
+> Signal-to-position execution pipeline: how the Praxis Trading Platform evaluates market data, approves orders through a 9-stage hot-path, executes them on exchanges, and reconciles the resulting positions.
 
 ## Table of Contents
 

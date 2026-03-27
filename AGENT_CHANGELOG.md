@@ -1,4 +1,4 @@
-# Aion-Trading — Agent Changelog
+# Praxis Trading — Agent Changelog
 
 Living document tracking all changes made by agency agents across the platform.
 Updated after each agent session.
@@ -21,7 +21,7 @@ Updated after each agent session.
 |---|-------|----------|------------|
 | 1 | No tenant isolation — `GET /profiles` returned all users' data. `PUT/DELETE` didn't verify ownership. Same for P&L, orders, risk. | CRITICAL | All queries now filter by `user_id` from JWT. Added `get_profile_for_user`, `get_all_profiles_for_user`, `get_orders_for_user`, `cancel_order_for_user` repo methods. |
 | 2 | `/agents/risk` and `/backtest` were public — exposed per-user drawdown, P&L, allocation. Unauthenticated `POST /backtest` enabled DoS. | CRITICAL | Moved behind JWT auth. Risk endpoints verify profile ownership. Backtest results check `user_id`. |
-| 3 | `SECRET_KEY` defaulted to `"aion-dev-secret-key-change-in-production"` with no startup check. | CRITICAL | Added `is_secret_key_secure()`. Startup raises `RuntimeError` if trading enabled with default key. |
+| 3 | `SECRET_KEY` defaulted to `"praxis-dev-secret-key-change-in-production"` with no startup check. | CRITICAL | Added `is_secret_key_secure()`. Startup raises `RuntimeError` if trading enabled with default key. |
 | 4 | OAuth callback accepted arbitrary email/name/provider without verifying against OAuth provider. DB failure silently issued tokens. | CRITICAL | Now verifies `id_token` against `NEXTAUTH_SECRET`. DB failure blocks login (raises 503). |
 | 5 | Stub endpoints returned fake data — orders: hardcoded `CONFIRMED`, P&L: zeros, `/auth/me`: `user@example.com`. | CRITICAL | All now query real DB/Redis. |
 
@@ -244,7 +244,7 @@ services/api_gateway/src/routes/exchange_keys.py
 | 70 | Confluence scoring is binary +1/-1 | `services/ta_agent/src/confluence.py` | Continuous signals: RSI → `(50-rsi)/50`, MACD → `histogram/|macd_line|`. |
 | 71 | Sentiment prompt: no JSON extraction, no retry, no rate limiting | `services/sentiment/src/scorer.py` | `_extract_json()` with regex fallback, 2-attempt retry, 2s rate limiter. |
 | 72 | Agent modifier multiplicative compounding drives confidence → 0 | `services/hot_path/src/agent_modifier.py` | Additive adjustment (TA ±0.20, sentiment ±0.15) with clamp [0.0, 1.0]. |
-| 73 | Hardcoded symbol lists in 3 agents | `libs/config/settings.py`, `services/regime_hmm/src/main.py`, `services/ta_agent/src/main.py`, `services/sentiment/src/main.py` | Centralized `TRADING_SYMBOLS` in settings (`AION_TRADING_SYMBOLS` env var). |
+| 73 | Hardcoded symbol lists in 3 agents | `libs/config/settings.py`, `services/regime_hmm/src/main.py`, `services/ta_agent/src/main.py`, `services/sentiment/src/main.py` | Centralized `TRADING_SYMBOLS` in settings (`PRAXIS_TRADING_SYMBOLS` env var). |
 
 ---
 

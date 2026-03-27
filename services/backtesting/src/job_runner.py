@@ -2,6 +2,7 @@ import asyncio
 import json
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from libs.messaging import StreamConsumer, StreamPublisher
 from libs.core.schemas import BaseEvent
 from libs.storage.repositories.backtest_repo import BacktestRepository
@@ -70,7 +71,7 @@ class JobRunner:
 
                 sym = payload.get("symbol", "BTC/USDT")
                 strategy_rules = payload.get("strategy_rules", {})
-                slippage_pct = float(payload.get("slippage_pct", 0.001))
+                slippage_pct = Decimal(str(payload.get("slippage_pct", "0.001")))
                 job_id = payload.get("job_id", str(uuid.uuid4()))
                 user_id = payload.get("user_id", "")
                 profile_id = payload.get("profile_id", "")
@@ -105,26 +106,30 @@ class JobRunner:
                 else:
                     result = TradingSimulator.run(job, data)
 
+                def _dec(v):
+                    """Convert Decimal to float for JSON serialization."""
+                    return float(v) if isinstance(v, Decimal) else v
+
                 res_payload = {
                     "job_id": result.job_id,
                     "profile_id": profile_id,
                     "symbol": sym,
                     "strategy_rules": strategy_rules,
                     "total_trades": result.total_trades,
-                    "win_rate": result.win_rate,
-                    "avg_return": result.avg_return,
-                    "max_drawdown": result.max_drawdown,
-                    "sharpe": result.sharpe,
-                    "profit_factor": result.profit_factor,
-                    "equity_curve": result.equity_curve,
+                    "win_rate": _dec(result.win_rate),
+                    "avg_return": _dec(result.avg_return),
+                    "max_drawdown": _dec(result.max_drawdown),
+                    "sharpe": _dec(result.sharpe),
+                    "profit_factor": _dec(result.profit_factor),
+                    "equity_curve": [_dec(v) for v in result.equity_curve],
                     "trades": [
                         {
                             "entry_time": t.entry_time,
                             "exit_time": t.exit_time,
                             "direction": t.direction,
-                            "entry_price": t.entry_price,
-                            "exit_price": t.exit_price,
-                            "pnl_pct": t.pnl_pct,
+                            "entry_price": _dec(t.entry_price),
+                            "exit_price": _dec(t.exit_price),
+                            "pnl_pct": _dec(t.pnl_pct),
                         }
                         for t in result.trades
                     ],

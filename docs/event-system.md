@@ -1,8 +1,8 @@
 # Event System
 
-> How events flow through Aion -- from raw market ticks to executed orders -- with delivery guarantees, schema definitions, and failure handling at every stage.
+> How events flow through Praxis -- from raw market ticks to executed orders -- with delivery guarantees, schema definitions, and failure handling at every stage.
 
-All inter-agent communication in Aion passes through Redis. The system uses three distinct messaging patterns (Streams, Pub/Sub, and RPC via Lists), each chosen for specific delivery and latency requirements. Every event is serialized with msgpack and conforms to a versioned Pydantic schema.
+All inter-agent communication in Praxis passes through Redis. The system uses three distinct messaging patterns (Streams, Pub/Sub, and RPC via Lists), each chosen for specific delivery and latency requirements. Every event is serialized with msgpack and conforms to a versioned Pydantic schema.
 
 ---
 
@@ -753,7 +753,7 @@ Deserialization uses the `__type__` class name (not the enum value) for lookup, 
 
 ### Stream Backpressure
 
-Redis Streams do not enforce a maximum length by default. Aion relies on the following mechanisms to manage backpressure:
+Redis Streams do not enforce a maximum length by default. Praxis relies on the following mechanisms to manage backpressure:
 
 | Mechanism | Description |
 |---|---|

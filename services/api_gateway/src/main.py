@@ -9,7 +9,7 @@ from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient
 from libs.observability import get_logger
 from libs.core.exceptions import (
-    AionBaseError,
+    PraxisBaseError,
     CircuitBreakerTriggeredError,
     RiskGateBlockedError,
     BlacklistBlockedError,
@@ -20,7 +20,7 @@ from libs.core.exceptions import (
 )
 
 from .middleware.rate_limit import RateLimiterMiddleware
-from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents
+from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents, docs_chat
 
 logger = get_logger("api-gateway")
 
@@ -31,14 +31,14 @@ async def lifespan(app: FastAPI):
     if not settings.is_secret_key_secure():
         raise RuntimeError(
             "FATAL: SECRET_KEY is set to the insecure default. "
-            "Set AION_SECRET_KEY to a secure random value (32+ bytes) before starting. "
+            "Set PRAXIS_SECRET_KEY to a secure random value (32+ bytes) before starting. "
             "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
         )
 
     # Require a dedicated REFRESH_SECRET_KEY separate from SECRET_KEY
     if not settings.REFRESH_SECRET_KEY:
         raise RuntimeError(
-            "FATAL: AION_REFRESH_SECRET_KEY is not set. "
+            "FATAL: PRAXIS_REFRESH_SECRET_KEY is not set. "
             "It must be a separate secret from SECRET_KEY for refresh token security."
         )
 
@@ -60,7 +60,7 @@ def create_app() -> FastAPI:
     app = FastAPI(
         title="Control Plane API Gateway",
         version="1.0.0",
-        description="Aion Trading Platform API",
+        description="Praxis Trading Platform API",
         lifespan=lifespan,
     )
 
@@ -120,8 +120,8 @@ def create_app() -> FastAPI:
     async def order_execution_handler(request: Request, exc: OrderExecutionError):
         return JSONResponse(status_code=500, content={"detail": "Order execution failed", "error": "order_execution"})
 
-    @app.exception_handler(AionBaseError)
-    async def aion_base_handler(request: Request, exc: AionBaseError):
+    @app.exception_handler(PraxisBaseError)
+    async def praxis_base_handler(request: Request, exc: PraxisBaseError):
         return JSONResponse(status_code=500, content={"detail": "Internal error", "error": "internal"})
 
     @app.exception_handler(Exception)
@@ -135,6 +135,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(ws.router)
+    app.include_router(docs_chat.router)
 
     # ------------------------------------------------------------------
     # Protected routes — all behind JWT auth via verify_token_dep

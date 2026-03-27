@@ -2,7 +2,7 @@
 
 ## Context
 
-The Gemini blueprint describes an ideal multi-agent SLM-driven trading engine with local model inference, adversarial debate, statistical arbitrage, candlestick CNNs, knowledge graphs, and more. The Aion platform already has a solid foundation — 17 microservices, 3 ML agents (TA, Sentiment, Regime HMM), a 9-stage hot-path pipeline, and Redis-based agent score aggregation. This plan identifies what to build incrementally, prioritized by impact and feasibility for a solo developer.
+The Gemini blueprint describes an ideal multi-agent SLM-driven trading engine with local model inference, adversarial debate, statistical arbitrage, candlestick CNNs, knowledge graphs, and more. The Praxis platform already has a solid foundation — 17 microservices, 3 ML agents (TA, Sentiment, Regime HMM), a 9-stage hot-path pipeline, and Redis-based agent score aggregation. This plan identifies what to build incrementally, prioritized by impact and feasibility for a solo developer.
 
 ## Gap Analysis (Blueprint vs Current State)
 
@@ -10,7 +10,7 @@ The Gemini blueprint describes an ideal multi-agent SLM-driven trading engine wi
 |---|---|---|
 | Extended indicators (ADX, BB, OBV, CHOP) | Only RSI, MACD, ATR, EMA | **P1** |
 | Dynamic agent weighting | Hardcoded ±0.20 TA, ±0.15 sentiment | **P1** |
-| HITL execution gate | No approval workflow, no kill switch | **P2** |
+| HITL execution gate | No approval workflow (kill switch now implemented as of 2026-03-27) | **P2** |
 | Local SLM inference | Cloud Claude Haiku API only | **P2** |
 | Adversarial bull/bear debate | Not implemented | **P3** |
 | VectorBT backtesting | Custom sequential simulator only | **P3** |
@@ -80,7 +80,7 @@ Current code (line 32): `new_confidence = signal.confidence + ta_adj + sentiment
 
 ## Phase 3: HITL Execution Gate
 
-**Why**: Critical safety feature. No kill switch or position stop-loss exists (known defects). HITL provides an immediate safety net.
+**Why**: Critical safety feature. Kill switch and position stop-loss have been implemented as of 2026-03-27 (`KillSwitch` in hot-path, `StopLossMonitor` in PnL service). HITL provides an additional structured approval layer beyond these automated safeguards.
 
 ### New channels in `libs/messaging/channels.py`:
 - `PUBSUB_HITL_PENDING = "pubsub:hitl_pending"`
@@ -124,10 +124,10 @@ Current code (line 32): `new_confidence = signal.confidence + ta_adj + sentiment
 ### Refactor: `services/sentiment/src/scorer.py`
 - Abstract behind `LLMBackend` protocol: `async def complete(prompt) -> str`
 - `CloudLLMBackend` (current Claude code) + `LocalLLMBackend` (calls slm_inference)
-- Config-driven: `AION_LLM_BACKEND = "cloud" | "local"`, fallback chain
+- Config-driven: `PRAXIS_LLM_BACKEND = "cloud" | "local"`, fallback chain
 
 ### New settings:
-- `AION_SLM_MODEL_PATH`, `AION_SLM_CONTEXT_LENGTH`, `AION_LLM_BACKEND`
+- `PRAXIS_SLM_MODEL_PATH`, `PRAXIS_SLM_CONTEXT_LENGTH`, `PRAXIS_LLM_BACKEND`
 
 ### Verification:
 - Compare local SLM sentiment scores vs Claude Haiku on same headlines

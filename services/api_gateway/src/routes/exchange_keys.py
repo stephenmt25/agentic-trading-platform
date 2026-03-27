@@ -75,7 +75,7 @@ async def test_exchange_connection(data: ExchangeKeyTest):
     try:
         await exchange.fetch_balance()
 
-        # Verify withdrawal permissions are NOT enabled — AION should never have withdrawal access
+        # Verify withdrawal permissions are NOT enabled — PRAXIS should never have withdrawal access
         # Skip this check on testnet/sandbox — testnet keys always have full permissions
         is_sandbox = (
             (data.exchange_id == "binance" and settings.BINANCE_TESTNET) or
@@ -98,7 +98,7 @@ async def test_exchange_connection(data: ExchangeKeyTest):
                 raise HTTPException(
                     status_code=422,
                     detail="API key has withdrawal permissions enabled. "
-                           "For security, AION requires keys with ONLY trading and balance read permissions. "
+                           "For security, PRAXIS requires keys with ONLY trading and balance read permissions. "
                            "Please create a new API key with withdrawals disabled."
                 )
 

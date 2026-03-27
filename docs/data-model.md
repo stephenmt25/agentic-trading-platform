@@ -1,7 +1,7 @@
-# Aion Trading Platform -- Data Model Reference
+# Praxis Trading Platform -- Data Model Reference
 
 > Canonical reference for every table, column, enum, type alias, and time-series strategy
-> in the Aion Trading Platform. All information is derived directly from the SQL migrations
+> in the Praxis Trading Platform. All information is derived directly from the SQL migrations
 > (`migrations/versions/001`--`008`) and the Python domain layer (`libs/core/`).
 
 ---
@@ -730,7 +730,7 @@ Defined in `libs/core/types.py`. These type aliases provide semantic meaning to 
 
 ### Hypertable Overview
 
-Aion uses [TimescaleDB](https://www.timescale.com/) hypertables for all high-volume, time-ordered data. TimescaleDB automatically partitions these tables into time-based chunks for efficient insertion and range queries.
+Praxis uses [TimescaleDB](https://www.timescale.com/) hypertables for all high-volume, time-ordered data. TimescaleDB automatically partitions these tables into time-based chunks for efficient insertion and range queries.
 
 | Table | Partition Column | Write Pattern | Query Pattern |
 |-------|-----------------|---------------|---------------|

@@ -1,4 +1,5 @@
 import { DocsNav } from "@/components/docs/DocsNav";
+import { DocsChat } from "@/components/docs/DocsChat";
 
 export default function DocsLayout({
   children,
@@ -16,6 +17,9 @@ export default function DocsLayout({
       <main className="min-w-0 flex-1 overflow-y-auto bg-white p-6 lg:p-10">
         <div className="mx-auto max-w-4xl">{children}</div>
       </main>
+
+      {/* Documentation chatbot */}
+      <DocsChat />
     </div>
   );
 }

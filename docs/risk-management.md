@@ -1,7 +1,7 @@
-# Aion Trading Platform -- Risk Management Reference
+# Praxis Trading Platform -- Risk Management Reference
 
 > Complete reference for every risk control, validation check, circuit breaker, and safety
-> mechanism in the Aion Trading Platform. Covers both implemented and missing controls.
+> mechanism in the Praxis Trading Platform. Covers both implemented and missing controls.
 > All information is derived from source code in `services/hot_path/`, `services/validation/`,
 > `services/risk/`, and `services/pnl/`.
 
@@ -15,7 +15,7 @@
 4. [Pre-Trade Validation](#pre-trade-validation)
 5. [Post-Trade Reconciliation](#post-trade-reconciliation)
 6. [Confidence Multiplier System](#confidence-multiplier-system)
-7. [Kill Switch -- NOT IMPLEMENTED](#kill-switch----not-implemented)
+7. [Kill Switch](#kill-switch)
 8. [Loss Prevention](#loss-prevention)
 9. [Implementation Gaps](#implementation-gaps)
 
@@ -23,7 +23,7 @@
 
 ## Risk Architecture Overview
 
-Risk controls in Aion are organized into three layers that execute at different points in the trade lifecycle:
+Risk controls in Praxis are organized into three layers that execute at different points in the trade lifecycle:
 
 ```mermaid
 flowchart TD
@@ -535,46 +535,52 @@ A signal with confidence 0.8 and max allocation of 10%:
 
 ---
 
-## Kill Switch -- NOT IMPLEMENTED
+## Kill Switch
 
-**Status: Not implemented. No code exists for a manual or automated emergency shutdown.**
+**Status: Implemented (2026-03-27).**
 
-A kill switch would provide the ability to immediately halt all trading across all profiles (or a subset) in response to an infrastructure failure, market flash crash, or security incident. This is distinct from the per-profile circuit breaker and escalation halt, which are automatic and scoped to individual profiles.
+The kill switch provides the ability to immediately halt all trading across all profiles in response to an infrastructure failure, market flash crash, or security incident. This is distinct from the per-profile circuit breaker and escalation halt, which are automatic and scoped to individual profiles.
 
-### What Exists Today
+### Implementation
+
+| Property | Value |
+|----------|-------|
+| **Source** | `services/hot_path/src/kill_switch.py` |
+| **Class** | `KillSwitch` |
+| **Backing store** | Redis key `praxis:kill_switch` |
+| **Check location** | Top of every hot-path processing batch, before any profile/strategy evaluation |
+| **API endpoints** | `GET /commands/kill-switch` (read status), `POST /commands/kill-switch` (toggle) -- JWT-authenticated |
+| **Activity log** | Redis list `praxis:kill_switch:log` (last 100 entries) |
+
+### Activation / Deactivation
+
+```
+KillSwitch.activate(redis, reason, activated_by)   # Blocks all trading immediately
+KillSwitch.deactivate(redis, reason, deactivated_by)  # Resumes trading
+```
+
+Both operations are logged to the activity log with timestamp, actor, and reason.
+
+### Fail-Safe Behavior
+
+If Redis is unreachable when the kill switch is checked, the kill switch **defaults to ACTIVE** (blocks all trading). This fail-safe design ensures that infrastructure failures cannot silently leave trading unprotected.
+
+### Safety Controls Summary
 
 | Mechanism | Scope | Automatic? | Manual Override? |
 |-----------|-------|:----------:|:----------------:|
+| **Kill switch** | **Global (all profiles)** | **No (manual)** | **Yes -- via API** |
 | Circuit breaker | Per profile | Yes | No |
 | Escalation halt (Redis `halt:{profile_id}`) | Per profile | Yes | No (24h TTL only) |
 | Risk Service halt key check | Per profile | Yes | No |
 
-### What Is Missing
+### Remaining Gaps
 
 | Capability | Description | Priority |
 |------------|-------------|----------|
-| Global kill switch | A single Redis key or database flag that halts ALL trading across ALL profiles immediately | **P0 -- Critical** |
-| Manual halt override | Admin API endpoint to set/clear the halt flag for a specific profile or globally | **P0 -- Critical** |
 | Graceful position unwind | On kill switch activation, optionally close all open positions at market price | **P1 -- High** |
 | Kill switch dashboard | UI to view halt status, trigger manual halts, and review halt history | **P1 -- High** |
 | Dead man's switch | If the system fails to send a heartbeat within N seconds, automatically halt trading | **P2 -- Medium** |
-
-### Recommended Implementation
-
-```python
-# Pseudocode for a global kill switch check in RiskService
-GLOBAL_HALT_KEY = "halt:global"
-
-async def check_global_halt(self) -> RiskCheckResult:
-    if self._redis:
-        halt_reason = await self._redis.get(GLOBAL_HALT_KEY)
-        if halt_reason:
-            return RiskCheckResult(
-                allowed=False,
-                reason=f"GLOBAL HALT: {halt_reason.decode()}"
-            )
-    return RiskCheckResult(allowed=True)
-```
 
 ---
 
@@ -612,13 +618,24 @@ There is **no explicit consecutive-loss counter** in the current implementation.
 
 **Gap**: There is no cross-profile aggregation. If a user has 5 profiles all trading the same asset, total exposure across profiles is not checked. Each profile's concentration limit is independent.
 
-### Position-Level Stop-Loss Enforcement -- NOT IMPLEMENTED
+### Position-Level Stop-Loss Enforcement
 
-**Status: Not implemented.**
+**Status: Implemented (2026-03-27).**
 
-While the `risk_limits` JSONB contains a `stop_loss_pct` field and CHECK_6 validates that an order's declared stop-loss does not exceed the profile limit, there is **no runtime mechanism that monitors open positions and automatically closes them when the stop-loss price is reached**.
+The `risk_limits` JSONB contains a `stop_loss_pct` field which is enforced at two levels:
 
-The current `stop_loss_pct` check in CHECK_6 is a pre-trade validation only -- it verifies the order payload declares a stop-loss within the allowed range. It does not create or enforce a stop-loss order on the exchange.
+1. **Pre-trade (CHECK_6)**: Validates that an order's declared stop-loss does not exceed the profile limit.
+2. **Runtime (StopLossMonitor)**: Monitors all open positions and automatically closes them when the stop-loss threshold is breached.
+
+| Property | Value |
+|----------|-------|
+| **Source** | `services/pnl/src/stop_loss_monitor.py` |
+| **Class** | `StopLossMonitor` |
+| **Execution context** | Runs inside the PnL tick processor -- checks every position on every price tick |
+| **Trigger condition** | `abs(pct_return)` exceeds the profile's `stop_loss_pct` from `risk_limits` |
+| **Action on trigger** | Calls `PositionCloser.close()` with the current market price |
+| **Post-close behavior** | Closed positions are removed from the active positions cache |
+| **Performance optimization** | Stop-loss thresholds are cached per profile to avoid DB lookups on every tick |
 
 ---
 
@@ -628,14 +645,14 @@ Summary of all identified gaps, ordered by severity.
 
 | Gap | Severity | Description | Affected Area |
 |-----|----------|-------------|---------------|
-| No global kill switch | **P0** | Cannot halt all trading instantly across all profiles | `services/risk/src/__init__.py` |
-| No manual halt override | **P0** | Cannot manually set or clear per-profile halt flags | Admin API (does not exist) |
-| No position-level stop-loss enforcement | **P0** | Open positions have no automatic exit at stop-loss price | Execution layer |
+| ~~No global kill switch~~ | ~~**P0**~~ | **RESOLVED (2026-03-27)** -- `KillSwitch` class in `services/hot_path/src/kill_switch.py`, backed by Redis key `praxis:kill_switch`, toggleable via `GET/POST /commands/kill-switch` | `services/hot_path/src/kill_switch.py` |
+| ~~No manual halt override~~ | ~~**P0**~~ | **RESOLVED (2026-03-27)** -- Kill switch API provides JWT-authenticated manual halt/resume for all profiles | `services/api_gateway/src/routes/commands.py` |
+| ~~No position-level stop-loss enforcement~~ | ~~**P0**~~ | **RESOLVED (2026-03-27)** -- `StopLossMonitor` in `services/pnl/src/stop_loss_monitor.py` checks every position on every price tick | `services/pnl/src/stop_loss_monitor.py` |
 | No cross-profile concentration check | **P1** | Multiple profiles can accumulate unbounded exposure to the same asset | `services/risk/src/__init__.py` |
 | CHECK_3 Bias is stubbed | **P1** | Directional bias detection resets after 100 signals, no persistence | `services/validation/src/check_3_bias.py` |
 | No consecutive-loss counter | **P1** | Many small losses can erode capital without triggering any breaker | `services/hot_path/src/` |
 | Circuit breaker state is in-memory only | **P2** | Process restart resets daily PnL counter to zero | `services/hot_path/src/circuit_breaker.py` |
 | Fast Gate deadline is soft | **P2** | 35ms exceeded logs a warning but does not timeout the checks | `services/validation/src/fast_gate.py` |
-| Float precision in risk path | **P2** | 24+ `float()` casts in risk-critical code paths | See `docs/data-model.md` Financial Precision Audit |
+| ~~Float precision in risk path~~ | ~~**P2**~~ | **RESOLVED (2026-03-27)** -- All financial calculations now use `Decimal`. Previous `float()` casts in risk-critical code paths have been removed | See `docs/data-model.md` Financial Precision Audit |
 | No dead man's switch | **P2** | System failure does not automatically halt trading | Infrastructure layer |
 | Escalation halt has no manual clear | **P3** | Must wait 24h TTL; no admin endpoint to clear | `services/validation/src/check_5_escalation.py` |

@@ -14,10 +14,12 @@ logger = get_logger("ws")
 
 router = APIRouter(tags=["ws"])
 
+MAX_RECONNECT_DELAY = 30
+INITIAL_RECONNECT_DELAY = 1
+
 
 class ConnectionManager:
     def __init__(self):
-        # Map user_id -> list of WebSocket connections
         self._user_connections: Dict[str, List[WebSocket]] = {}
 
     async def connect(self, websocket: WebSocket, user_id: str):
@@ -44,7 +46,6 @@ class ConnectionManager:
             self.disconnect(ws, user_id)
 
     async def broadcast_system(self, message: str):
-        """Broadcast system-level messages (non-PnL) to all connected users."""
         dead_pairs: List[tuple] = []
         for user_id, connections in self._user_connections.items():
             for ws in connections:
@@ -61,7 +62,6 @@ manager = ConnectionManager()
 
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket, token: str = None):
-    # Authenticate via query param token or header
     if not token:
         auth = websocket.headers.get("Authorization")
         if auth and auth.startswith("Bearer "):
@@ -83,56 +83,68 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
 
     await manager.connect(websocket, user_id)
 
-    # Use raw redis pubsub for multi-channel subscription
     redis_instance = get_redis()
-    pubsub = redis_instance.pubsub()
     channels = [PUBSUB_PNL_UPDATES, PUBSUB_SYSTEM_ALERTS, "market_sentiment"]
 
     async def listen_to_redis():
-        try:
-            await pubsub.subscribe(*channels)
-            while True:
-                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.1)
-                if message and message.get("type") == "message":
-                    channel = message["channel"]
-                    channel_str = channel.decode("utf-8") if isinstance(channel, bytes) else channel
-                    data_raw = message["data"]
-                    data_str = data_raw.decode("utf-8") if isinstance(data_raw, bytes) else data_raw
-                    try:
-                        data = json.loads(data_str)
-                    except (json.JSONDecodeError, TypeError):
-                        data = data_str
+        """Subscribe to Redis pubsub with automatic reconnection on failure."""
+        reconnect_delay = INITIAL_RECONNECT_DELAY
 
-                    env = {"channel": channel_str, "data": data}
-                    msg_text = json.dumps(env)
-
-                    # PnL updates: only send to the owning user
-                    if channel_str == PUBSUB_PNL_UPDATES:
-                        msg_user_id = data.get("user_id") if isinstance(data, dict) else None
-                        if msg_user_id and msg_user_id != user_id:
-                            continue  # Skip PnL data not belonging to this user
-                        try:
-                            await websocket.send_text(msg_text)
-                        except Exception:
-                            logger.info("WebSocket send failed, closing listener", user_id=user_id)
-                            break
-                    else:
-                        # System alerts and sentiment: send to this user's connection
-                        try:
-                            await websocket.send_text(msg_text)
-                        except Exception:
-                            logger.info("WebSocket send failed, closing listener", user_id=user_id)
-                            break
-                else:
-                    await asyncio.sleep(0.01)
-        except Exception as e:
-            logger.error("Redis listener error", error=str(e), user_id=user_id)
-        finally:
+        while True:
+            pubsub = redis_instance.pubsub()
             try:
-                await pubsub.unsubscribe(*channels)
-                await pubsub.close()
-            except Exception:
-                pass
+                await pubsub.subscribe(*channels)
+                logger.info("Redis pubsub connected", user_id=user_id)
+                reconnect_delay = INITIAL_RECONNECT_DELAY  # reset on success
+
+                while True:
+                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.1)
+                    if message and message.get("type") == "message":
+                        channel = message["channel"]
+                        channel_str = channel.decode("utf-8") if isinstance(channel, bytes) else channel
+                        data_raw = message["data"]
+                        data_str = data_raw.decode("utf-8") if isinstance(data_raw, bytes) else data_raw
+                        try:
+                            data = json.loads(data_str)
+                        except (json.JSONDecodeError, TypeError):
+                            data = data_str
+
+                        env = {"channel": channel_str, "data": data}
+                        msg_text = json.dumps(env)
+
+                        if channel_str == PUBSUB_PNL_UPDATES:
+                            msg_user_id = data.get("user_id") if isinstance(data, dict) else None
+                            if msg_user_id and msg_user_id != user_id:
+                                continue
+
+                        try:
+                            await websocket.send_text(msg_text)
+                        except Exception:
+                            logger.info("WebSocket send failed, stopping listener", user_id=user_id)
+                            return  # WebSocket is dead — exit entirely
+                    else:
+                        await asyncio.sleep(0.01)
+
+            except asyncio.CancelledError:
+                # Clean shutdown — don't reconnect
+                return
+            except Exception as e:
+                logger.warning(
+                    "Redis pubsub disconnected, reconnecting",
+                    user_id=user_id,
+                    error=str(e),
+                    retry_in_s=reconnect_delay,
+                )
+            finally:
+                try:
+                    await pubsub.unsubscribe(*channels)
+                    await pubsub.close()
+                except Exception:
+                    pass
+
+            # Exponential backoff before reconnect
+            await asyncio.sleep(reconnect_delay)
+            reconnect_delay = min(reconnect_delay * 2, MAX_RECONNECT_DELAY)
 
     listener = asyncio.create_task(listen_to_redis())
 

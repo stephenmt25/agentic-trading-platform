@@ -3,8 +3,8 @@ import { MarkdownRenderer } from "@/components/docs/MarkdownRenderer";
 import { notFound } from "next/navigation";
 
 export const metadata = {
-  title: "Documentation | Aion Trading Platform",
-  description: "Comprehensive documentation for the Aion Trading Platform.",
+  title: "Documentation | Praxis Trading Platform",
+  description: "Comprehensive documentation for the Praxis Trading Platform.",
 };
 
 export default function DocsIndexPage() {

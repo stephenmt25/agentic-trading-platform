@@ -1,6 +1,6 @@
-# Aion Trading Platform -- Documentation Index
+# Praxis Trading Platform -- Documentation Index
 
-> Central index for all Aion Trading Platform documentation. Start here to find
+> Central index for all Praxis Trading Platform documentation. Start here to find
 > architecture decisions, operational guides, API references, and module deep dives.
 
 ---

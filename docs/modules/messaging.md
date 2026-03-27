@@ -2,7 +2,7 @@
 
 ## Purpose and Responsibility
 
-The Messaging library provides the platform's inter-service communication backbone. It wraps Redis Streams for durable, ordered, consumer-group-based message delivery; Redis Pub/Sub for low-latency broadcast notifications; a dead-letter queue for failed messages; and a msgpack-based serialisation layer that maps between Python event objects and wire format. Every service in the Aion Trading Platform uses this library to publish and consume events.
+The Messaging library provides the platform's inter-service communication backbone. It wraps Redis Streams for durable, ordered, consumer-group-based message delivery; Redis Pub/Sub for low-latency broadcast notifications; a dead-letter queue for failed messages; and a msgpack-based serialisation layer that maps between Python event objects and wire format. Every service in the Praxis Trading Platform uses this library to publish and consume events.
 
 ## Public Interface
 

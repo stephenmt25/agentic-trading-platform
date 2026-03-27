@@ -1,6 +1,6 @@
-# Aion Trading Platform -- Design System
+# Praxis Trading Platform -- Design System
 
-This document is the single source of truth for visual design decisions across the Aion Trading Platform frontend. Every component, page, and future feature should conform to these tokens and patterns.
+This document is the single source of truth for visual design decisions across the Praxis Trading Platform frontend. Every component, page, and future feature should conform to these tokens and patterns.
 
 ---
 

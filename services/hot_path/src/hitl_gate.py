@@ -165,9 +165,9 @@ class HITLGate:
             return "high_volatility_regime"
 
         # 3. Large trade size relative to allocation
-        max_alloc = float(state.risk_limits.max_allocation_pct)
+        max_alloc = state.risk_limits.max_allocation_pct
         if max_alloc > 0:
-            size_pct = (risk_result.suggested_quantity / max_alloc) * 100
+            size_pct = float(risk_result.suggested_quantity / max_alloc) * 100
             if size_pct > settings.HITL_SIZE_THRESHOLD_PCT:
                 return f"large_trade_{size_pct:.1f}pct"
 

@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections import defaultdict
+from decimal import Decimal
 from datetime import datetime
 from libs.exchange import get_adapter
 from libs.core.secrets import SecretManager
@@ -77,22 +78,21 @@ class BalanceReconciler:
             # 1. Fetch balances from exchange
             exchange_balances = await adapter.get_balance(profile_id)
             # Normalize to {currency: total_amount} -- CCXT balance format
-            exchange_totals = {}
+            exchange_totals: dict[str, Decimal] = {}
             if isinstance(exchange_balances, dict):
                 for currency, info in exchange_balances.items():
                     if isinstance(info, dict) and "total" in info:
-                        total = float(info["total"] or 0)
+                        total = Decimal(str(info["total"] or 0))
                         if total > 0:
                             exchange_totals[currency] = total
 
             # 2. Fetch open positions from DB and aggregate by base currency
             open_positions = await self._position_repo.get_open_positions(profile_id)
-            db_totals = defaultdict(float)
+            db_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
             for pos in open_positions:
                 pos_dict = dict(pos) if not isinstance(pos, dict) else pos
                 symbol = pos_dict.get("symbol", "")
-                qty = float(pos_dict.get("quantity", 0))
-                # Extract base currency from symbol pair (e.g., "BTC/USDT" -> "BTC")
+                qty = Decimal(str(pos_dict.get("quantity", 0)))
                 base = symbol.split("/")[0] if "/" in symbol else symbol
                 side = pos_dict.get("side", "BUY")
                 if side == "BUY":
@@ -101,18 +101,20 @@ class BalanceReconciler:
                     db_totals[base] -= qty
 
             # 3. Calculate drift for each currency with positions
-            max_drift = 0.0
+            _ZERO = Decimal("0")
+            _EPSILON = Decimal("1E-10")
+            max_drift = _ZERO
             drift_details = {}
             for currency, db_qty in db_totals.items():
-                exchange_qty = exchange_totals.get(currency, 0.0)
-                if abs(db_qty) < 1e-10:
+                exchange_qty = exchange_totals.get(currency, _ZERO)
+                if abs(db_qty) < _EPSILON:
                     continue
                 drift = abs(exchange_qty - db_qty) / abs(db_qty)
-                drift_details[currency] = {"db": db_qty, "exchange": exchange_qty, "drift_pct": drift}
+                drift_details[currency] = {"db": float(db_qty), "exchange": float(exchange_qty), "drift_pct": float(drift)}
                 max_drift = max(max_drift, drift)
 
             # 4. Alert if drift exceeds threshold
-            if max_drift > 0.001:  # > 0.1%
+            if max_drift > Decimal("0.001"):  # > 0.1%
                 logger.critical(
                     "RECONCILIATION_DRIFT_ERROR: Variance > 0.1%",
                     profile_id=profile_id,
@@ -125,12 +127,12 @@ class BalanceReconciler:
                         event_type=EventType.ALERT_RED,
                         timestamp_us=int(datetime.utcnow().timestamp() * 1_000_000),
                         source_service="reconciler",
-                        message=f"Reconciliation drift {max_drift*100:.2f}% for {profile_id}",
+                        message=f"Reconciliation drift {float(max_drift)*100:.2f}% for {profile_id}",
                         level="RED",
                         profile_id=profile_id,
                     )
                     await self._pubsub.publish(PUBSUB_SYSTEM_ALERTS, alert)
             else:
-                logger.info("Reconciliation passed", profile_id=profile_id, max_drift=max_drift)
+                logger.info("Reconciliation passed", profile_id=profile_id, max_drift=float(max_drift))
         finally:
             await adapter.close()

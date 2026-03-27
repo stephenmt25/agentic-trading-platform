@@ -1,8 +1,8 @@
 # Agent Architecture
 
-> How autonomous agents in Aion coordinate to turn raw market data into validated, risk-checked trading decisions.
+> How autonomous agents in Praxis coordinate to turn raw market data into validated, risk-checked trading decisions.
 
-Aion is built around **15 single-responsibility agents** that communicate through Redis Streams, Pub/Sub, and cache-aside reads. No agent calls another directly. Every interaction flows through a well-defined messaging channel, making each agent independently deployable and testable.
+Praxis is built around **15 single-responsibility agents** that communicate through Redis Streams, Pub/Sub, and cache-aside reads. No agent calls another directly. Every interaction flows through a well-defined messaging channel, making each agent independently deployable and testable.
 
 ---
 
@@ -88,7 +88,7 @@ Scoring agents run as background loops. They compute analytical signals independ
 **Decision logic:**
 1. Check Redis cache first. If a cached result exists and has not expired, return it immediately.
 2. If no headlines are available, return neutral (`score=0.0, confidence=1.0`).
-3. Try backends in order based on `AION_LLM_BACKEND` setting:
+3. Try backends in order based on `PRAXIS_LLM_BACKEND` setting:
    - `"local"`: `LocalLLMBackend` calls the SLM inference service (`POST /v1/completions`).
    - `"cloud"`: `CloudLLMBackend` calls Claude claude-haiku-4-5-20251001 via Anthropic API.
    - `"auto"`: Try local first, fall back to cloud on failure.
@@ -185,9 +185,9 @@ The scorer uses an `LLMBackend` protocol (`async def complete(prompt: str) -> Op
 
 **Details:**
 - Loads a GGUF model at startup via `llama-cpp-python` (e.g., Phi-3-mini-4k Q4, ~2.3GB VRAM).
-- Model path configured via `AION_SLM_MODEL_PATH`.
+- Model path configured via `PRAXIS_SLM_MODEL_PATH`.
 - Returns mock responses when no model is loaded (development mode).
-- GPU layer offloading configurable via `AION_SLM_GPU_LAYERS` (-1 = all).
+- GPU layer offloading configurable via `PRAXIS_SLM_GPU_LAYERS` (-1 = all).
 
 **Source:** `services/slm_inference/src/main.py`
 
@@ -491,7 +491,7 @@ sequenceDiagram
 
 ### Communication Patterns
 
-Aion uses four distinct communication patterns, each chosen for specific delivery and latency requirements.
+Praxis uses four distinct communication patterns, each chosen for specific delivery and latency requirements.
 
 #### 1. Redis Streams (ordered, persistent, consumer groups)
 

@@ -52,12 +52,13 @@ class BinanceAdapter(ExchangeAdapter):
         # And trigger an order book snapshot recovery immediately after reconnecting
 
     async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price) -> OrderResult:
+        # CCXT requires float — convert at the exchange boundary only
         res = await self.exchange.create_order(
             symbol=symbol,
-            type='limit', # assuming limit initially for simplicity, market if price=0
+            type='limit',
             side=side.name.lower(),
             amount=float(qty),
-            price=float(price)
+            price=float(price),
         )
         return OrderResult(
             order_id=res['id'],

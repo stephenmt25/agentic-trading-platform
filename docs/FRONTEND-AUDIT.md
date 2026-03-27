@@ -1,4 +1,4 @@
-# Frontend UI Audit Report — Aion Trading Platform
+# Frontend UI Audit Report — Praxis Trading Platform
 
 **Date**: 2026-03-20
 **Auditor**: Frontend Developer Agent
@@ -352,7 +352,7 @@ Remove every element that exists for visual flair rather than conveying data:
 
 **Priority: LOW**
 
-1. Fix the page title from "Control Plane Dashboard | Phase 3" to "Aion Trading Platform" or similar production-appropriate title.
+1. Fix the page title from "Control Plane Dashboard | Phase 3" to "Praxis Trading Platform" or similar production-appropriate title.
 2. Remove the "PHASE 2 - OAUTH AUTHENTICATION" badge from the login page (login/page.tsx:94) — this is internal dev labeling.
 3. Clean up or delete `JSONRuleEditor.tsx` if it is dead code.
 4. Add `tabular-nums` to the global `font-mono` class definition so monospace numbers align in columns automatically.

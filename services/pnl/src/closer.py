@@ -8,6 +8,7 @@ this module:
 """
 
 import json
+from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
@@ -27,7 +28,7 @@ class PositionCloser:
         self._redis = redis_client
         self._tracker = AgentPerformanceTracker(redis_client)
 
-    async def close(self, position: Position, exit_price: float, taker_rate: float):
+    async def close(self, position: Position, exit_price: Decimal, taker_rate: Decimal):
         """Close a position and record outcome for agent weight feedback."""
         # 1. Close in DB
         await self._position_repo.close_position(position.position_id, exit_price)
@@ -40,7 +41,7 @@ class PositionCloser:
         )
 
         # 3. Determine outcome
-        outcome = "win" if snapshot.pnl_pct > 0 else "loss"
+        outcome = "win" if snapshot.pct_return > 0 else "loss"
 
         # 4. Retrieve agent scores that were snapshotted at execution time
         agent_scores = await self._get_agent_scores(str(position.position_id))
@@ -51,14 +52,14 @@ class PositionCloser:
                 symbol=position.symbol,
                 position_id=str(position.position_id),
                 outcome=outcome,
-                pnl_pct=snapshot.pnl_pct,
+                pnl_pct=snapshot.pct_return,
                 agent_scores=agent_scores,
             )
             logger.info(
                 "Position closed with agent outcome tagging",
                 position_id=str(position.position_id),
                 outcome=outcome,
-                pnl_pct=round(snapshot.pnl_pct, 6),
+                pnl_pct=round(snapshot.pct_return, 6),
                 agents=list(agent_scores.keys()),
             )
         else:
@@ -66,7 +67,7 @@ class PositionCloser:
                 "Position closed (no agent scores found)",
                 position_id=str(position.position_id),
                 outcome=outcome,
-                pnl_pct=round(snapshot.pnl_pct, 6),
+                pnl_pct=round(snapshot.pct_return, 6),
             )
 
         # 6. Clean up cached agent scores for this position

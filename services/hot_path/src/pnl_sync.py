@@ -1,5 +1,6 @@
 import asyncio
 import json
+from decimal import Decimal
 from libs.messaging.channels import PUBSUB_PNL_UPDATES
 from libs.observability import get_logger
 
@@ -48,7 +49,7 @@ class PnlSync:
 
                 pct_return = message.get("pct_return", message.get("roi_pct", 0.0))
                 if pct_return:
-                    pct_val = float(pct_return)
+                    pct_val = Decimal(str(pct_return))
                     # Use HINCRBY for atomic increment in Redis (avoids race with poll overwrite)
                     if self._redis:
                         # Store as integer micro-percent for HINCRBY (Redis only does int incr)
@@ -56,7 +57,7 @@ class PnlSync:
                         new_micro = await self._redis.hincrby(
                             f"pnl:daily:{profile_id}", "total_pct_micro", incr_micro
                         )
-                        state.daily_realised_pnl_pct = new_micro / 1_000_000.0
+                        state.daily_realised_pnl_pct = Decimal(new_micro) / Decimal("1000000")
                     else:
                         state.daily_realised_pnl_pct += pct_val
                     logger.debug(
@@ -88,19 +89,19 @@ class PnlSync:
                     # Daily PnL - read from atomic hash, don't overwrite increments
                     daily_micro = await self._redis.hget(f"pnl:daily:{pid}", "total_pct_micro")
                     if daily_micro is not None:
-                        state.daily_realised_pnl_pct = int(daily_micro) / 1_000_000.0
+                        state.daily_realised_pnl_pct = Decimal(int(daily_micro)) / Decimal("1000000")
 
                     # Drawdown
                     dd_raw = await self._redis.get(f"risk:drawdown:{pid}")
                     if dd_raw:
                         data = json.loads(dd_raw)
-                        state.current_drawdown_pct = float(data.get("drawdown_pct", 0.0))
+                        state.current_drawdown_pct = Decimal(str(data.get("drawdown_pct", 0)))
 
                     # Allocation
                     alloc_raw = await self._redis.get(f"risk:allocation:{pid}")
                     if alloc_raw:
                         data = json.loads(alloc_raw)
-                        state.current_allocation_pct = float(data.get("allocation_pct", 0.0))
+                        state.current_allocation_pct = Decimal(str(data.get("allocation_pct", 0)))
 
             except asyncio.CancelledError:
                 break

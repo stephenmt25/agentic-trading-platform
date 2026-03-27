@@ -7,6 +7,7 @@ Same BacktestJob input / BacktestResult output interface.
 
 import math
 import numpy as np
+from decimal import Decimal
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
 
@@ -16,6 +17,8 @@ from libs.indicators import (
     ADXCalculator, BollingerCalculator, OBVCalculator, ChoppinessCalculator,
 )
 from .simulator import BacktestJob, BacktestResult, SimulatedTrade
+
+_D = Decimal
 
 
 def _compute_indicators(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
@@ -232,7 +235,7 @@ class VectorBTRunner:
             equity *= (1 + pnl_pct)
             equity_curve.append(equity)
 
-        # Aggregate metrics
+        # Aggregate metrics — compute in float (numpy context), convert to Decimal at output
         total_trades = len(trades)
         wins = [t for t in trades if t.pnl_pct > 0]
         losses = [t for t in trades if t.pnl_pct <= 0]
@@ -254,13 +257,22 @@ class VectorBTRunner:
         return BacktestResult(
             job_id=job.job_id,
             total_trades=total_trades,
-            win_rate=win_rate,
-            avg_return=avg_return,
-            max_drawdown=max_drawdown,
-            sharpe=sharpe,
-            profit_factor=profit_factor,
-            equity_curve=equity_curve,
-            trades=trades,
+            win_rate=_D(str(win_rate)),
+            avg_return=_D(str(avg_return)),
+            max_drawdown=_D(str(max_drawdown)),
+            sharpe=_D(str(sharpe)),
+            profit_factor=_D(str(profit_factor)) if math.isfinite(profit_factor) else _D("Infinity"),
+            equity_curve=[_D(str(e)) for e in equity_curve],
+            trades=[
+                SimulatedTrade(
+                    entry_time=t.entry_time, exit_time=t.exit_time,
+                    direction=t.direction,
+                    entry_price=_D(str(t.entry_price)),
+                    exit_price=_D(str(t.exit_price)) if t.exit_price is not None else None,
+                    slippage_cost=_D(str(t.slippage_cost)),
+                    pnl_pct=_D(str(t.pnl_pct)),
+                ) for t in trades
+            ],
         )
 
 
@@ -277,7 +289,7 @@ def run_sweep(
     base_rules: Dict[str, Any],
     param_grid: Dict[str, List[Any]],
     data: List[Dict[str, Any]],
-    slippage_pct: float = 0.001,
+    slippage_pct: Decimal = Decimal("0.001"),
 ) -> SweepResult:
     """Run a parameter grid sweep using the vectorized engine.
 

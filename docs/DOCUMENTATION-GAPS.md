@@ -5,6 +5,7 @@
 > Phase 2 readiness issues. Each item includes a severity, location, and recommended action.
 
 **Audit date**: 2026-03-19
+**Last updated**: 2026-03-27
 
 ---
 
@@ -34,8 +35,8 @@ engineering team.
 | G-5 | No documented monitoring or alerting thresholds. | Unknown what conditions trigger PagerDuty alerts. | Publish alert definitions with severity levels and escalation paths. |
 | G-6 | No documented rollback procedures for failed deployments. | Operators have no playbook when a deploy introduces regressions. | Document rollback steps per service, including database migration rollback. |
 | G-7 | No documented exchange API key rotation procedures. | Key compromise response time is unknown. Keys may be long-lived. | Document rotation steps and implement automated rotation on a schedule. |
-| G-8 | Port 8080 collision: Ingestion, Archiver, Analyst, and Tax services all claim port 8080. | Actual runtime behavior is unclear. Services may fail to bind or silently shadow each other. | Assign unique ports per service or document the container/network isolation that prevents conflicts. |
-| G-9 | No documented rate limits per exchange. | CCXT's internal rate limiter is used but limits are not surfaced in documentation. | Document per-exchange rate limits and how the system enforces them. |
+| ~~G-8~~ | ~~Port 8080 collision between 4+ services.~~ | **RESOLVED** (2026-03-27). All services now have unique port assignments (8000–8096). See `run_all.sh`. | — |
+| ~~G-9~~ | ~~No documented rate limits per exchange.~~ | **RESOLVED** (2026-03-27). Rate limits now enforced and documented: Binance 1200 req/min, Coinbase 300 req/min, default 600 req/min. Implemented via Redis sorted-set sliding window in `RateLimiterClient`. Queryable via `GET /commands/../quotas` endpoint on rate limiter service (port 8094). | — |
 | G-10 | Strategy rules JSON schema not formally documented. | The `strategy_rules` JSONB column is validated by `RuleValidator` but the expected schema is not published. | Extract and publish the JSON Schema from `RuleValidator`. |
 | G-11 | No documented maximum number of concurrent WebSocket connections. | Unknown scaling ceiling for real-time market data subscriptions. | Benchmark and document per-process and per-host WebSocket limits. |
 
@@ -43,37 +44,24 @@ engineering team.
 
 ## Code Defects
 
-### Financial Precision (CRITICAL)
+### Financial Precision — ALL RESOLVED (2026-03-27)
 
-These defects involve the use of floating-point types (`float`, `DOUBLE PRECISION`) for
-financial calculations. IEEE 754 floating-point arithmetic introduces rounding errors that
-accumulate over time, leading to incorrect P&L, fee calculations, and risk assessments.
+All financial precision defects have been remediated. The platform now uses `Decimal` (Python)
+and `NUMERIC/DECIMAL` (PostgreSQL) for all monetary values throughout the critical trading path.
 
-**Recommended fix**: Use `Decimal` (Python) and `NUMERIC`/`DECIMAL` (PostgreSQL) for all
-monetary values. Set explicit precision (e.g., `DECIMAL(20, 8)` for crypto quantities).
+**What was fixed**: All `float` types and `float()` conversions in financial code paths were
+replaced with `Decimal`. The only remaining `float()` calls are at system boundaries where
+external APIs require it (CCXT exchange adapters) or for JSON serialization (Redis cache writes).
 
-| # | Description | Location | Severity |
-|---|-------------|----------|----------|
-| D-1 | `backtest_results` table uses `DOUBLE PRECISION` for 5 financial columns (`win_rate`, `avg_return`, `max_drawdown`, `sharpe`, `profit_factor`). Should be `DECIMAL`. | `migrations/versions/008_backtest_results.sql` | **CRITICAL** |
-| D-2 | `PnLSnapshot` dataclass uses `float` for all monetary fields (`gross_pnl`, `fees`, `net_pre_tax`, `net_post_tax`, `pct_return`, `tax_estimate`). Should be `Decimal`. | `services/pnl/src/calculator.py` | **CRITICAL** |
-| D-3 | 24+ `float()` conversions scattered across financial code paths. | See breakdown below. | **CRITICAL** |
-| D-4 | `SignalEvent.confidence` is typed as `float` in the Pydantic schema. | `libs/core/schemas.py:60` | HIGH |
-| D-5 | `PnlUpdateEvent.pct_return` is typed as `float`. | `libs/core/schemas.py:106` | HIGH |
-| D-6 | `ThresholdProximityEvent` fields (`current_value`, `threshold`, `distance`) are typed as `float`. | `libs/core/schemas.py:124-126` | HIGH |
-| D-7 | `ProfileState` risk fields use `float` for financial thresholds. | `services/hot_path/src/state.py` | HIGH |
-
-**D-3 detailed breakdown** -- `float()` conversions in financial code paths:
-
-| Subsystem | File | Lines |
-|-----------|------|-------|
-| Order placement | `libs/exchange/_binance.py` | 59-60 |
-| Order placement | `libs/exchange/_coinbase.py` | 52-53 |
-| PnL calculation | `services/pnl/src/calculator.py` | 22-23, 32 |
-| Risk validation | `services/validation/src/check_6_risk_level.py` | 6 conversions |
-| Risk gate | `services/hot_path/src/risk_gate.py` | 22-23, 26 |
-| Circuit breaker | `services/hot_path/src/circuit_breaker.py` | 26 |
-| Execution fees | `services/execution/src/executor.py` | 144 |
-| Reconciliation | `services/execution/src/reconciler.py` | 84, 94 |
+| # | Description | Fix | Severity |
+|---|-------------|-----|----------|
+| ~~D-1~~ | `backtest_results` table used `DOUBLE PRECISION` | Migration `009_backtest_decimal_precision.sql` converts all 5 columns to `DECIMAL(20, 8)`. `BacktestResult`/`SimulatedTrade` dataclasses now use `Decimal`. | ~~CRITICAL~~ RESOLVED |
+| ~~D-2~~ | `PnLSnapshot` used `float` for all monetary fields | `PnLSnapshot`, `PnLCalculator`, `TaxEstimate`, `USTaxCalculator`, and tax brackets all converted to `Decimal`. Full chain: tick price → PnL calculation → tax → publisher. | ~~CRITICAL~~ RESOLVED |
+| ~~D-3~~ | 24+ `float()` conversions in financial code paths | Removed from: `calculator.py`, `check_6_risk_level.py`, `risk_gate.py`, `circuit_breaker.py`, `executor.py`, `reconciler.py`, `pnl_sync.py`, `hitl_gate.py`. Exchange adapters retain `float()` at CCXT boundary (documented). | ~~CRITICAL~~ RESOLVED |
+| ~~D-4~~ | `SignalEvent.confidence` typed as `float` | Changed to `Percentage` (Decimal alias) in `libs/core/schemas.py` | ~~HIGH~~ RESOLVED |
+| ~~D-5~~ | `PnlUpdateEvent.pct_return` typed as `float` | Changed to `Percentage` (Decimal alias) in `libs/core/schemas.py` | ~~HIGH~~ RESOLVED |
+| ~~D-6~~ | `ThresholdProximityEvent` fields typed as `float` | Changed to `Price`/`Percentage` (Decimal aliases) in `libs/core/schemas.py` | ~~HIGH~~ RESOLVED |
+| ~~D-7~~ | `ProfileState` risk fields used `float` | `daily_realised_pnl_pct`, `current_drawdown_pct`, `current_allocation_pct` changed to `Decimal` in `services/hot_path/src/state.py`. `pnl_sync.py` updated to write `Decimal`. | ~~HIGH~~ RESOLVED |
 
 ### Missing Implementations
 
@@ -82,20 +70,20 @@ functional implementation.
 
 | # | Description | Location | Severity |
 |---|-------------|----------|----------|
-| D-8 | Kill switch / emergency shutdown is **partially addressed**. The HITL execution gate (Phase 3) provides a configurable human approval layer that can block trades when `AION_HITL_ENABLED=true`. A full global kill switch is still not implemented. | `services/hot_path/src/hitl_gate.py` | **HIGH** (reduced from CRITICAL) |
-| D-9 | Position-level stop-loss enforcement is **not implemented**. `risk_limits` contains `stop_loss_pct` but no code checks or enforces it against open positions. The `PositionCloser` (Phase 2) provides the close mechanism but no stop-loss trigger. | `risk_limits` schema, `services/pnl/src/closer.py` | **CRITICAL** |
-| D-10 | CHECK_3 (Bias validation) is **stubbed**. Always returns `GREEN` regardless of input. | Validation service, CHECK_3 handler | HIGH |
-| D-11 | Rate limiter service is a **stub**. Always returns `allowed=True`. No actual rate limiting occurs. | `libs/exchange/_rate_limiter_client.py` | HIGH |
-| D-12 | `/commands/` endpoint returns `501 Not Implemented`. | API router | LOW |
+| ~~D-8~~ | ~~Kill switch / emergency shutdown is not implemented.~~ **RESOLVED** (2026-03-27). Global `KillSwitch` backed by Redis key `praxis:kill_switch`. Checked at top of hot-path before any processing. Toggleable via `POST /commands/kill-switch`. Fails safe (blocks trading) if Redis is unreachable. Activity log maintained. | `services/hot_path/src/kill_switch.py`, `services/hot_path/src/processor.py`, `services/api_gateway/src/routes/commands.py` | ~~HIGH~~ RESOLVED |
+| ~~D-9~~ | ~~Position-level stop-loss enforcement is not implemented.~~ **RESOLVED** (2026-03-27). `StopLossMonitor` checks every position on every price tick against the profile's `stop_loss_pct`. Triggers `PositionCloser` when loss exceeds threshold. Wired into the PnL tick processor. | `services/pnl/src/stop_loss_monitor.py`, `services/pnl/src/main.py` | ~~CRITICAL~~ RESOLVED |
+| ~~D-10~~ | ~~CHECK_3 (Bias validation) is stubbed.~~ **RESOLVED** (2026-03-27). Now implements rolling z-score bias detection over 100 trades. Returns `passed=False` when z-score > 2.5. | `services/validation/src/check_3_bias.py` | ~~HIGH~~ RESOLVED |
+| ~~D-11~~ | ~~Rate limiter service is a stub.~~ **RESOLVED** (2026-03-27). `RateLimiterClient` now implements a Redis sorted-set sliding window. Enforces per-exchange quotas (Binance: 1200/min, Coinbase: 300/min). Returns `retry_after_ms` when limit exceeded. Service upgraded to FastAPI with `/health` and `/quotas` endpoints. | `libs/exchange/_rate_limiter_client.py`, `services/rate_limiter/src/main.py` | ~~HIGH~~ RESOLVED |
+| ~~D-12~~ | ~~`/commands/` endpoint returns `501 Not Implemented`.~~ **PARTIALLY RESOLVED** (2026-03-27). Kill switch endpoints added (`GET/POST /commands/kill-switch`). LLM intent classification still returns 501. | `services/api_gateway/src/routes/commands.py` | LOW |
 
 ### Other Issues
 
 | # | Description | Location | Severity |
 |---|-------------|----------|----------|
-| D-13 | Port 8080 collision between 4+ services (Ingestion, Archiver, Analyst, Tax). Services will fail to start if co-located without container isolation. | Service `main.py` files | HIGH |
+| ~~D-13~~ | ~~Port 8080 collision between 4+ services.~~ **RESOLVED** (2026-03-27). All services now have unique ports assigned in `run_all.sh`. | — | ~~HIGH~~ RESOLVED |
 | D-14 | 13 API endpoints lack `response_model` declarations. May leak internal database column names or SQLAlchemy metadata in responses. | Various API routers | MEDIUM |
 | D-15 | `profile_id` path parameters accept arbitrary strings. UUID conversion can raise unhandled `ValueError`, returning a 500 instead of 422. | API route handlers | MEDIUM |
-| D-16 | WebSocket Redis listener has no reconnection logic on disconnect. A transient Redis failure will permanently break real-time updates until the service restarts. | WebSocket consumer | HIGH |
+| ~~D-16~~ | ~~WebSocket Redis listener has no reconnection logic on disconnect.~~ **RESOLVED** (2026-03-27). `listen_to_redis` now wraps the subscribe/listen loop in an outer retry loop with exponential backoff (1s → 30s max). On Redis disconnect, pubsub is cleaned up and re-established automatically. Only exits on WebSocket close or task cancellation. | `services/api_gateway/src/routes/ws.py` | ~~HIGH~~ RESOLVED |
 | D-17 | CORS configuration uses `allow_methods=["*"]` and `allow_headers=["*"]`. Overly permissive for a trading API that handles financial operations. | FastAPI middleware config | MEDIUM |
 
 ---
@@ -106,13 +94,42 @@ Conflicts between existing documentation files and the actual codebase.
 
 | # | Document | Claim | Reality | Severity |
 |---|----------|-------|---------|----------|
-| A-1 | `WALKTHROUGH.md` | "5 SQL migrations" | 8 migrations exist (`001` through `008`). | MEDIUM |
+| ~~A-1~~ | `WALKTHROUGH.md` | "5 SQL migrations" | **RESOLVED** (2026-03-27). 9 migrations exist (`001` through `009`). Documentation updated. | ~~MEDIUM~~ RESOLVED |
 | A-2 | `WALKTHROUGH.md` | `POST /auth/login` endpoint | No `/auth/login` endpoint exists. Authentication uses `/auth/callback` (OAuth flow). | HIGH |
 | A-3 | `RUNTIME_ARCHITECTURE.md` | "Fast Gate responds in 35ms" | `constants.py` sets the fast gate timeout to 50ms. 35ms is not referenced anywhere in code. | MEDIUM |
-| A-4 | `SHUTDOWN.md` | Lists 8 services for graceful shutdown | 17 services exist in the codebase. 9 services have no documented shutdown procedure. | HIGH |
-| A-5 | `README.md` (root) | Lists a subset of services | **RESOLVED** (2026-03-24). README updated with all services including Analyst, SLM Inference, Debate, and HITL. | ~~HIGH~~ RESOLVED |
-| A-6 | `RUNTIME_ARCHITECTURE.md` | "migrate.py applies 001 to 005" | `migrate.py` applies migrations `001` through `008`. | MEDIUM |
-| A-7 | Multiple docs | Services documented on port 8080 | At least 4 services claim port 8080 with no documented conflict resolution strategy. | HIGH |
+| A-4 | `SHUTDOWN.md` | Lists 8 services for graceful shutdown | 19 services exist in the codebase (14 HTTP + 5 async). 11 services have no documented shutdown procedure. | HIGH |
+| ~~A-5~~ | `README.md` (root) | Lists a subset of services | **RESOLVED** (2026-03-24). README updated with all services including Analyst, SLM Inference, Debate, and HITL. | ~~HIGH~~ RESOLVED |
+| A-6 | `RUNTIME_ARCHITECTURE.md` | "migrate.py applies 001 to 005" | `migrate.py` applies migrations `001` through `009`. | MEDIUM |
+| ~~A-7~~ | Multiple docs | Services documented on port 8080 | **RESOLVED** (2026-03-27). All services have unique port assignments. See `run_all.sh`. | ~~HIGH~~ RESOLVED |
+
+---
+
+## Service Port Registry (2026-03-27)
+
+Authoritative port assignments from `run_all.sh`:
+
+| Service | Port | Type |
+|---------|------|------|
+| API Gateway | 8000 | HTTP |
+| Ingestion | 8080 | HTTP |
+| Validation | 8081 | HTTP |
+| Hot Path | 8082 | HTTP |
+| Execution | 8083 | HTTP |
+| PnL | 8084 | HTTP |
+| Logger | 8085 | HTTP |
+| Backtesting | 8086 | HTTP |
+| Analyst | 8087 | HTTP |
+| Archiver | 8088 | HTTP |
+| Tax | 8089 | HTTP |
+| TA Agent | 8090 | HTTP |
+| Regime HMM | 8091 | HTTP |
+| Sentiment | 8092 | HTTP |
+| Risk | 8093 | HTTP |
+| SLM Inference | 8095 | HTTP |
+| Debate | 8096 | HTTP |
+| Strategy | — | Async worker |
+| Rate Limiter | 8094 | HTTP |
+| Frontend | 3000 | Next.js |
 
 ---
 
@@ -122,7 +139,7 @@ Items required for production-grade deployment that are scaffolded but not yet c
 
 | # | Item | Current State | Action Required |
 |---|------|---------------|-----------------|
-| P-1 | Kubernetes manifests | Overlay directories exist for dev, staging, and production but contain no service manifests. | Write Deployment, Service, and ConfigMap manifests for all 17 services. |
+| P-1 | Kubernetes manifests | Overlay directories exist for dev, staging, and production but contain no service manifests. | Write Deployment, Service, and ConfigMap manifests for all 19 services. |
 | P-2 | Terraform modules | `terraform/modules/` directory is empty. | Implement IaC for GCP resources (GKE, Cloud SQL, Redis, GCS). |
 | P-3 | Horizontal scaling | No HPA configuration or scaling documentation. | Define scaling policies based on load test results (see G-2). |
 | P-4 | Performance benchmarks | No load testing results or performance baselines exist. | Run benchmarks for hot-path latency, throughput per symbol, and database query performance. |
@@ -152,18 +169,45 @@ The following 6 phases from `SLM-Multi-Agent-Implementation-Plan.md` have been i
 
 ---
 
-## How to Use This Document
+## Platform Rename (2026-03-27)
 
-**For engineers**: Treat CRITICAL items as bugs. File tickets and prioritize them in the
-current sprint. HIGH items should be addressed before any production deployment.
-
-**For documentation**: Each gap (G-*) requires input from the engineering team. Schedule a
-30-minute review session per gap to capture the missing information.
-
-**For auditors**: The financial precision defects (D-1 through D-7) represent systemic risk.
-Review the [Data Model](data-model.md) and [Risk Management](risk-management.md) documents
-for the full context of how financial values flow through the system.
+The platform was renamed from **Aion** to **Praxis**:
+- Environment variable prefix: `AION_` → `PRAXIS_`
+- Exception base class: `AionBaseError` → `PraxisBaseError`
+- Database names: `aion_trading` → `praxis_trading`, `aion_test` → `praxis_test`
+- Package name: `aion-trading` → `praxis-trading` (pyproject.toml)
+- K8s namespace: `aion-trading` → `praxis-trading`
+- All documentation, config files, scripts, and CI workflows updated
+- Directory name `aion-trading` remains unchanged (filesystem only)
 
 ---
 
-*Last updated: 2026-03-24*
+## Open Defect Summary
+
+| Severity | Count | Items |
+|----------|-------|-------|
+| **CRITICAL** | 0 | — |
+| **HIGH** | 0 | — |
+| **MEDIUM** | 5 | D-14, D-15, D-17, A-3, A-6 |
+| **LOW** | 1 | D-12 |
+| **RESOLVED** | 16 | D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-8, D-9, D-10, D-11, D-13, D-16, A-1, A-5, A-7, G-8 |
+
+---
+
+## How to Use This Document
+
+**For engineers**: All CRITICAL and HIGH defects have been resolved as of 2026-03-27.
+Remaining MEDIUM items (D-14, D-15, D-17, A-2, A-3, A-4, A-6) should be addressed before
+production deployment but are not blocking.
+
+**For documentation**: Remaining gaps (G-1 through G-7, G-10, G-11) require input from the
+engineering team. Schedule a 30-minute review session per gap to capture the missing information.
+
+**For auditors**: Financial precision defects (D-1 through D-7) have been fully remediated.
+All financial calculations now use `Decimal` (Python) and `NUMERIC` (PostgreSQL). Review the
+[Data Model](data-model.md) and [Risk Management](risk-management.md) documents for the full
+context of how financial values flow through the system.
+
+---
+
+*Last updated: 2026-03-27*

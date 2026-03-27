@@ -1,4 +1,4 @@
-# Aion Trading Platform
+# Praxis Trading Platform
 
 A high-performance, agentic cryptocurrency trading engine with ML prediction agents, adversarial debate consensus, local SLM inference, and a Next.js dashboard.
 
@@ -79,7 +79,7 @@ docker compose -f deploy/docker-compose.yml ps
 ```bash
 # On Windows (Git Bash / WSL):
 for f in migrations/versions/*.sql; do
-  docker exec -i $(docker compose -f deploy/docker-compose.yml ps -q timescaledb) psql -U postgres -d aion_trading < "$f"
+  docker exec -i $(docker compose -f deploy/docker-compose.yml ps -q timescaledb) psql -U postgres -d praxis_trading < "$f"
 done
 ```
 
@@ -274,7 +274,7 @@ Replaces hardcoded confidence adjustments with EWMA-tracked performance weights.
 Human-in-the-loop approval for trades that meet configurable trigger conditions: low confidence, HIGH_VOLATILITY regime, or large trade size. Fail-safe: timeout = reject. Frontend approval page at `/approval` with real-time WebSocket updates.
 
 ### Local SLM Inference (Phase 4)
-FastAPI service hosting quantized GGUF models via `llama-cpp-python`. Sentiment scorer uses a protocol-based backend abstraction with fallback chain: local SLM → cloud Claude API → neutral fallback. Configurable via `AION_LLM_BACKEND = "cloud" | "local" | "auto"`.
+FastAPI service hosting quantized GGUF models via `llama-cpp-python`. Sentiment scorer uses a protocol-based backend abstraction with fallback chain: local SLM → cloud Claude API → neutral fallback. Configurable via `PRAXIS_LLM_BACKEND = "cloud" | "local" | "auto"`.
 
 ### Adversarial Debate (Phase 5)
 Bull and Bear agents argue for/against positions using market context (indicators, regime, agent scores). A Judge synthesizes the debate into a `debate_score` (-1 to +1) and `debate_confidence`. Runs every 5 minutes per symbol. Output feeds into agent_modifier with dynamic weight.
@@ -357,15 +357,15 @@ npx promptfoo redteam run --config promptfoo-redteam.yaml
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `AION_LLM_BACKEND` | `"cloud"` | LLM backend mode: `"cloud"`, `"local"`, or `"auto"` (local with cloud fallback) |
-| `AION_SLM_INFERENCE_URL` | `"http://localhost:8095"` | URL of the local SLM inference service |
-| `AION_SLM_MODEL_PATH` | `""` | Path to GGUF model file for local inference |
-| `AION_SLM_CONTEXT_LENGTH` | `4096` | Context window for local SLM |
-| `AION_SLM_GPU_LAYERS` | `-1` | GPU layers for model offloading (-1 = all) |
-| `AION_HITL_ENABLED` | `false` | Enable human-in-the-loop execution gate |
-| `AION_HITL_SIZE_THRESHOLD_PCT` | `5.0` | Trade size % that triggers HITL approval |
-| `AION_HITL_CONFIDENCE_THRESHOLD` | `0.5` | Confidence below this triggers HITL |
-| `AION_HITL_TIMEOUT_S` | `60` | Seconds to wait for human response (fail-safe: reject) |
+| `PRAXIS_LLM_BACKEND` | `"cloud"` | LLM backend mode: `"cloud"`, `"local"`, or `"auto"` (local with cloud fallback) |
+| `PRAXIS_SLM_INFERENCE_URL` | `"http://localhost:8095"` | URL of the local SLM inference service |
+| `PRAXIS_SLM_MODEL_PATH` | `""` | Path to GGUF model file for local inference |
+| `PRAXIS_SLM_CONTEXT_LENGTH` | `4096` | Context window for local SLM |
+| `PRAXIS_SLM_GPU_LAYERS` | `-1` | GPU layers for model offloading (-1 = all) |
+| `PRAXIS_HITL_ENABLED` | `false` | Enable human-in-the-loop execution gate |
+| `PRAXIS_HITL_SIZE_THRESHOLD_PCT` | `5.0` | Trade size % that triggers HITL approval |
+| `PRAXIS_HITL_CONFIDENCE_THRESHOLD` | `0.5` | Confidence below this triggers HITL |
+| `PRAXIS_HITL_TIMEOUT_S` | `60` | Seconds to wait for human response (fail-safe: reject) |
 
 See [docs/configuration.md](docs/configuration.md) for the complete reference.
 

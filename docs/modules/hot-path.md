@@ -2,7 +2,7 @@
 
 ## Purpose and Responsibility
 
-The Hot-Path Processor is the latency-critical core of the Aion Trading Platform. It consumes normalised market data ticks from a Redis stream, evaluates trading strategies against every active profile in real time, and emits `OrderApprovedEvent` messages for signals that survive a multi-stage filtering pipeline. The entire tick-to-order path is designed to complete in single-digit milliseconds per profile.
+The Hot-Path Processor is the latency-critical core of the Praxis Trading Platform. It consumes normalised market data ticks from a Redis stream, evaluates trading strategies against every active profile in real time, and emits `OrderApprovedEvent` messages for signals that survive a multi-stage filtering pipeline. The entire tick-to-order path is designed to complete in single-digit milliseconds per profile.
 
 ## Public Interface
 
@@ -112,7 +112,7 @@ The processor runs a continuous consume loop that reads up to 100 ticks per hear
 
 8. **Risk Gate** -- `RiskGate.check()` evaluates position sizing and risk limits. Returns a `RiskGateResult` with a `suggested_quantity` for dynamic sizing.
 
-9. **HITL Gate** -- (Phase 3) `HITLGate.check()` evaluates whether human approval is required based on configurable triggers: low confidence, HIGH_VOLATILITY regime, or large trade size. If not triggered, passes through with zero latency. If triggered, publishes an `HITLApprovalRequest` to `pubsub:hitl_pending`, waits for a response via Redis BLPOP with configurable timeout (default 60s). Fail-safe: timeout or error = reject. Disabled by default (`AION_HITL_ENABLED=false`).
+9. **HITL Gate** -- (Phase 3) `HITLGate.check()` evaluates whether human approval is required based on configurable triggers: low confidence, HIGH_VOLATILITY regime, or large trade size. If not triggered, passes through with zero latency. If triggered, publishes an `HITLApprovalRequest` to `pubsub:hitl_pending`, waits for a response via Redis BLPOP with configurable timeout (default 60s). Fail-safe: timeout or error = reject. Disabled by default (`PRAXIS_HITL_ENABLED=false`).
 
 10. **Validation Fast Gate** -- Sends a `ValidationRequestEvent` to the Validation Service via a synchronous Redis BLPOP RPC pattern. If the response verdict is `RED`, the signal is blocked.
 

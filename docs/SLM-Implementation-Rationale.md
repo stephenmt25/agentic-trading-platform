@@ -50,7 +50,7 @@ The proposed `AgentPerformanceTracker` implements an Exponentially Weighted Movi
 
 **What the blueprint proposes**: A structured approval workflow where the system generates a "proposed action" payload and routes it to a human reviewer before execution. The human acts as "the final gatekeeper, reviewing the 2nd brain's auditable logs."
 
-**What we currently have**: No trade approval workflow. The hot-path pipeline processes ticks and emits `OrderApprovedEvent` directly to the execution service without human intervention. The only safety mechanisms are automated: circuit breaker (daily loss limit), validation fast-gate (35ms check), and risk gate (position sizing). The CLAUDE.md explicitly lists "Kill switch / emergency shutdown is NOT IMPLEMENTED" and "Position-level stop-loss enforcement is NOT IMPLEMENTED" as known defects.
+**What we currently have**: No trade approval workflow. The hot-path pipeline processes ticks and emits `OrderApprovedEvent` directly to the execution service without human intervention. The only safety mechanisms are automated: circuit breaker (daily loss limit), validation fast-gate (35ms check), and risk gate (position sizing). The CLAUDE.md previously listed "Kill switch / emergency shutdown" and "Position-level stop-loss enforcement" as known defects. Both have been resolved as of 2026-03-27: `KillSwitch` (Redis-backed, API-toggleable, fails safe) is implemented in the hot-path, and `StopLossMonitor` (per-tick enforcement against `stop_loss_pct`) is implemented in the PnL service.
 
 **Why this is a P2 priority (not P1)**:
 
@@ -82,7 +82,7 @@ While safety is critical, the HITL gate is P2 rather than P1 because:
 
 **Why an abstraction layer (LLMBackend protocol) instead of just swapping the API**:
 
-The sentiment scorer currently has Claude-specific logic (API key handling, retry logic, JSON extraction with regex fallback). Rather than replacing this wholesale, abstracting behind a `LLMBackend` protocol preserves the cloud path as a fallback. This is operationally critical: if the local GPU server goes down (hardware failure, OOM), sentiment scoring degrades to cloud API rather than going offline entirely. The config-driven selection (`AION_LLM_BACKEND`) also enables A/B testing between local and cloud models to validate that the local SLM achieves comparable sentiment accuracy.
+The sentiment scorer currently has Claude-specific logic (API key handling, retry logic, JSON extraction with regex fallback). Rather than replacing this wholesale, abstracting behind a `LLMBackend` protocol preserves the cloud path as a fallback. This is operationally critical: if the local GPU server goes down (hardware failure, OOM), sentiment scoring degrades to cloud API rather than going offline entirely. The config-driven selection (`PRAXIS_LLM_BACKEND`) also enables A/B testing between local and cloud models to validate that the local SLM achieves comparable sentiment accuracy.
 
 **Why this must precede Phase 5 (Debate)**: The adversarial debate framework requires 6-9 SLM invocations per debate round (bull prompt + bear prompt + judge prompt, for 2-3 rounds). At cloud API pricing, running this every 5 minutes for each tracked symbol would be expensive. Local inference makes the debate framework economically viable for continuous operation.
 

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from .state import ProfileState
 import datetime
 
@@ -17,12 +18,12 @@ class CircuitBreaker:
 
         if last_date is not None and last_date < today_utc:
             # New trading day: reset daily PnL
-            state.daily_realised_pnl_pct = 0.0
+            state.daily_realised_pnl_pct = Decimal("0")
 
         cls._last_reset_date[state.profile_id] = today_utc
 
         loss_pct = -state.daily_realised_pnl_pct
 
-        if loss_pct > float(state.risk_limits.circuit_breaker_daily_loss_pct):
+        if loss_pct > state.risk_limits.circuit_breaker_daily_loss_pct:
             return True
         return False

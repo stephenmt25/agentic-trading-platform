@@ -3,19 +3,19 @@ from decimal import Decimal
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field
 
-_INSECURE_DEFAULT_KEY = "aion-dev-secret-key-change-in-production"
+_INSECURE_DEFAULT_KEY = "praxis-dev-secret-key-change-in-production"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
-        env_prefix="AION_",
+        env_prefix="PRAXIS_",
         extra="ignore"
     )
 
     REDIS_URL: str = Field(default="redis://localhost:6379/1")
-    DATABASE_URL: str = Field(default="postgresql://postgres:postgres@localhost:5432/aion_trading")
+    DATABASE_URL: str = Field(default="postgresql://postgres:postgres@localhost:5432/praxis_trading")
     BINANCE_TESTNET: bool = Field(default=True)
     COINBASE_SANDBOX: bool = Field(default=True)
     TRADING_ENABLED: bool = Field(default=False)

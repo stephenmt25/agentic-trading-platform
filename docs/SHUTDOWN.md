@@ -25,9 +25,9 @@ Wait for each service to log its shutdown sequence. You should stop them in the 
 If you are running Redis via Docker (as per the `docker-compose.yml` or standard `docker run`), you can stop it with the following command in any terminal:
 
 ```bash
-docker stop aion-redis
+docker stop praxis-redis
 ```
-*(If you didn't name your container `aion-redis`, or used `docker-compose`, navigate to the `aion-trading` directory and run `docker-compose down` instead).*
+*(If you didn't name your container `praxis-redis`, or used `docker-compose`, navigate to the `aion-trading` directory and run `docker-compose down` instead).*
 
 ## 4. Verification
 To verify all Python processes have stopped, you can run the following command in PowerShell:
