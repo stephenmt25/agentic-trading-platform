@@ -8,6 +8,7 @@ from libs.storage import RedisClient, TimescaleClient, OrderRepository, Position
 from libs.messaging import StreamConsumer, StreamPublisher
 from libs.messaging.channels import ORDERS_STREAM
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 
 from .ledger import OptimisticLedger
 from .executor import OrderExecutor
@@ -31,7 +32,10 @@ async def lifespan(app: FastAPI):
     audit_repo = AuditRepository(timescale_client)
     
     ledger = OptimisticLedger(order_repo)
-    
+
+    telemetry = TelemetryPublisher(redis_instance, "execution", "execution")
+    await telemetry.start_health_loop()
+
     executor = OrderExecutor(
         publisher=publisher,
         consumer=consumer,
@@ -39,7 +43,9 @@ async def lifespan(app: FastAPI):
         position_repo=position_repo,
         audit_repo=audit_repo,
         ledger=ledger,
-        orders_channel=ORDERS_STREAM
+        orders_channel=ORDERS_STREAM,
+        redis_client=redis_instance,
+        telemetry=telemetry,
     )
     
     reconciler = BalanceReconciler(position_repo)
@@ -56,6 +62,7 @@ async def lifespan(app: FastAPI):
     exec_task.cancel()
     recon_task.cancel()
     await asyncio.gather(exec_task, recon_task, return_exceptions=True)
+    await telemetry.stop()
     await timescale_client.close()
     logger.info("Execution Agent shutdown successfully")
 

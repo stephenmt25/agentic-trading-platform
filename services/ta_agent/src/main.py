@@ -10,6 +10,7 @@ from libs.storage import RedisClient
 from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage._timescale_client import TimescaleClient
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 from .confluence import TAConfluenceScorer
 
 logger = get_logger("ta-agent")
@@ -21,7 +22,7 @@ SCORE_TTL_S = 120
 CANDLE_LIMIT = 150
 
 
-async def scoring_loop(redis_client, market_repo: MarketDataRepository):
+async def scoring_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher):
     """Periodically compute TA confluence scores and write to Redis."""
     symbols = settings.TRADING_SYMBOLS
     scorer_map = {sym: TAConfluenceScorer() for sym in symbols}
@@ -29,6 +30,7 @@ async def scoring_loop(redis_client, market_repo: MarketDataRepository):
     while True:
         try:
             for symbol in symbols:
+                await telemetry.emit("input_received", {"symbol": symbol, "message_type": "scoring_cycle"}, source_agent="ingestion")
                 scorer = scorer_map[symbol]
 
                 for tf in TAConfluenceScorer.TIMEFRAMES:
@@ -47,6 +49,11 @@ async def scoring_loop(redis_client, market_repo: MarketDataRepository):
                     key = f"agent:ta_score:{symbol}"
                     await redis_client.set(key, json.dumps({"score": score}), ex=SCORE_TTL_S)
                     logger.info("TA score updated", symbol=symbol, score=score)
+                    await telemetry.emit(
+                        "output_emitted",
+                        {"symbol": symbol, "score": score},
+                        target_agent="hot_path",
+                    )
 
                 # Reset scorer for next cycle
                 scorer_map[symbol] = TAConfluenceScorer()
@@ -66,11 +73,15 @@ async def lifespan(app: FastAPI):
     await timescale.init_pool()
     market_repo = MarketDataRepository(timescale)
 
-    task = asyncio.create_task(scoring_loop(redis_instance, market_repo))
+    telemetry = TelemetryPublisher(redis_instance, "ta_agent", "scoring")
+    await telemetry.start_health_loop()
+
+    task = asyncio.create_task(scoring_loop(redis_instance, market_repo, telemetry))
     logger.info("TA Agent started")
     yield
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
+    await telemetry.stop()
     await timescale.close()
     logger.info("TA Agent shutdown")
 

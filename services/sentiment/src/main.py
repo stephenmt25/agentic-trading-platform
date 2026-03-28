@@ -8,6 +8,7 @@ import uvicorn
 from libs.config import settings
 from libs.storage import RedisClient
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 from .news_client import NewsClient
 from .scorer import LLMSentimentScorer, create_backend
 
@@ -17,11 +18,12 @@ SCORE_INTERVAL_S = 300  # 5 minutes
 SCORE_TTL_S = 900  # 15 minutes
 
 
-async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: NewsClient):
+async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: NewsClient, telemetry: TelemetryPublisher):
     """Periodically score sentiment for tracked symbols and write to Redis."""
     while True:
         try:
             for symbol in settings.TRADING_SYMBOLS:
+                await telemetry.emit("input_received", {"symbol": symbol, "message_type": "headline_fetch"}, source_agent="external")
                 headlines = await news_client.get_headlines(symbol, limit=5)
                 result = await scorer.score(symbol, headlines)
 
@@ -40,6 +42,11 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
                     symbol=symbol,
                     score=result.score,
                     source=result.source,
+                )
+                await telemetry.emit(
+                    "output_emitted",
+                    {"symbol": symbol, "score": result.score, "confidence": result.confidence},
+                    target_agent="hot_path",
                 )
 
         except Exception as e:
@@ -62,11 +69,15 @@ async def lifespan(app: FastAPI):
     logger.info("Sentiment scorer initialized", backend_mode=settings.LLM_BACKEND,
                 num_backends=len(backends))
 
-    task = asyncio.create_task(sentiment_loop(redis_instance, scorer, news_client))
+    telemetry = TelemetryPublisher(redis_instance, "sentiment", "sentiment")
+    await telemetry.start_health_loop()
+
+    task = asyncio.create_task(sentiment_loop(redis_instance, scorer, news_client, telemetry))
     logger.info("Sentiment Agent started")
     yield
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
+    await telemetry.stop()
     logger.info("Sentiment Agent shutdown")
 
 

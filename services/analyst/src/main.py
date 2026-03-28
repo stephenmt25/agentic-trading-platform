@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from libs.config import settings
 from libs.storage import RedisClient
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 from libs.core.agent_registry import AgentPerformanceTracker
 
 logger = get_logger("analyst")
@@ -18,12 +19,21 @@ async def lifespan(app: FastAPI):
     redis_conn = RedisClient.get_instance(settings.REDIS_URL).get_connection()
     tracker = AgentPerformanceTracker(redis_conn)
 
+    telemetry = TelemetryPublisher(redis_conn, "analyst", "meta_learning")
+    await telemetry.start_health_loop()
+
     async def weight_recompute_loop():
         """Periodically recompute agent weights from closed position outcomes."""
         while True:
             try:
                 for symbol in settings.TRADING_SYMBOLS:
+                    await telemetry.emit("input_received", {"symbol": symbol, "message_type": "outcome_read"}, source_agent="pnl")
                     await tracker.recompute_weights(symbol)
+                    await telemetry.emit(
+                        "output_emitted",
+                        {"symbol": symbol, "weights": {}},
+                        target_agent="hot_path",
+                    )
                 logger.info(
                     "Agent weights recomputed",
                     symbols=settings.TRADING_SYMBOLS,
@@ -39,6 +49,7 @@ async def lifespan(app: FastAPI):
 
     weight_task.cancel()
     await asyncio.gather(weight_task, return_exceptions=True)
+    await telemetry.stop()
     logger.info("Analyst Agent shutdown")
 
 

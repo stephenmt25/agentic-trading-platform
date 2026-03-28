@@ -83,7 +83,11 @@
       "Bash(grep -r position.*stop C:UsersstevoDEVagent_trader_1aion-tradingservicesexecution --include=*.py)",
       "Bash(grep -r stop_loss C:UsersstevoDEVagent_trader_1aion-tradinglibs --include=*.py)",
       "Bash(/dev/null -exec grep -l \"position.*stop\\\\|stop.*position\\\\|monitored.*position\" {})",
-      "Bash(OPENVIKING_CONFIG_FILE=ov.conf python viking.py search \"risk management\")"
+      "Bash(OPENVIKING_CONFIG_FILE=ov.conf python viking.py search \"risk management\")",
+      "Bash(grep -r aion /c/Users/stevo/DEV/agent_trader_1/aion-trading/frontend --include=*.tsx --include=*.ts --include=*.jsx --include=*.js --include=*.json)",
+      "Bash(where poetry:*)",
+      "Bash(bash -c 'ls /c/Users/stevo/AppData/Local/Programs/Python/Python312/Scripts/poetry.exe 2>/dev/null && echo FOUND || echo NOTFOUND')",
+      "Bash(bash -c 'export PATH=\"$PATH:/c/Users/stevo/AppData/Local/Programs/Python/Python312/Scripts\"; poetry --version')"
     ]
   }
 }

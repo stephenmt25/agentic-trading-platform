@@ -12,6 +12,7 @@ from libs.storage.repositories import ProfileRepository
 from libs.messaging import PubSubBroadcaster
 from libs.messaging.channels import PUBSUB_PRICE_TICKS
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 
 from .calculator import PnLCalculator
 from .publisher import PnLPublisher
@@ -50,6 +51,9 @@ async def lifespan(app: FastAPI):
     closer = PositionCloser(position_repo, redis_instance)
     stop_loss = StopLossMonitor(closer, profile_repo)
 
+    telemetry = TelemetryPublisher(redis_instance, "pnl", "portfolio")
+    await telemetry.start_health_loop()
+
     await hydrate_positions(position_repo)
 
     TAKER_RATES = {
@@ -62,6 +66,8 @@ async def lifespan(app: FastAPI):
         async for channel, tick_data in pubsub.subscribe(PUBSUB_PRICE_TICKS):
             sym = tick_data.get("symbol")
             cp = Decimal(str(tick_data.get("price", "0")))
+
+            await telemetry.emit("input_received", {"symbol": sym, "price": str(cp), "message_type": "price_tick"}, source_agent="ingestion")
 
             positions = active_positions_cache.get(sym, [])
             positions_to_remove = []
@@ -91,9 +97,26 @@ async def lifespan(app: FastAPI):
                 )
                 await publisher.publish_update(pos.profile_id, snapshot)
 
+                await telemetry.emit(
+                    "output_emitted",
+                    {
+                        "position_id": str(pos.position_id),
+                        "symbol": sym,
+                        "net_pnl": str(snapshot.net_pnl) if hasattr(snapshot, 'net_pnl') else str(snapshot),
+                    },
+                )
+
                 # Stop-loss enforcement (D-9)
                 closed = await stop_loss.check(pos, snapshot, cp, taker_rate)
                 if closed:
+                    await telemetry.emit(
+                        "output_emitted",
+                        {
+                            "event": "stop_loss_triggered",
+                            "position_id": str(pos.position_id),
+                            "symbol": sym,
+                        },
+                    )
                     positions_to_remove.append(pos)
 
             # Remove closed positions from cache
@@ -109,6 +132,7 @@ async def lifespan(app: FastAPI):
     # Teardown
     listener_task.cancel()
     await asyncio.gather(listener_task, return_exceptions=True)
+    await telemetry.stop()
     await timescale_client.close()
     logger.info("PnL Agent shutdown")
 

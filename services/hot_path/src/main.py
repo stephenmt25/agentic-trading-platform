@@ -1,12 +1,15 @@
 import asyncio
+import json
 import uuid
 import httpx
+from decimal import Decimal
 from fastapi import FastAPI
 import uvicorn
 from contextlib import asynccontextmanager
 
 from libs.config import settings
 from libs.storage._redis_client import RedisClient
+from libs.storage import TimescaleClient, ProfileRepository
 from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
 from libs.messaging._pubsub import PubSubSubscriber
 from libs.messaging.channels import (
@@ -17,8 +20,12 @@ from libs.messaging.channels import (
     PUBSUB_THRESHOLD_PROXIMITY
 )
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
+from libs.core.models import RiskLimits
+from libs.indicators import create_indicator_set
+from services.strategy.src.compiler import RuleCompiler
 
-from .state import ProfileStateCache
+from .state import ProfileState, ProfileStateCache
 from .validation_client import ValidationClient
 from .processor import HotPathProcessor
 from .pnl_sync import PnlSync
@@ -86,12 +93,64 @@ async def lifespan(app: FastAPI):
 
     state_cache = ProfileStateCache()
 
+    # 0. Load active profiles from database into state cache
+    ts_client = TimescaleClient(settings.DATABASE_URL)
+    await ts_client.init_pool()
+    profile_repo = ProfileRepository(ts_client)
+
+    profiles = await profile_repo.get_active_profiles()
+    for prof in profiles:
+        # Parse strategy rules (JSONB comes as dict from asyncpg)
+        rules_raw = prof.get("strategy_rules", {})
+        if isinstance(rules_raw, str):
+            rules = json.loads(rules_raw)
+        else:
+            rules = rules_raw
+        compiled = RuleCompiler.compile(rules)
+
+        # Parse risk limits (JSONB comes as dict from asyncpg)
+        limits_raw = prof.get("risk_limits", {})
+        if isinstance(limits_raw, str):
+            limits = json.loads(limits_raw)
+        else:
+            limits = limits_raw
+        risk_limits = RiskLimits(
+            max_drawdown_pct=Decimal(str(limits.get("max_drawdown_pct", "0.10"))),
+            stop_loss_pct=Decimal(str(limits.get("stop_loss_pct", "0.05"))),
+            circuit_breaker_daily_loss_pct=Decimal(str(limits.get("circuit_breaker_daily_loss_pct", "0.02"))),
+            max_allocation_pct=Decimal(str(limits.get("max_allocation_pct", "1.0"))),
+        )
+
+        # Parse blacklist (TEXT[] comes as list from asyncpg)
+        blacklist_raw = prof.get("blacklist", [])
+        if isinstance(blacklist_raw, str):
+            bl = json.loads(blacklist_raw)
+        else:
+            bl = blacklist_raw if isinstance(blacklist_raw, list) else []
+
+        indicators = create_indicator_set()
+
+        state = ProfileState(
+            profile_id=str(prof["profile_id"]),
+            compiled_rules=compiled,
+            risk_limits=risk_limits,
+            blacklist=frozenset(bl),
+            indicators=indicators,
+        )
+        state_cache.add(state)
+
+    logger.info(f"Loaded {len(profiles)} profiles into state cache")
+
     # 1. Hydrate cache loop Wait
     await wait_for_hydration_complete(redis_instance, state_cache)
 
     # 2. Start PnL sync background task (Sprint 10.1)
     pnl_sync = PnlSync(redis_instance, pubsub_subscriber, state_cache)
     pnl_sync_task = asyncio.create_task(pnl_sync.run())
+
+    # Telemetry publisher
+    telemetry = TelemetryPublisher(redis_instance, "hot_path", "orchestrator")
+    await telemetry.start_health_loop()
 
     processor = HotPathProcessor(
         state_cache=state_cache,
@@ -103,6 +162,7 @@ async def lifespan(app: FastAPI):
         orders_channel=ORDERS_STREAM,
         proximity_pubsub_channel=PUBSUB_THRESHOLD_PROXIMITY,
         redis_client=redis_instance,
+        telemetry=telemetry,
     )
 
     logger.info("Injecting Hot-Path background loop.")
@@ -114,6 +174,8 @@ async def lifespan(app: FastAPI):
     task.cancel()
     pnl_sync_task.cancel()
     await asyncio.gather(task, pnl_sync_task, return_exceptions=True)
+    await telemetry.stop()
+    await ts_client.close()
     logger.info("Hot-Path shutdown gracefully.")
 
 app = FastAPI(title="HotPath Processor", lifespan=lifespan)

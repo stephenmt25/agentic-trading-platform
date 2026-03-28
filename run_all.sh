@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Praxis Trading Platform — Full System Launcher
 # Usage: bash run_all.sh [--stop]
-set -euo pipefail
+set -uo pipefail
 cd "$(dirname "$0")"
 
 # Resolve poetry — check common Windows paths (WSL /mnt/c and Git Bash /c)
@@ -133,6 +133,8 @@ launch "tax"           "services.tax.src.main"           8089
 launch "ta_agent"      "services.ta_agent.src.main"      8090
 launch "regime_hmm"    "services.regime_hmm.src.main"    8091
 launch "sentiment"     "services.sentiment.src.main"     8092
+launch "risk"          "services.risk.src.main"          8093
+launch "debate"        "services.debate.src.main"        8096
 
 # Standalone async services (no HTTP server)
 launch_async "strategy"     "services.strategy.src.main"
@@ -142,6 +144,12 @@ echo ""
 
 # ---------- 4. Frontend ----------
 echo "=== [4/4] Starting Frontend (Next.js) ==="
+# Clean stale lock and kill zombie on port 3000
+rm -f frontend/.next/dev/lock 2>/dev/null
+if command -v powershell.exe >/dev/null 2>&1; then
+    powershell.exe -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { \$_ -ne 0 } | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null
+fi
+sleep 1
 cd frontend
 npm run dev > "../$LOGDIR/frontend.log" 2>&1 &
 FRONTEND_PID=$!
@@ -179,4 +187,7 @@ echo "  Press Ctrl+C to stop everything."
 echo ""
 
 # Keep script alive so Ctrl+C works
-wait
+set +e
+while true; do
+    sleep 60
+done

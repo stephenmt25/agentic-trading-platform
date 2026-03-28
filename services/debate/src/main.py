@@ -14,6 +14,7 @@ import uvicorn
 from libs.config import settings
 from libs.storage import RedisClient
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 from services.sentiment.src.scorer import create_backend
 from .engine import DebateEngine, MarketContext
 
@@ -78,11 +79,12 @@ async def _get_market_context(redis_client, symbol: str) -> MarketContext:
     )
 
 
-async def debate_loop(redis_client, engine: DebateEngine):
+async def debate_loop(redis_client, engine: DebateEngine, telemetry: TelemetryPublisher):
     """Periodically run debates for tracked symbols and write results to Redis."""
     while True:
         try:
             for symbol in settings.TRADING_SYMBOLS:
+                await telemetry.emit("input_received", {"symbol": symbol, "message_type": "debate_context"}, source_agent="ta_agent")
                 ctx = await _get_market_context(redis_client, symbol)
                 result = await engine.run(ctx)
 
@@ -104,6 +106,16 @@ async def debate_loop(redis_client, engine: DebateEngine):
                     score=round(result.score, 3),
                     confidence=round(result.confidence, 3),
                     latency_ms=result.total_latency_ms,
+                )
+                await telemetry.emit(
+                    "decision_trace",
+                    {
+                        "symbol": symbol,
+                        "bull_score": round(result.score, 3),
+                        "bear_score": round(1.0 - result.score, 3),
+                        "final_score": round(result.score, 3),
+                    },
+                    target_agent="hot_path",
                 )
 
         except Exception as e:
@@ -128,11 +140,15 @@ async def lifespan(app: FastAPI):
 
     engine = DebateEngine(backend, num_rounds=2)
 
-    task = asyncio.create_task(debate_loop(redis_conn, engine))
+    telemetry = TelemetryPublisher(redis_conn, "debate", "scoring")
+    await telemetry.start_health_loop()
+
+    task = asyncio.create_task(debate_loop(redis_conn, engine, telemetry))
     logger.info("Debate Agent started", backend_mode=settings.LLM_BACKEND)
     yield
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
+    await telemetry.stop()
     logger.info("Debate Agent shutdown")
 
 

@@ -5,17 +5,19 @@ from contextlib import asynccontextmanager
 from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 
 from . import RiskService
 
 logger = get_logger("risk")
 
 _risk_service: RiskService | None = None
+_telemetry: TelemetryPublisher | None = None
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _risk_service
+    global _risk_service, _telemetry
 
     redis_conn = RedisClient.get_instance(settings.REDIS_URL).get_connection()
     timescale_client = TimescaleClient(settings.DATABASE_URL)
@@ -26,10 +28,15 @@ async def lifespan(app: FastAPI):
         position_repo=timescale_client,
         redis_client=redis_conn,
     )
+
+    _telemetry = TelemetryPublisher(redis_conn, "risk", "risk")
+    await _telemetry.start_health_loop()
+
     logger.info("Risk Service started")
 
     yield
 
+    await _telemetry.stop()
     await timescale_client.close()
     logger.info("Risk Service shutdown gracefully")
 
@@ -50,6 +57,8 @@ async def check_order(
     price: float,
     side: str = "BUY",
 ):
+    if _telemetry:
+        await _telemetry.emit("input_received", {"message_type": "risk_check_request"}, source_agent="hot_path")
     result = await _risk_service.check_order(
         profile_id=profile_id,
         symbol=symbol,
@@ -57,6 +66,12 @@ async def check_order(
         price=price,
         side=side,
     )
+    if _telemetry:
+        await _telemetry.emit(
+            "output_emitted",
+            {"passed": result.allowed, "reason": result.reason, "symbol": symbol},
+            source_agent="hot_path",
+        )
     return {"allowed": result.allowed, "reason": result.reason}
 
 

@@ -10,6 +10,7 @@ from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
 from libs.messaging.channels import VALIDATION_STREAM, VALIDATION_RESPONSE_STREAM
 from libs.messaging._serialisation import encode_event
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 
 from .check_1_strategy import StrategyRecheck
 from .check_6_risk_level import RiskLevelRecheck
@@ -54,6 +55,9 @@ async def lifespan(app: FastAPI):
     check5 = EscalationCheck(validation_repo, pubsub)
     async_auditor = AsyncAuditHandler(consumer, validation_repo, check2, check3, check4, check5, VALIDATION_STREAM)
     
+    telemetry = TelemetryPublisher(redis_instance, "validation", "risk")
+    await telemetry.start_health_loop()
+
     learning_loop = LearningLoop(validation_repo, publisher)
 
     # Note: FastGate typically responds via streams matching request IDs, handled inside hot_path request block 
@@ -68,6 +72,7 @@ async def lifespan(app: FastAPI):
             events = await consumer.consume(VALIDATION_STREAM, g_name, "gate_1", count=100, block_ms=5)
             for msg_id, ev in events:
                 if ev:
+                    await telemetry.emit("input_received", {"message_type": "validation_request"}, source_agent="hot_path")
                     resp = await fast_gate.handle(ev)
                     await publisher.publish(VALIDATION_RESPONSE_STREAM, resp)
                     # LPUSH response to per-request key for BLPOP RPC pickup
@@ -75,6 +80,15 @@ async def lifespan(app: FastAPI):
                     encoded = encode_event(resp)
                     await redis_instance.lpush(resp_key, encoded)
                     await redis_instance.expire(resp_key, 5)  # TTL cleanup
+                    await telemetry.emit(
+                        "output_emitted",
+                        {
+                            "verdict": resp.verdict.value if hasattr(resp.verdict, 'value') else str(resp.verdict),
+                            "checks": resp.checks if hasattr(resp, 'checks') else [],
+                            "profile_id": str(ev.profile_id) if hasattr(ev, 'profile_id') else "",
+                        },
+                        source_agent="hot_path",
+                    )
                 await consumer.ack(VALIDATION_STREAM, g_name, [msg_id])
 
     # Start Tasks
@@ -90,6 +104,7 @@ async def lifespan(app: FastAPI):
     audit_task.cancel()
     learn_task.cancel()
     await asyncio.gather(gate_task, audit_task, learn_task, return_exceptions=True)
+    await telemetry.stop()
     await timescale_client.close()
     logger.info("Validation Agent shutdown gracefully")
 

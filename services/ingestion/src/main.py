@@ -9,6 +9,7 @@ from libs.messaging import StreamPublisher, PubSubBroadcaster, MARKET_DATA_STREA
 from libs.storage import RedisClient, TimescaleClient, MarketDataRepository
 from libs.core.schemas import MarketTickEvent
 from libs.observability import get_logger, timer
+from libs.observability.telemetry import TelemetryPublisher
 
 from .ws_manager import WebSocketManager
 from .health import create_health_app
@@ -21,6 +22,7 @@ timescale_client = TimescaleClient(settings.DATABASE_URL)
 
 stream_pub = StreamPublisher(redis_client)
 pubsub_broadcaster = PubSubBroadcaster(redis_client)
+telemetry = TelemetryPublisher(redis_client, "ingestion", "market_data")
 
 market_repo = MarketDataRepository(timescale_client)
 data_router = DataRouter(market_repo)
@@ -34,6 +36,8 @@ adapters = [
 ws_manager = WebSocketManager(adapters, symbols_to_track)
 
 async def handle_tick(tick):
+    await telemetry.emit("input_received", {"symbol": tick.symbol, "exchange": tick.exchange, "message_type": "exchange_tick"}, source_agent="external")
+
     # Hot-Path publish
     event = MarketTickEvent(
         symbol=tick.symbol,
@@ -51,6 +55,12 @@ async def handle_tick(tick):
             pubsub_broadcaster.publish(PUBSUB_PRICE_TICKS, event)
         )
         
+    await telemetry.emit(
+        "output_emitted",
+        {"symbol": tick.symbol, "price": str(tick.price), "exchange": tick.exchange},
+        target_agent="hot_path",
+    )
+
     # Async background map to router without blocking event loop tick path
     data_router.aggregate_tick(tick)
 
@@ -63,9 +73,11 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting Ingestion Agent...")
     await ws_manager.start(handle_tick)
+    await telemetry.start_health_loop()
     yield
     # Shutdown
     logger.info("Shutting down Ingestion Agent...")
+    await telemetry.stop()
     await ws_manager.stop()
     await data_router.force_flush()
     await timescale_client.close()

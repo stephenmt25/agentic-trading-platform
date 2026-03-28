@@ -18,6 +18,7 @@ from libs.core.schemas import MarketTickEvent, OrderApprovedEvent, ThresholdProx
 from libs.core.constants import THRESHOLD_PROXIMITY_BAND_PCT
 from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
 from libs.observability import get_logger, timer, MetricsCollector
+from libs.observability.telemetry import TelemetryPublisher
 
 logger = get_logger("hot-path.processor")
 
@@ -33,6 +34,7 @@ class HotPathProcessor:
         orders_channel: str,
         proximity_pubsub_channel: str,
         redis_client=None,
+        telemetry: TelemetryPublisher = None,
     ):
         self._state_cache = state_cache
         self._consumer = consumer
@@ -44,6 +46,7 @@ class HotPathProcessor:
         self._proximity_pubsub_channel = proximity_pubsub_channel
 
         self._redis = redis_client
+        self._telemetry = telemetry
 
         # Sprint 9.4: Dual-regime dampener with Redis + pubsub
         self._regime_dampener = RegimeDampener(redis_client=redis_client, pubsub=pubsub)
@@ -83,6 +86,9 @@ class HotPathProcessor:
                     price=event.price,
                     volume=event.volume,
                 )
+
+                if self._telemetry:
+                    await self._telemetry.emit("input_received", {"symbol": event.symbol, "price": str(event.price), "exchange": event.exchange}, source_agent="ingestion")
 
                 with timer("hot_path.tick_processing"):
                     # For each profile caching
@@ -128,6 +134,21 @@ class HotPathProcessor:
                         # 3b. Agent Modifier (TA + sentiment scores)
                         if self._agent_modifier:
                             sig_res = await self._agent_modifier.apply(tick.symbol, sig_res)
+
+                        # Telemetry: decision trace after signal evaluation
+                        if self._telemetry:
+                            await self._telemetry.emit(
+                                "decision_trace",
+                                {
+                                    "profile_id": str(profile_state.profile_id),
+                                    "symbol": tick.symbol,
+                                    "direction": sig_res.direction,
+                                    "confidence": sig_res.confidence,
+                                    "rule_matched": sig_res.rule_matched,
+                                },
+                                source_agent="ta_agent",
+                                target_agent="validation",
+                            )
 
                         # 4. Circuit Breaker
                         if CircuitBreaker.check(profile_state):
@@ -181,6 +202,20 @@ class HotPathProcessor:
                         )
                         await self._publisher.publish(self._orders_channel, order_ev)
                         MetricsCollector.increment_counter("orders.approved")
+
+                        # Telemetry: order approved emitted
+                        if self._telemetry:
+                            await self._telemetry.emit(
+                                "output_emitted",
+                                {
+                                    "profile_id": str(profile_state.profile_id),
+                                    "symbol": tick.symbol,
+                                    "side": sig_res.direction,
+                                    "quantity": str(qty),
+                                    "price": str(tick.price),
+                                },
+                                target_agent="execution",
+                            )
 
                 message_ids_to_ack.append(msg_id)
 

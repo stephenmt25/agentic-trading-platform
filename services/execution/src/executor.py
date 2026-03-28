@@ -15,6 +15,7 @@ from libs.config import settings
 
 from .ledger import OptimisticLedger
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 from libs.core.agent_registry import AgentPerformanceTracker
 
 logger = get_logger("execution.executor")
@@ -40,6 +41,7 @@ class OrderExecutor:
         profile_repo: ProfileRepository = None,
         secret_manager: SecretManager = None,
         redis_client=None,
+        telemetry: TelemetryPublisher = None,
     ):
         self._publisher = publisher
         self._consumer = consumer
@@ -51,6 +53,7 @@ class OrderExecutor:
         self._profile_repo = profile_repo
         self._secret_manager = secret_manager or SecretManager(gcp_project_id=settings.GCP_PROJECT_ID)
         self._redis_client = redis_client
+        self._telemetry = telemetry
 
     async def _resolve_adapter(self, profile_id: str):
         """Load the user's exchange keys from SecretManager and return the correct adapter."""
@@ -131,6 +134,9 @@ class OrderExecutor:
                 if not ev or not isinstance(ev, OrderApprovedEvent):
                     continue
 
+                if self._telemetry:
+                    await self._telemetry.emit("input_received", {"symbol": ev.symbol, "side": str(ev.side), "message_type": "order_approved"}, source_agent="hot_path")
+
                 order_id = uuid.uuid4()
 
                 # 1. Resolve exchange adapter using profile's stored keys
@@ -160,6 +166,13 @@ class OrderExecutor:
                     continue
 
                 await self._audit_repo.write_audit_event(ev, {"action": "Optimistic SUBMITTED", "order_id": str(order_id)})
+
+                # Telemetry: order placed
+                if self._telemetry:
+                    await self._telemetry.emit(
+                        "output_emitted",
+                        {"order_id": str(order_id), "status": "SUBMITTED", "symbol": ev.symbol},
+                    )
 
                 try:
                     # 4. Execute on exchange
@@ -210,6 +223,17 @@ class OrderExecutor:
                             source_service="execution"
                         )
                         await self._publisher.publish(self._channel, executed_ev)
+
+                        # Telemetry: order filled
+                        if self._telemetry:
+                            await self._telemetry.emit(
+                                "output_emitted",
+                                {
+                                    "order_id": str(order_id),
+                                    "fill_price": str(fill_price),
+                                    "symbol": ev.symbol,
+                                },
+                            )
 
                     else:
                         raise ValueError(f"Exchange returned unexpected status: {res.status}")

@@ -20,7 +20,7 @@ from libs.core.exceptions import (
 )
 
 from .middleware.rate_limit import RateLimiterMiddleware
-from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents, docs_chat
+from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents, docs_chat, telemetry_stream
 
 logger = get_logger("api-gateway")
 
@@ -136,6 +136,7 @@ def create_app() -> FastAPI:
     app.include_router(auth.router)
     app.include_router(ws.router)
     app.include_router(docs_chat.router)
+    app.include_router(telemetry_stream.router)
 
     # ------------------------------------------------------------------
     # Protected routes — all behind JWT auth via verify_token_dep

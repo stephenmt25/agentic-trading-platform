@@ -10,6 +10,7 @@ from libs.storage import RedisClient
 from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage._timescale_client import TimescaleClient
 from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
 from .hmm_model import HMMRegimeModel
 from .regime_mapper import map_state_to_regime
 
@@ -22,7 +23,7 @@ HMM_FIT_TIMEOUT_S = 30
 HMM_PREDICT_WINDOW = 1
 
 
-async def classification_loop(redis_client, market_repo: MarketDataRepository):
+async def classification_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher):
     """Periodically classify market regime using HMM and write to Redis."""
     symbols = settings.TRADING_SYMBOLS
     models: dict[str, HMMRegimeModel] = {sym: HMMRegimeModel() for sym in symbols}
@@ -30,6 +31,7 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository):
     while True:
         try:
             for symbol in symbols:
+                await telemetry.emit("input_received", {"symbol": symbol, "message_type": "candle_load"}, source_agent="ingestion")
                 # Fetch recent 1h candles for regime classification
                 candles = await market_repo.get_candles(symbol, "1h", limit=500)
                 if not candles:
@@ -66,6 +68,11 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository):
                             ex=SCORE_TTL_S,
                         )
                         logger.info("HMM regime updated", symbol=symbol, regime=regime.value)
+                        await telemetry.emit(
+                            "state_update",
+                            {"symbol": symbol, "regime": regime.value, "state_index": state},
+                            target_agent="hot_path",
+                        )
 
         except Exception as e:
             logger.error("HMM classification loop error", error=str(e))
@@ -80,11 +87,15 @@ async def lifespan(app: FastAPI):
     await timescale.init_pool()
     market_repo = MarketDataRepository(timescale)
 
-    task = asyncio.create_task(classification_loop(redis_instance, market_repo))
+    telemetry = TelemetryPublisher(redis_instance, "regime_hmm", "regime")
+    await telemetry.start_health_loop()
+
+    task = asyncio.create_task(classification_loop(redis_instance, market_repo, telemetry))
     logger.info("Regime HMM Agent started")
     yield
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
+    await telemetry.stop()
     await timescale.close()
     logger.info("Regime HMM Agent shutdown")
 
