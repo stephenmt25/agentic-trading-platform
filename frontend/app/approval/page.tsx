@@ -3,6 +3,8 @@
 import React, { useCallback } from 'react';
 import { CheckCircle2, XCircle, Clock, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
 import { useHITLStore, type HITLRequest } from '@/lib/stores/hitlStore';
+import { motion } from "framer-motion";
+import { pageEnter } from "@/lib/motion";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -165,7 +167,7 @@ export default function ApprovalPage() {
     const resolved = pendingRequests.filter(r => r.status !== 'PENDING');
 
     return (
-        <div className="max-w-3xl mx-auto p-6">
+        <motion.div variants={pageEnter} initial="initial" animate="animate" className="max-w-3xl mx-auto p-6">
             <div className="flex items-center justify-between mb-6">
                 <h1 className="text-2xl font-bold text-zinc-100">Trade Approvals</h1>
                 {pending.length > 0 && (
@@ -197,6 +199,6 @@ export default function ApprovalPage() {
                     )}
                 </div>
             )}
-        </div>
+        </motion.div>
     );
 }

@@ -6,8 +6,16 @@
  */
 
 import { z } from "zod";
+import { useConnectionStore } from "../stores/connectionStore";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export class BackendUnreachableError extends Error {
+  constructor() {
+    super("Backend is not reachable");
+    this.name = "BackendUnreachableError";
+  }
+}
 
 interface ApiClientOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
@@ -33,6 +41,7 @@ async function apiRequest<T>(
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
+    "ngrok-skip-browser-warning": "true",
     ...(customHeaders as Record<string, string>),
   };
 
@@ -47,7 +56,17 @@ async function apiRequest<T>(
     body: body ? JSON.stringify(body) : undefined,
   };
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+  } catch {
+    // Network error — backend unreachable (no response at all)
+    useConnectionStore.getState().recordFailure();
+    throw new BackendUnreachableError();
+  }
+
+  // Got a response — backend is reachable
+  useConnectionStore.getState().recordSuccess();
 
   if (response.status === 401) {
     // Don't redirect here — the AppShell already handles session-based redirects.

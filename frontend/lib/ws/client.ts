@@ -2,6 +2,8 @@ import { useAuthStore } from '../stores/authStore';
 import { usePortfolioStore } from '../stores/portfolioStore';
 import { useAlertStore } from '../stores/alertStore';
 import { useHITLStore } from '../stores/hitlStore';
+import { useConnectionStore } from '../stores/connectionStore';
+import { useAgentViewStore } from '../stores/agentViewStore';
 
 function getWsUrl(): string {
     const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -21,20 +23,12 @@ class WebSocketClient {
         const token = useAuthStore.getState().jwt;
         if (!token) return;
 
-        const wsUrl = getWsUrl();
+        const wsUrl = `${getWsUrl()}?token=${encodeURIComponent(token)}`;
         this.socket = new WebSocket(wsUrl);
 
         this.socket.onopen = () => {
-            console.log('WS Connected');
             this.reconnectAttempts = 0;
-
-            // Authenticate by sending JWT as the first message instead of
-            // passing it as a query parameter (which is insecure and logged
-            // in server access logs).
-            if (this.socket?.readyState === WebSocket.OPEN) {
-                this.socket.send(JSON.stringify({ type: 'auth', token }));
-            }
-
+            useConnectionStore.getState().setConnected();
             this.startHeartbeat();
         };
 
@@ -98,10 +92,20 @@ class WebSocketClient {
                             reason: data.message || data.reason
                         });
                         break;
+                    case 'pubsub:agent_telemetry':
+                        if (data.agent_id && data.event_type) {
+                            useAgentViewStore.getState().ingestEvent(data);
+                        }
+                        break;
                 }
             } catch (e) {
                 console.error('WS Parse error', e);
             }
+        };
+
+        this.socket.onerror = () => {
+            // WS failures don't mark backend as offline — API health is
+            // the source of truth. WS is a nice-to-have for live updates.
         };
 
         this.socket.onclose = () => {
@@ -130,7 +134,6 @@ class WebSocketClient {
 
     private attemptReconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            console.log('Max WS reconnects reached');
             return;
         }
         const delay = Math.pow(2, this.reconnectAttempts) * 1000;

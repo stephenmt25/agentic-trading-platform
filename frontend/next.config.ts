@@ -28,14 +28,19 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              "font-src 'self' https://fonts.gstatic.com",
-              "img-src 'self' data: blob: https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
-              `connect-src 'self' ${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"} ws://localhost:8000 wss://localhost:8000`,
-            ].join("; "),
+            value: (() => {
+              const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").trim();
+              // Derive WS URL from API URL for tunnel support
+              const wsUrl = apiUrl.replace(/^https/, "wss").replace(/^http/, "ws");
+              return [
+                "default-src 'self'",
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+                "font-src 'self' https://fonts.gstatic.com",
+                "img-src 'self' data: blob: https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
+                `connect-src 'self' ${apiUrl} ${wsUrl}`,
+              ].join("; ");
+            })(),
           },
         ],
       },

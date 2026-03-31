@@ -67,3 +67,4 @@ dist/
 viking-data/
 ov.conf
 test_viking.py
+.praxis_pids

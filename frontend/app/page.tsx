@@ -11,6 +11,8 @@ import { api, type ProfileResponse } from '../lib/api/client';
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
+import { motion } from "framer-motion";
+import { pageEnter, staggerContainer, fadeUpChild } from "@/lib/motion";
 
 export default function Dashboard() {
   const { profiles, setProfiles } = usePortfolioStore();
@@ -52,7 +54,8 @@ export default function Dashboard() {
   }, [setProfiles]);
 
   return (
-    <div className="relative h-full flex flex-col gap-6">
+    <motion.div className="relative h-full flex flex-col gap-6"
+      variants={pageEnter} initial="initial" animate="animate">
 
       {/* Header Area */}
       <h1 className="text-xl font-semibold tracking-tight text-foreground border-b border-border pb-4">
@@ -119,6 +122,6 @@ export default function Dashboard() {
           profileIds={profiles.map(p => p.profile_id)}
         />
       </div>
-    </div>
+    </motion.div>
   );
 }

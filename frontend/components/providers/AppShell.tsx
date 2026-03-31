@@ -7,7 +7,10 @@ import Link from "next/link";
 import { AlertTray } from "@/components/validation/AlertTray";
 import { wsClient } from "@/lib/ws/client";
 import { useAuthStore } from "@/lib/stores/authStore";
-import { LogOut, Settings, Menu, X } from "lucide-react";
+import { useConnectionStore } from "@/lib/stores/connectionStore";
+import { LogOut, Settings, Menu, X, WifiOff } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { tapScale, tapTransition, navIndicatorTransition, easing, duration } from "@/lib/motion";
 
 const PUBLIC_PATHS = ["/login"];
 
@@ -29,8 +32,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [wsConnected, setWsConnected] = useState(false);
+  const [bannerDismissed, setBannerDismissed] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const jwt = useAuthStore((s) => s.jwt);
+  const backendStatus = useConnectionStore((s) => s.backendStatus);
 
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
@@ -65,6 +70,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setMobileNavOpen(false);
   }, [pathname]);
+
+  // Reset banner dismissal when backend reconnects
+  useEffect(() => {
+    if (backendStatus === 'connected') {
+      setBannerDismissed(false);
+    }
+  }, [backendStatus]);
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -129,29 +141,46 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
         <nav className="flex flex-col w-full px-3 space-y-1 flex-1">
           {NAV_ITEMS.map((item) => (
+            <motion.div key={item.href} whileTap={tapScale} transition={tapTransition}>
+              <Link
+                href={item.href}
+                className={`relative px-3 py-2.5 rounded-md font-medium text-sm transition-colors min-h-[44px] flex items-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                  isActive(item.href)
+                    ? "text-primary"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent"
+                }`}
+              >
+                {isActive(item.href) && (
+                  <motion.span
+                    layoutId="nav-active"
+                    className="absolute inset-0 bg-primary/10 rounded-md"
+                    transition={navIndicatorTransition}
+                  />
+                )}
+                <span className="relative z-10">{item.label}</span>
+              </Link>
+            </motion.div>
+          ))}
+
+          <motion.div whileTap={tapScale} transition={tapTransition} className="mt-auto">
             <Link
-              key={item.href}
-              href={item.href}
-              className={`px-3 py-2.5 rounded-md font-medium text-sm transition-colors min-h-[44px] flex items-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-                isActive(item.href)
-                  ? "bg-primary/10 text-primary"
+              href={SETTINGS_ITEM.href}
+              className={`relative px-3 py-2.5 rounded-md font-medium text-sm transition-colors min-h-[44px] flex items-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
+                isActive(SETTINGS_ITEM.href)
+                  ? "text-primary"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent"
               }`}
             >
-              {item.label}
+              {isActive(SETTINGS_ITEM.href) && (
+                <motion.span
+                  layoutId="nav-active"
+                  className="absolute inset-0 bg-primary/10 rounded-md"
+                  transition={navIndicatorTransition}
+                />
+              )}
+              <span className="relative z-10">{SETTINGS_ITEM.label}</span>
             </Link>
-          ))}
-
-          <Link
-            href={SETTINGS_ITEM.href}
-            className={`px-3 py-2.5 rounded-md font-medium text-sm transition-colors mt-auto min-h-[44px] flex items-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary ${
-              isActive(SETTINGS_ITEM.href)
-                ? "bg-primary/10 text-primary"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent"
-            }`}
-          >
-            {SETTINGS_ITEM.label}
-          </Link>
+          </motion.div>
         </nav>
       </aside>
 
@@ -211,14 +240,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Connection Status */}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
-                {wsConnected ? (
+                {backendStatus === 'connected' && wsConnected ? (
                   <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                ) : backendStatus === 'connected' ? (
+                  <span className="inline-flex rounded-full h-2 w-2 bg-amber-500" />
                 ) : (
-                  <span className="inline-flex rounded-full h-2 w-2 bg-muted-foreground/50" />
+                  <span className="inline-flex rounded-full h-2 w-2 bg-red-500" />
                 )}
               </span>
-              <span className={`font-mono tabular-nums uppercase font-medium text-xs tracking-wider ${wsConnected ? "text-emerald-500/80" : "text-muted-foreground"}`}>
-                {wsConnected ? "Live" : "Offline"}
+              <span className={`font-mono tabular-nums uppercase font-medium text-xs tracking-wider ${
+                backendStatus === 'connected' && wsConnected
+                  ? "text-emerald-500/80"
+                  : backendStatus === 'connected'
+                  ? "text-amber-500/80"
+                  : "text-red-500/80"
+              }`}>
+                {backendStatus === 'connected' && wsConnected
+                  ? "Live"
+                  : backendStatus === 'connected'
+                  ? "API Only"
+                  : "Backend Offline"}
               </span>
             </div>
 
@@ -245,45 +286,84 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </button>
 
               {/* Dropdown Menu */}
-              {showUserMenu && (
-                <div className="absolute right-0 top-12 w-60 bg-card border border-border rounded-md py-1 z-50 animate-in fade-in slide-in-from-top-2 duration-150">
-                  {/* User Info */}
-                  <div className="px-4 py-3 border-b border-border">
-                    <p className="text-sm font-medium text-foreground truncate">
-                      {session?.user?.name || "User"}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {session?.user?.email || ""}
-                    </p>
-                  </div>
+              <AnimatePresence>
+                {showUserMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                    transition={{ duration: duration.fast, ease: easing.enter }}
+                    className="absolute right-0 top-12 w-60 bg-card border border-border rounded-md py-1 z-50"
+                  >
+                    {/* User Info */}
+                    <div className="px-4 py-3 border-b border-border">
+                      <p className="text-sm font-medium text-foreground truncate">
+                        {session?.user?.name || "User"}
+                      </p>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {session?.user?.email || ""}
+                      </p>
+                    </div>
 
-                  {/* Menu Items */}
-                  <div className="py-1">
-                    <Link
-                      href="/settings"
-                      className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground/80 hover:bg-accent hover:text-foreground transition-colors min-h-[44px]"
-                      onClick={() => setShowUserMenu(false)}
-                    >
-                      <Settings className="w-4 h-4 text-muted-foreground" />
-                      Settings
-                    </Link>
-                  </div>
+                    {/* Menu Items */}
+                    <div className="py-1">
+                      <Link
+                        href="/settings"
+                        className="flex items-center gap-3 px-4 py-2.5 text-sm text-foreground/80 hover:bg-accent hover:text-foreground transition-colors min-h-[44px]"
+                        onClick={() => setShowUserMenu(false)}
+                      >
+                        <Settings className="w-4 h-4 text-muted-foreground" />
+                        Settings
+                      </Link>
+                    </div>
 
-                  {/* Sign Out */}
-                  <div className="border-t border-border pt-1">
-                    <button
-                      onClick={() => signOut({ callbackUrl: "/login" })}
-                      className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-accent transition-colors w-full text-left min-h-[44px]"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Sign Out
-                    </button>
-                  </div>
-                </div>
-              )}
+                    {/* Sign Out */}
+                    <div className="border-t border-border pt-1">
+                      <button
+                        onClick={() => signOut({ callbackUrl: "/login" })}
+                        className="flex items-center gap-3 px-4 py-2.5 text-sm text-red-500 hover:bg-accent transition-colors w-full text-left min-h-[44px]"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Sign Out
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </div>
         </header>
+
+        {/* Backend Offline Banner */}
+        <AnimatePresence>
+          {backendStatus === 'disconnected' && !bannerDismissed && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: duration.normal, ease: easing.enter }}
+              className="overflow-hidden shrink-0"
+            >
+              <div className="bg-red-500/10 border-b border-red-500/20 px-4 py-3 flex items-center justify-between">
+                <div className="flex items-center gap-3 text-sm text-red-400">
+                  <WifiOff className="w-4 h-4 shrink-0" />
+                  <span>
+                    <strong>Backend unreachable.</strong>{" "}
+                    Make sure your local services are running and your tunnel is active.
+                    The dashboard will reconnect automatically.
+                  </span>
+                </div>
+                <button
+                  onClick={() => setBannerDismissed(true)}
+                  className="text-red-400/60 hover:text-red-400 p-1 min-h-[44px] min-w-[44px] flex items-center justify-center"
+                  aria-label="Dismiss"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Page Content */}
         <main className="flex-1 relative overflow-y-auto w-full h-full p-3 md:p-6">

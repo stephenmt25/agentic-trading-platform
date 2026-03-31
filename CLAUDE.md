@@ -171,80 +171,7 @@ For work exceeding a single coding harness (multi-file, multi-component, archite
 
 ---
 
-## 4 · Semantic Context Retrieval (OpenViking)
-
-This project has a semantic knowledge base indexed via OpenViking. **Use it before reading files directly** — it's faster and returns only the relevant sections.
-
-### Environment Setup
-
-Every `viking.py` command requires the config env var:
-
-```bash
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py <command>
-```
-
-### Retrieval Workflow
-
-When you need to understand something about this codebase, follow this tiered approach:
-
-**Step 1 — Search** (always start here):
-```bash
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py search "your question in natural language"
-```
-Returns ranked results with URIs and relevance scores. Use the highest-scoring URIs for the next steps.
-
-**Step 2 — Overview** (get structure of a directory/module):
-```bash
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py overview viking://resources/docs_2/risk-management
-```
-Returns ~2K tokens covering key concepts and structure. Use this to decide if you need full content.
-
-**Step 3 — Read** (get full content of a specific chunk):
-```bash
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py read viking://resources/docs_2/risk-management/Circuit_Breakers.md
-```
-Returns complete content. Only use when you need exact details.
-
-**Step 4 — Read source files directly** (only when you need to edit code):
-After Viking tells you which area is relevant, go read the actual source file to make changes.
-
-### Other Commands
-
-```bash
-# List all indexed resources
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py ls
-
-# List contents of a specific resource
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py ls viking://resources/docs_2
-
-# Check indexing status
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py status
-
-# Index new or updated files
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py load ./docs/
-
-# Clean reindex (wipes old data, removes duplicates, reloads fresh)
-OPENVIKING_CONFIG_FILE=ov.conf python viking.py reindex
-```
-
-### What's Indexed
-
-The `docs` resource contains all 22 documentation files (auto-reindexed on commits that touch `docs/`):
-- Architecture overview, trading engine, agent architecture, event system
-- Data model, risk management, configuration, developer guide
-- 8 module deep-dives (hot-path, execution, validation, exchange, messaging, indicators, storage, PnL)
-- Glossary, documentation gaps, and 3 legacy docs
-
-### When NOT to Use Viking
-
-- When editing code — read the actual source file
-- When you need git history — use `git log` / `git blame`
-- When running tests — use `pytest` directly
-- For simple file lookups where you already know the path
-
----
-
-## 5 · Project Overview & Structure
+## 4 · Project Overview & Structure
 
 Agentic cryptocurrency trading platform with 19 microservices, ML prediction agents, and a Next.js dashboard. Backend is Python 3.11+ (FastAPI, asyncio), frontend is Next.js 16 (React 19, TypeScript). Services communicate via Redis Streams/Pub/Sub, persist to TimescaleDB.
 
@@ -258,14 +185,13 @@ Architecture is governed by a merged architecture document (v2.0) organized into
 │                   #   regime_hmm, risk, sentiment, slm_inference, strategy, tax)
 ├── frontend/       # Next.js 16 dashboard
 ├── migrations/     # 8 SQL migration files (in migrations/versions/)
-├── docs/           # 22 markdown documentation files (also indexed in Viking)
+├── docs/           # 22 markdown documentation files
 ├── deploy/         # Docker Compose, Kubernetes, Terraform
 ├── docker/         # Dockerfiles
 ├── config/         # Configuration files
 ├── tests/          # Unit, contract, and e2e tests
 ├── prompts/        # LLM prompt templates
 ├── scripts/        # Utility scripts (migrate.py, daily_report.py)
-├── viking-data/    # OpenViking semantic index data
 ├── pyproject.toml  # Python project config (Poetry)
 ├── poetry.lock     # Dependency lock file
 ├── Makefile        # Build/run shortcuts
@@ -275,18 +201,18 @@ Architecture is governed by a merged architecture document (v2.0) organized into
 
 ---
 
-## 6 · Conventions, Constraints & Known Defects
+## 5 · Conventions, Constraints & Known Defects
 
 This section is the single source of truth for what is enforced, what is expected, and what is broken. Everything here applies across ALL agent species.
 
-### 6A — Financial Precision (ZERO TOLERANCE)
+### 5A — Financial Precision (ZERO TOLERANCE)
 
 - ALL financial values must use `Decimal` (Python) / `NUMERIC` (SQL). Never `float`. Never `double`. No exceptions.
 - Type aliases (`Price`, `Quantity`, `Percentage` = `Decimal`) are defined in `libs/core/types.py` — use them.
 - **Known defect**: 110+ `float()` conversions exist in financial code paths. These are tracked bugs, NOT patterns to follow. Do not add more.
 - **Known defect**: `backtest_results` table uses `DOUBLE PRECISION`. This is a known bug. Do not replicate this in new tables.
 
-### 6B — Codebase Structure Conventions
+### 5B — Codebase Structure Conventions
 
 - All enums are in `libs/core/enums.py`. Do not define enums elsewhere. Do not infer enum values — they must be explicitly defined.
 - All Pydantic schemas are in `libs/core/schemas.py`.
@@ -294,7 +220,7 @@ This section is the single source of truth for what is enforced, what is expecte
 - Services follow the pattern: `services/<name>/src/main.py` with FastAPI + uvicorn.
 - Redis Streams (ordered) and Pub/Sub (broadcast) channels are defined in `libs/messaging/channels.py`. Do not invent channel names — verify against this file.
 
-### 6C — Architectural Constraints
+### 5C — Architectural Constraints
 
 - **Phase boundary**: Phase 1 (Core Trading Engine) scope must not bleed into Phase 2 (ML Intelligence and Scale). Do not introduce ML-heavy or multi-agent patterns into Phase 1 work unless explicitly approved.
 - **Architecture document is the contract**: The merged architecture doc (v2.0) defines the system boundary. Deviations require justification logged in `DECISIONS.md`.
@@ -302,7 +228,7 @@ This section is the single source of truth for what is enforced, what is expecte
 - **Startup ordering**: Services must follow the documented startup sequence. Changing startup order requires explicit human approval.
 - **Database schemas first**: No dependent code may be written before the schema it depends on exists and is verified. Missing schema = blocking issue — stop and report.
 
-### 6D — Resolved Defects (2026-03-27) & Remaining Gaps
+### 5D — Resolved Defects (2026-03-27) & Remaining Gaps
 
 The following critical and high-severity defects were resolved on 2026-03-27. See `docs/DOCUMENTATION-GAPS.md` for full details.
 
@@ -319,20 +245,20 @@ The following critical and high-severity defects were resolved on 2026-03-27. Se
 
 ---
 
-## 7 · Nonfunctional Requirements (All Species, All Tasks)
+## 6 · Nonfunctional Requirements (All Species, All Tasks)
 
 1. **No hallucinated imports.** If unsure a package/module exists in this project, check first.
 2. **No silent failures.** Every error path must be explicitly handled or flagged as unhandled.
 3. **No undocumented magic.** Architectural decisions during autonomous execution get logged in `DECISIONS.md`.
 4. **Test-first where possible.** Write acceptance tests before implementation, especially in Dark Factory mode.
 5. **Preserve existing patterns.** Match the coding style, naming conventions, and architectural patterns already present. Do not impose new patterns without explicit approval.
-6. **Context is king.** Use OpenViking first (Section 4). Read relevant files before editing. Read adjacent files for patterns. Read test files for expectations. Never code blind.
+6. **Context is king.** Read relevant files before editing. Read adjacent files for patterns. Read test files for expectations. Never code blind.
 7. **Fail fast, fail cheap.** If a task is going sideways after reasonable effort, report failure state and reasoning rather than thrashing. Human redirection is cheaper than agent spiraling.
 8. **Specification documents are contracts.** When a spec exists, treat it as binding. Deviations require justification in `DECISIONS.md`.
 
 ---
 
-## 8 · Anti-Patterns (Species Confusion)
+## 7 · Anti-Patterns (Species Confusion)
 
 | Mistake | Why It Fails | Correct Approach |
 |---|---|---|
@@ -347,7 +273,7 @@ The following critical and high-severity defects were resolved on 2026-03-27. Se
 
 ---
 
-## 9 · Communication Protocol
+## 8 · Communication Protocol
 
 | Phase | Behavior |
 |---|---|

@@ -61,6 +61,8 @@ Pub/Sub channels provide broadcast, fire-and-forget delivery. Messages are not p
 | `pubsub:alerts` | `libs/messaging/channels.py` | Hot-Path Processor (regime disagreement) | Alerting infrastructure | `AlertEvent` |
 | `pubsub:system_alerts` | `libs/messaging/channels.py` | Ingestion Agent, various | Logger Agent, alerting infrastructure | `AlertEvent` |
 | `pubsub:threshold_proximity` | `libs/messaging/channels.py` | Hot-Path Processor | WebSocket gateway | `ThresholdProximityEvent` |
+| `pubsub:agent_telemetry` | `libs/messaging/channels.py` | All agents (via `TelemetryPublisher`) | WebSocket gateway, SSE endpoint | `AgentTelemetryEvent` (agent_id, event_type, payload) |
+| `pubsub:hitl_pending` | `libs/messaging/channels.py` | Hot-Path HITL Gate | WebSocket gateway → Frontend HITL store | `HITLApprovalRequest` |
 
 ### RPC Channels
 
@@ -70,10 +72,13 @@ The fast-gate validation path uses ephemeral Redis lists as a synchronous reques
 |---|---|---|---|
 | `val:req:{request_uuid}` | Hot-Path -> Validation Agent | 5 seconds | `ValidationRequestEvent` |
 | `val:res:{request_uuid}` | Validation Agent -> Hot-Path | 5 seconds | `ValidationResponseEvent` |
+| `hitl:pending:{event_id}` | Hot-Path HITL Gate -> Redis KV | `HITL_TIMEOUT_S + 30s` | `HITLApprovalRequest` (full context) |
+| `hitl:response:{event_id}` | API Gateway -> Hot-Path HITL Gate | Implicit (BLPOP) | `{"status": "APPROVED"/"REJECTED", "reviewer": user_id, "reason": str}` |
 
 - The Hot-Path pushes a request with `LPUSH` and blocks on the response key with `BLPOP` (5-second timeout).
 - The Validation Agent pops the request with `BLPOP`, runs CHECK_1 + CHECK_6, and pushes the response with `LPUSH`.
 - Both keys auto-expire after 5 seconds to prevent key leaks from crashed consumers.
+- HITL follows the same pattern: Hot-Path publishes to `pubsub:hitl_pending` (broadcast to frontend), stores context in `hitl:pending:{event_id}`, then blocks on `BLPOP hitl:response:{event_id}` (default 60s timeout). The API Gateway endpoint `POST /api/hitl/respond` does the `LPUSH` when the user approves/rejects.
 
 ### Cache Keys
 

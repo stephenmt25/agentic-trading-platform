@@ -38,7 +38,8 @@ class Settings(BaseSettings):
     NEXTAUTH_SECRET: str = Field(default="")  # Must match NextAuth.js NEXTAUTH_SECRET
     GCP_PROJECT_ID: str = Field(default="")   # Empty = use local Fernet fallback
 
-    # CORS
+    # CORS — set PRAXIS_CORS_ORIGINS='["https://your-app.vercel.app","http://localhost:3000"]'
+    # to allow Vercel frontend through a tunnel
     CORS_ORIGINS: List[str] = Field(default=["http://localhost:3000"])
 
     # Connection pool settings

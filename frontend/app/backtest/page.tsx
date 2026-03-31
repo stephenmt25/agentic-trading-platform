@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { EquityCurveChart } from '@/components/backtest/EquityCurveChart';
 import { TradesTable } from '@/components/backtest/TradesTable';
 import { Loader2, Play, BarChart3, TrendingUp, TrendingDown, Target, Percent, Activity, AlertTriangle } from 'lucide-react';
+import { motion } from "framer-motion";
+import { pageEnter } from "@/lib/motion";
 
 const DEFAULT_RULES = JSON.stringify(
   {
@@ -117,7 +119,7 @@ export default function BacktestPage() {
   const isRunning = status === 'queued' || status === 'polling';
 
   return (
-    <div className="flex flex-col gap-6 h-full">
+    <motion.div variants={pageEnter} initial="initial" animate="animate" className="flex flex-col gap-6 h-full">
       <h1 className="text-xl font-semibold tracking-tight text-foreground border-b border-border pb-4">
         Backtest Engine
       </h1>
@@ -295,7 +297,7 @@ export default function BacktestPage() {
           )}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 

@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Save, Plus, Activity, Power, PowerOff, Code, Loader2, Trash2, X, Copy, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { api, type ProfileResponse } from "@/lib/api/client";
+import { motion } from "framer-motion";
+import { pageEnter } from "@/lib/motion";
 
 const DEFAULT_RULES = {
   strategy: "momentum",
@@ -172,7 +174,7 @@ export default function ProfilesPage() {
   );
 
   return (
-    <div className="flex flex-col h-full gap-6 max-w-[1600px] mx-auto">
+    <motion.div variants={pageEnter} initial="initial" animate="animate" className="flex flex-col h-full gap-6 max-w-[1600px] mx-auto">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border pb-4 gap-3 shrink-0">
         <div>
@@ -433,6 +435,6 @@ export default function ProfilesPage() {
           </div>
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }

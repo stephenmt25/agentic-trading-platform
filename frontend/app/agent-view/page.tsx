@@ -6,12 +6,15 @@ import { AgentRegistry } from "@/components/agent-view/AgentRegistry";
 import { AgentDetail } from "@/components/agent-view/AgentDetail";
 import { MessageFlowPanel } from "@/components/agent-view/MessageFlowPanel";
 import { QuickStatsBar } from "@/components/agent-view/QuickStatsBar";
+import { motion } from "framer-motion";
+import { pageEnter } from "@/lib/motion";
 
 export default function AgentViewPage() {
   const { slowMode } = useAgentTelemetry();
 
   return (
-    <div className="flex h-full flex-col bg-[#0d1117] text-slate-200">
+    <motion.div className="flex h-full flex-col bg-[#0d1117] text-slate-200"
+      variants={pageEnter} initial="initial" animate="animate">
       {/* Top bar */}
       <SystemStatusBar slowMode={slowMode} />
 
@@ -31,6 +34,6 @@ export default function AgentViewPage() {
 
       {/* Bottom dock */}
       <QuickStatsBar />
-    </div>
+    </motion.div>
   );
 }

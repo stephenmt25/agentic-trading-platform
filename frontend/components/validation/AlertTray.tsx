@@ -4,6 +4,8 @@ import React, { useState } from 'react';
 import { useAlerts } from '../../lib/hooks/useAlerts';
 import { Bell, CheckCircle2, ChevronRight, AlertOctagon } from 'lucide-react';
 import { ValidationAlert } from '../../lib/types';
+import { motion, AnimatePresence } from 'framer-motion';
+import { tapScale, tapTransition, easing, duration } from '@/lib/motion';
 
 export const AlertTray: React.FC = () => {
     const { alerts, unreadCount, markAsRead } = useAlerts();
@@ -14,8 +16,10 @@ export const AlertTray: React.FC = () => {
     return (
         <>
             {/* Toggle Button Container for Top Nav */}
-            <button
+            <motion.button
                 onClick={toggle}
+                whileTap={tapScale}
+                transition={tapTransition}
                 className="relative p-2 rounded-md border border-border bg-card hover:bg-accent transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary min-h-[44px] min-w-[44px] flex items-center justify-center"
                 aria-label="Open validation alerts"
             >
@@ -25,9 +29,26 @@ export const AlertTray: React.FC = () => {
                         {unreadCount}
                     </span>
                 )}
-            </button>
+            </motion.button>
 
-            <div className={`fixed z-50 right-0 top-0 h-full w-80 bg-card border-l border-border transition-transform duration-200 ease-out transform ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}>
+            <AnimatePresence>
+              {isOpen && (
+                <>
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: duration.fast }}
+                    className="fixed inset-0 z-40 bg-black/20"
+                    onClick={toggle}
+                  />
+                  <motion.div
+                    initial={{ x: "100%" }}
+                    animate={{ x: 0 }}
+                    exit={{ x: "100%" }}
+                    transition={{ duration: duration.normal, ease: easing.enter }}
+                    className="fixed z-50 right-0 top-0 h-full w-80 bg-card border-l border-border"
+                  >
 
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b border-border">
@@ -80,7 +101,10 @@ export const AlertTray: React.FC = () => {
                     ))
                 )}
             </div>
-        </div>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
         </>
     );
 };

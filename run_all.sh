@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Praxis Trading Platform — Full System Launcher
-# Usage: bash run_all.sh [--stop]
+# Usage: bash run_all.sh [--stop] [--with-tunnel] [--local-frontend]
+#
+# Frontend is deployed on Vercel. This script starts backend services only.
+# Use --with-tunnel to also start a Cloudflare Tunnel for Vercel connectivity.
+# Use --local-frontend to also start the local Next.js dev server on :3000.
 set -uo pipefail
 cd "$(dirname "$0")"
 
@@ -16,6 +20,17 @@ done
 
 PIDFILE=".praxis_pids"
 LOGDIR=".praxis_logs"
+
+# ---------- Parse flags ----------
+WITH_TUNNEL=false
+LOCAL_FRONTEND=false
+for arg in "$@"; do
+    case "$arg" in
+        --stop) ;;  # handled below
+        --with-tunnel) WITH_TUNNEL=true ;;
+        --local-frontend) LOCAL_FRONTEND=true ;;
+    esac
+done
 
 # ---------- Stop mode ----------
 if [[ "${1:-}" == "--stop" ]]; then
@@ -142,30 +157,59 @@ launch "rate_limiter" "services.rate_limiter.src.main" 8094
 
 echo ""
 
-# ---------- 4. Frontend ----------
-echo "=== [4/4] Starting Frontend (Next.js) ==="
-# Clean stale lock and kill zombie on port 3000
-rm -f frontend/.next/dev/lock 2>/dev/null
-if command -v powershell.exe >/dev/null 2>&1; then
-    powershell.exe -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { \$_ -ne 0 } | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null
+# ---------- 4. Cloudflare Tunnel (optional) ----------
+if [[ "$WITH_TUNNEL" == true ]]; then
+    echo "=== [4/5] Starting Cloudflare Tunnel ==="
+    CLOUDFLARED=""
+    for p in \
+        "/c/Program Files (x86)/cloudflared/cloudflared.exe" \
+        "/mnt/c/Program Files (x86)/cloudflared/cloudflared.exe"; do
+        [[ -f "$p" ]] && CLOUDFLARED="$p" && break
+    done
+    [[ -n "$CLOUDFLARED" ]] || CLOUDFLARED="$(command -v cloudflared 2>/dev/null || true)"
+    if [[ -n "$CLOUDFLARED" ]]; then
+        "$CLOUDFLARED" tunnel --url http://localhost:8000 > "$LOGDIR/cloudflared.log" 2>&1 &
+        TUNNEL_PID=$!
+        echo "$TUNNEL_PID cloudflared" >> "$PIDFILE"
+        sleep 6
+        TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOGDIR/cloudflared.log" | head -1)
+        if [[ -n "$TUNNEL_URL" ]]; then
+            echo "  Tunnel: $TUNNEL_URL"
+            echo "  Update NEXT_PUBLIC_API_URL on Vercel if the URL changed."
+        else
+            echo "  WARNING: Tunnel started but URL not detected. Check $LOGDIR/cloudflared.log"
+        fi
+    else
+        echo "  WARNING: cloudflared not found. Install with: winget install Cloudflare.cloudflared"
+        echo "  Skipping tunnel — Vercel frontend will show Backend Offline."
+    fi
+    echo ""
 fi
-sleep 1
-cd frontend
-npm run dev > "../$LOGDIR/frontend.log" 2>&1 &
-FRONTEND_PID=$!
-echo "$FRONTEND_PID frontend" >> "../$PIDFILE"
-cd ..
-echo "  Frontend starting on :3000"
-echo ""
+
+# ---------- 5. Local Frontend (optional) ----------
+if [[ "$LOCAL_FRONTEND" == true ]]; then
+    echo "=== Starting Local Frontend (Next.js) ==="
+    rm -f frontend/.next/dev/lock 2>/dev/null
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { \$_ -ne 0 } | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null
+    fi
+    sleep 1
+    cd frontend
+    npm run dev > "../$LOGDIR/frontend.log" 2>&1 &
+    FRONTEND_PID=$!
+    echo "$FRONTEND_PID frontend" >> "../$PIDFILE"
+    cd ..
+    echo "  Frontend starting on :3000"
+    echo ""
+fi
 
 # ---------- Summary ----------
 echo "============================================"
 echo "   All services launched!"
 echo "============================================"
 echo ""
-echo "  Ports:"
+echo "  Backend Ports:"
 echo "    API Gateway .... http://localhost:8000"
-echo "    Frontend ....... http://localhost:3000"
 echo "    Ingestion ...... :8080"
 echo "    Validation ..... :8081"
 echo "    Hot Path ....... :8082"
@@ -179,6 +223,18 @@ echo "    Tax ............ :8089"
 echo "    TA Agent ....... :8090"
 echo "    Regime HMM ..... :8091"
 echo "    Sentiment ...... :8092"
+echo "    Risk ........... :8093"
+echo "    Rate Limiter ... :8094"
+echo "    Debate ......... :8096"
+echo ""
+echo "  Frontend:"
+if [[ "$LOCAL_FRONTEND" == true ]]; then
+    echo "    Local .......... http://localhost:3000"
+fi
+echo "    Vercel ......... https://frontend-seven-khaki-13.vercel.app"
+if [[ "$WITH_TUNNEL" == true ]] && [[ -n "${TUNNEL_URL:-}" ]]; then
+    echo "    Tunnel ......... $TUNNEL_URL"
+fi
 echo ""
 echo "  Logs: $LOGDIR/"
 echo "  Stop: bash run_all.sh --stop"

@@ -8,7 +8,7 @@ from libs.config import settings
 from libs.observability import get_logger
 from ..deps import get_redis
 
-from libs.messaging.channels import PUBSUB_PNL_UPDATES, PUBSUB_SYSTEM_ALERTS, PUBSUB_AGENT_TELEMETRY
+from libs.messaging.channels import PUBSUB_PNL_UPDATES, PUBSUB_SYSTEM_ALERTS, PUBSUB_AGENT_TELEMETRY, PUBSUB_HITL_PENDING
 
 logger = get_logger("ws")
 
@@ -84,7 +84,7 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
     await manager.connect(websocket, user_id)
 
     redis_instance = get_redis()
-    channels = [PUBSUB_PNL_UPDATES, PUBSUB_SYSTEM_ALERTS, PUBSUB_AGENT_TELEMETRY, "market_sentiment"]
+    channels = [PUBSUB_PNL_UPDATES, PUBSUB_SYSTEM_ALERTS, PUBSUB_AGENT_TELEMETRY, PUBSUB_HITL_PENDING, "market_sentiment"]
 
     async def listen_to_redis():
         """Subscribe to Redis pubsub with automatic reconnection on failure."""

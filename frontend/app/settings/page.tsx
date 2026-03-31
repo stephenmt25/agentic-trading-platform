@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Plus, ExternalLink, ShieldAlert, CheckCircle2, Loader2, KeyRound, Save, Trash2, RefreshCw, Bell, Globe, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { api, type ExchangeKeyInfo } from "@/lib/api/client";
+import { motion } from "framer-motion";
+import { pageEnter } from "@/lib/motion";
 
 type SettingsTab = "exchange" | "security" | "preferences";
 
@@ -128,7 +130,7 @@ export default function SettingsPage() {
   ];
 
   return (
-    <div className="flex flex-col h-full gap-8 max-w-[1200px] mx-auto w-full">
+    <motion.div variants={pageEnter} initial="initial" animate="animate" className="flex flex-col h-full gap-8 max-w-[1200px] mx-auto w-full">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border pb-4 shrink-0">
         <div>
@@ -393,6 +395,6 @@ export default function SettingsPage() {
 
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useAgentViewStore } from '../stores/agentViewStore';
+import { useConnectionStore } from '../stores/connectionStore';
 import { useSlowMode } from './useSlowMode';
 import { TelemetryGenerator } from '../mocks/telemetry-generator';
 import type { AgentTelemetryEvent } from '../types/telemetry';
@@ -34,45 +35,63 @@ export function useAgentTelemetry(): AgentTelemetryHandle {
     let cancelled = false;
     let retryDelay = 1000;
 
-    function connect() {
+    const abortController = new AbortController();
+
+    async function connect() {
       if (cancelled) return;
 
-      const evtSource = new EventSource(`${API_URL}/telemetry/stream`);
+      try {
+        const res = await fetch(`${API_URL}/telemetry/stream`, {
+          headers: { 'ngrok-skip-browser-warning': 'true' },
+          signal: abortController.signal,
+        });
 
-      evtSource.onmessage = (e) => {
-        try {
-          const event = JSON.parse(e.data) as AgentTelemetryEvent;
-          if (event.agent_id && event.event_type) {
-            ingestRef.current(event);
+        if (!res.ok || !res.body) {
+          throw new Error(`SSE fetch failed: ${res.status}`);
+        }
+
+        retryDelay = 1000;
+        useConnectionStore.getState().recordSuccess();
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (!cancelled) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            try {
+              const event = JSON.parse(line.slice(6)) as AgentTelemetryEvent;
+              if (event.agent_id && event.event_type) {
+                ingestRef.current(event);
+              }
+            } catch {
+              // skip non-telemetry messages
+            }
           }
-        } catch {
-          // skip non-telemetry messages (e.g. {type: "connected"})
         }
-      };
-
-      evtSource.onopen = () => {
-        retryDelay = 1000; // reset backoff on success
-      };
-
-      evtSource.onerror = () => {
-        evtSource.close();
-        if (!cancelled) {
-          setTimeout(connect, retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 30000);
-        }
-      };
-
-      // Store for cleanup
-      cleanupRef.current = () => {
-        cancelled = true;
-        evtSource.close();
-      };
+      } catch {
+        if (cancelled) return;
+        // SSE failures don't mark backend offline — API health is the
+        // source of truth. Telemetry streaming is best-effort.
+        setTimeout(connect, retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30000);
+      }
     }
 
-    const cleanupRef = { current: () => { cancelled = true; } };
     connect();
 
-    return () => cleanupRef.current();
+    return () => {
+      cancelled = true;
+      abortController.abort();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { slowMode };

@@ -55,6 +55,55 @@ C4Context
 
 ---
 
+## Deployment Topology
+
+The platform supports a split deployment: frontend on Vercel, backend services running locally, connected via a Cloudflare Tunnel.
+
+```
+                          Internet
+                             │
+              ┌──────────────┼──────────────┐
+              │              │              │
+     ┌────────▼───────┐     │     ┌────────▼────────┐
+     │  Vercel (CDN)  │     │     │  OAuth Provider  │
+     │  Next.js 16    │     │     │  Google/GitHub   │
+     │  frontend      │     │     └─────────────────┘
+     └───────┬────────┘     │
+             │ HTTPS + WSS  │
+     ┌───────▼────────┐     │
+     │  Cloudflare    │     │
+     │  Tunnel        │     │
+     └───────┬────────┘     │
+             │ localhost     │
+     ┌───────▼──────────────▼───────────────┐
+     │  Local Machine / Server              │
+     │  ┌──────────────────────────────┐    │
+     │  │  API Gateway (:8000)         │    │
+     │  │  REST + WebSocket + HITL     │    │
+     │  └──────────┬───────────────────┘    │
+     │             │ Redis                  │
+     │  ┌──────────▼───────────────────┐    │
+     │  │  19 Microservices            │    │
+     │  │  Hot-Path, Execution, PnL,   │    │
+     │  │  TA Agent, Sentiment, etc.   │    │
+     │  └──────────────────────────────┘    │
+     │  ┌─────────────┐ ┌─────────────┐    │
+     │  │ TimescaleDB  │ │   Redis 7   │    │
+     │  │ (Docker)     │ │  (Docker)   │    │
+     │  └─────────────┘ └─────────────┘    │
+     └──────────────────────────────────────┘
+```
+
+**Data flow**: Vercel frontend → Cloudflare Tunnel → API Gateway → Redis → Microservices → TimescaleDB
+
+**WebSocket path**: `wss://tunnel-url/ws?token=JWT` → Cloudflare Tunnel → `ws://localhost:8000/ws` → Redis Pub/Sub → Frontend stores (portfolio, alerts, HITL, telemetry)
+
+**Connection resilience**: The frontend's `connectionStore` tracks backend reachability. After 3 consecutive API failures, the UI shows a "Backend Offline" banner. Reconnects automatically when the backend returns.
+
+See `docs/configuration.md` for Vercel deployment setup steps.
+
+---
+
 ## Container Diagram (C4 Level 2)
 
 This diagram decomposes Praxis into its 17 services, two data stores, and the frontend.

@@ -102,7 +102,7 @@ environment.  Never commit `.env` files that contain real credentials.
 
 | Variable | Type | Required | Default | Description | Consumed By |
 |----------|------|----------|---------|-------------|-------------|
-| `PRAXIS_CORS_ORIGINS` | `List[str]` | No | `["http://localhost:3000"]` | Allowed CORS origins for the API Gateway. In production, set this to your frontend domain(s). Accepts a JSON array string. | API Gateway |
+| `PRAXIS_CORS_ORIGINS` | `List[str]` | No | `["http://localhost:3000"]` | Allowed CORS origins for the API Gateway. For Vercel deployments, include both local and Vercel URLs: `'["http://localhost:3000","https://your-app.vercel.app"]'`. If using a tunnel (Cloudflare/ngrok), also add the tunnel URL. Accepts a JSON array string. | API Gateway |
 
 ### Database Connection Pool
 
@@ -159,7 +159,54 @@ the values.
 | `GOOGLE_CLIENT_SECRET` | No | -- | OAuth client secret from Google Cloud Console. |
 | `GITHUB_CLIENT_ID` | No | -- | OAuth client ID from GitHub Developer Settings. Required for GitHub sign-in. |
 | `GITHUB_CLIENT_SECRET` | No | -- | OAuth client secret from GitHub Developer Settings. |
-| `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:8000` | Backend API Gateway URL. Exposed to the browser (public prefix). |
+| `NEXT_PUBLIC_API_URL` | Yes | `http://localhost:8000` | Backend API Gateway URL. Exposed to the browser (public prefix). For Vercel, set to your tunnel URL (e.g. `https://your-subdomain.trycloudflare.com`). |
+| `NEXT_PUBLIC_AGENT_VIEW_MOCK` | No | `false` | Set to `true` to use mock telemetry data when backend is offline. |
+
+---
+
+## Vercel Deployment
+
+The frontend can be deployed to Vercel while the backend services run locally, connected via a tunnel (Cloudflare Tunnel or ngrok).
+
+### Setup Steps
+
+1. **Start a tunnel** to expose `localhost:8000`:
+   ```bash
+   # Cloudflare Tunnel (recommended — free, supports WebSocket natively)
+   cloudflared tunnel --url http://localhost:8000
+   # Or ngrok (requires account)
+   ngrok http 8000
+   ```
+
+2. **Set Vercel environment variables** (Settings → Environment Variables):
+   - `NEXT_PUBLIC_API_URL` = your tunnel URL (e.g. `https://xxx.trycloudflare.com`)
+   - `NEXTAUTH_URL` = your Vercel app URL (e.g. `https://your-app.vercel.app`)
+   - `NEXTAUTH_SECRET` = same value as `PRAXIS_NEXTAUTH_SECRET` in backend `.env`
+   - OAuth credentials (`GOOGLE_CLIENT_ID`, etc.)
+
+3. **Update backend CORS** in `.env`:
+   ```
+   PRAXIS_CORS_ORIGINS=["http://localhost:3000","https://your-app.vercel.app"]
+   ```
+
+4. **Update OAuth redirect URIs** in Google/GitHub console to include:
+   - `https://your-app.vercel.app/api/auth/callback/google`
+   - `https://your-app.vercel.app/api/auth/callback/github`
+
+5. **Deploy**: `cd frontend && npx vercel --prod`
+
+### Connection Resilience
+
+The frontend includes a `connectionStore` that tracks backend reachability. When the backend is unreachable (tunnel down, services stopped), a red "Backend Offline" banner appears. The dashboard reconnects automatically when the backend returns.
+
+### Tunnel Considerations
+
+| Provider | WebSocket | SSE Streaming | Free Tier | Stable URL |
+|----------|-----------|---------------|-----------|------------|
+| Cloudflare Tunnel | Yes | Buffered | Yes | No (changes on restart) |
+| ngrok | Yes (paid) | Yes | Yes (with limits) | Paid only |
+
+Agent telemetry flows through WebSocket rather than SSE to avoid Cloudflare's response buffering.
 
 ---
 

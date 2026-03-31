@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { AlertTriangle, CheckCircle2, Loader2, ChevronDown, ChevronUp } from 'lucide-react';
 import { api, type PaperTradingStatus } from "@/lib/api/client";
+import { motion } from "framer-motion";
+import { pageEnter } from "@/lib/motion";
 
 export default function PaperTradingDashboard() {
     const [status, setStatus] = useState<PaperTradingStatus | null>(null);
@@ -44,7 +46,7 @@ export default function PaperTradingDashboard() {
     };
 
     return (
-        <div className="relative h-full flex flex-col gap-6 max-w-[1600px] mx-auto w-full">
+        <motion.div variants={pageEnter} initial="initial" animate="animate" className="relative h-full flex flex-col gap-6 max-w-[1600px] mx-auto w-full">
             {/* Header with Mandatory Disclaimer */}
             <div className="border border-amber-500/30 p-4 md:p-6 rounded-md flex items-start gap-3 shrink-0">
                 <AlertTriangle className="text-amber-500 shrink-0 mt-0.5" size={20} />
@@ -73,7 +75,7 @@ export default function PaperTradingDashboard() {
                     <AlertTriangle className="w-5 h-5 text-amber-500/80" />
                     <div className="font-mono text-sm text-amber-500/80">BACKEND OFFLINE</div>
                     <p className="text-xs text-muted-foreground max-w-sm">
-                        Could not reach the API gateway. Start the backend on port 8000 to see live paper trading data.
+                        Could not reach the API gateway. Ensure the backend services are running and your tunnel is active.
                     </p>
                 </div>
             ) : (
@@ -206,7 +208,7 @@ export default function PaperTradingDashboard() {
                     </section>
                 </div>
             )}
-        </div>
+        </motion.div>
     );
 }
 
