@@ -97,7 +97,35 @@
       "Bash(grep -E \"\\\\.\\(sql|py\\)$\")",
       "Bash(docker exec:*)",
       "Bash(grep -E \"\\\\.\\(tsx|ts|md\\)$|^d\")",
-      "Bash(npm search:*)"
+      "Bash(npm search:*)",
+      "Bash(redis-cli -u redis://:changeme_redis_dev@localhost:6379/1 DBSIZE)",
+      "Bash(redis-cli -u redis://:changeme_redis_dev@localhost:6379/1 KEYS \"*market_data*\")",
+      "Bash(bash run_all.sh --stop)",
+      "Bash(bash run_all.sh --with-tunnel)",
+      "Bash(taskkill //IM python.exe //F)",
+      "Bash(taskkill //IM cloudflared.exe //F)",
+      "Bash(kill -0 2239)",
+      "Bash(printf \"https://outside-boulevard-lee-classical.trycloudflare.com\")",
+      "mcp__stitch__create_project",
+      "mcp__stitch__generate_screen_from_text",
+      "WebFetch(domain:lh3.googleusercontent.com)",
+      "Bash(command -v vercel)",
+      "Bash(npx --yes vercel --version)",
+      "Bash(npx --yes vercel ls --cwd \"C:/Users/stevo/DEV/agent_trader_1/aion-trading/frontend\")",
+      "Bash(npx --yes vercel inspect \"https://frontend-f23x2r4sp-stephenmt25s-projects.vercel.app\" --cwd \"C:/Users/stevo/DEV/agent_trader_1/aion-trading/frontend\")",
+      "Bash(npx --yes vercel deploy --cwd \"C:/Users/stevo/DEV/agent_trader_1/aion-trading/frontend\" --prod)",
+      "Bash(NEXT_PUBLIC_API_URL=\"https://commodities-def-greeting-garage.trycloudflare.com\" npx --yes vercel deploy --cwd \"C:/Users/stevo/DEV/agent_trader_1/aion-trading/frontend\" --prod -e NEXT_PUBLIC_API_URL=\"https://commodities-def-greeting-garage.trycloudflare.com\")",
+      "Bash(npx --yes vercel deploy --help)",
+      "Bash(npx --yes vercel deploy --cwd \"C:/Users/stevo/DEV/agent_trader_1/aion-trading/frontend\" --prod -b NEXT_PUBLIC_API_URL=\"https://commodities-def-greeting-garage.trycloudflare.com\")",
+      "Bash(npx --yes vercel deploy --cwd \"C:/Users/stevo/DEV/agent_trader_1/aion-trading/frontend\" --prod -b NEXT_PUBLIC_API_URL=\"https://cameras-experts-creating-florida.trycloudflare.com\")",
+      "Bash(cloudflared tunnel:*)",
+      "Bash(\"/c/Program Files \\(x86\\)/cloudflared/cloudflared.exe\" tunnel list)",
+      "Bash(npx:*)"
     ]
-  }
+  },
+  "enabledMcpjsonServers": [
+    "stitch",
+    "blender",
+    "remotion"
+  ]
 }

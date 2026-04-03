@@ -52,11 +52,11 @@ function AgentRow({ agent, isSelected, onSelect }: AgentRowProps) {
       type="button"
       onClick={handleClick}
       className={`
-        flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs
+        flex w-full items-center gap-2 rounded px-3 py-3 md:px-2 md:py-1.5 text-left text-xs
         transition-colors
         ${
           isSelected
-            ? "bg-slate-700/60 text-slate-100"
+            ? "bg-slate-700/60 text-slate-100 border-l-2 border-l-blue-400 md:border-l-0"
             : "text-slate-300 hover:bg-slate-800/80"
         }
       `}
@@ -175,22 +175,26 @@ export function AgentRegistry() {
   return (
     <div
       className={`
-        relative flex shrink-0 flex-col border-r border-slate-800 bg-[#0d1117]
+        relative flex shrink-0 flex-col bg-[#0d1117]
         transition-[width] duration-200 ease-in-out
-        ${collapsed ? "w-0 overflow-hidden border-r-0" : "w-56"}
+        w-full border-r-0
+        ${collapsed
+          ? "md:w-0 md:overflow-hidden md:border-r-0"
+          : "md:w-56 md:border-r md:border-slate-800"
+        }
       `}
       role="navigation"
       aria-label="Agent registry"
     >
       {/* Header with collapse toggle */}
-      <div className="flex h-9 items-center justify-between border-b border-slate-800 px-2">
+      <div className="flex h-9 items-center justify-between border-b border-slate-800 px-3 md:px-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
           Agents
         </span>
         <button
           type="button"
           onClick={() => setCollapsed((prev) => !prev)}
-          className="rounded p-0.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
+          className="hidden md:block rounded p-0.5 text-slate-500 transition-colors hover:bg-slate-800 hover:text-slate-300"
           aria-label={collapsed ? "Expand agent registry" : "Collapse agent registry"}
         >
           <PanelLeftClose className="h-3.5 w-3.5" />
@@ -198,7 +202,7 @@ export function AgentRegistry() {
       </div>
 
       {/* Scrollable agent list */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden py-1 px-1 md:px-0">
         {Array.from(grouped.entries()).map(([category, categoryAgents]) => (
           <CategorySection
             key={category}
@@ -210,12 +214,12 @@ export function AgentRegistry() {
         ))}
       </div>
 
-      {/* External expand button when collapsed */}
+      {/* External expand button when collapsed — desktop only */}
       {collapsed && (
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          className="absolute -right-7 top-1 z-10 rounded-r bg-slate-800 p-1 text-slate-500 transition-colors hover:bg-slate-700 hover:text-slate-300"
+          className="hidden md:block absolute -right-7 top-1 z-10 rounded-r bg-slate-800 p-1 text-slate-500 transition-colors hover:bg-slate-700 hover:text-slate-300"
           aria-label="Expand agent registry"
         >
           <PanelLeft className="h-3.5 w-3.5" />

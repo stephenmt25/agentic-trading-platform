@@ -33,13 +33,13 @@ export function SlowModeControl({
   flushNow,
 }: SlowModeProps) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       {/* Toggle button */}
       <button
         type="button"
         onClick={toggle}
         className={`
-          flex items-center gap-1.5 rounded px-2 py-1 text-xs font-medium
+          flex items-center gap-1.5 rounded px-3 py-2 md:px-2 md:py-1 text-xs font-medium
           transition-colors
           ${
             enabled
@@ -57,7 +57,7 @@ export function SlowModeControl({
       {enabled && (
         <>
           {/* Rate slider */}
-          <label className="flex items-center gap-1.5 text-xs text-slate-500">
+          <label className="flex flex-1 items-center gap-1.5 text-xs text-slate-500 min-w-[140px]">
             <input
               type="range"
               min={MIN_SLOW_MODE_RATE_MS}
@@ -65,7 +65,7 @@ export function SlowModeControl({
               step={100}
               value={rateMs}
               onChange={(e) => setRate(Number(e.target.value))}
-              className="h-1 w-20 cursor-pointer appearance-none rounded-full bg-slate-700 accent-amber-500"
+              className="h-1 w-full md:w-20 cursor-pointer appearance-none rounded-full bg-slate-700 accent-amber-500"
               aria-label="Slow mode flush interval"
             />
             <span className="font-mono text-slate-400 tabular-nums">
@@ -88,7 +88,7 @@ export function SlowModeControl({
             type="button"
             onClick={flushNow}
             disabled={bufferedCount === 0}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium
+            className="flex items-center gap-1 rounded px-2 py-1.5 md:px-1.5 md:py-0.5 text-[10px] font-medium
               text-slate-400 transition-colors hover:bg-slate-700 hover:text-slate-200
               disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Flush buffered events now"

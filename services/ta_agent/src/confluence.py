@@ -70,7 +70,7 @@ class TAConfluenceScorer:
             rsi_signals.append(max(-1.0, min(1.0, rsi_signal)))
 
             # MACD signal: continuous value from histogram magnitude.
-            macd_line_abs = abs(macd_result.macd) if macd_result.macd else 0.0
+            macd_line_abs = abs(macd_result.macd_line) if macd_result.macd_line else 0.0
             if macd_line_abs > 1e-10:
                 macd_signal = macd_result.histogram / macd_line_abs
                 macd_signal = max(-1.0, min(1.0, macd_signal))

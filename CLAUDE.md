@@ -287,4 +287,203 @@ The following critical and high-severity defects were resolved on 2026-03-27. Se
 
 ---
 
-*Framework derived from production patterns: coding harnesses (Karpathy, Steinberger/OpenClaw), project-scale harnesses (Cursor planner-executor), dark factories (eval-gated autonomous pipelines), auto research (Karpathy, Shopify Liquid optimization), and orchestration frameworks (LangGraph, CrewAI). Adapted for the Praxis Trading Platform.*
+## 9 · Enforced Verification Protocol
+
+> Replicates ForgeCode's #1 performance pattern. This is the single largest contributor to task completion accuracy.
+
+### 9A — Pre-Completion Checklist (MANDATORY)
+
+Before declaring ANY task complete, you MUST execute all 5 steps:
+
+1. **Re-read all modified files** using the Read tool. Do NOT rely on memory. The stale-read hook enforces this mechanically.
+2. **Run tests**: `poetry run pytest tests/unit/ -v --tb=short` (Python) or `npx tsc --noEmit` (frontend). Report actual output.
+3. **Run lint**: `poetry run ruff check <files>` and `poetry run mypy <files> --ignore-missing-imports`.
+4. **Requirement check**: For each requirement in the original task, explicitly mark `[x]` met or `[ ]` not met with file:line evidence.
+5. **Regression check**: `grep -rl "from libs.<modified_module>" services/ libs/ tests/` — read a sample of importers to confirm nothing is broken.
+
+### 9B — Completion Report Format
+
+Every task completion MUST end with this block:
+
+```
+VERIFICATION
+────────────
+Files modified: [list]
+Files re-read:  [list — must match modified]
+Tests:          [X passed, Y failed] — [PASS/FAIL]
+Lint:           [ruff: clean/N issues] [mypy: clean/N errors] — [PASS/FAIL]
+Requirements:   [X/Y met]
+Regressions:    [N importers checked, issues: none/list]
+Verdict:        PASS / FAIL
+```
+
+### 9C — Anti-Premature-Stop Rules
+
+- NEVER say "task complete" or "done" without running the verification checklist above.
+- NEVER skip verification for "small" changes. A one-line change in `execution/` can break the trading pipeline.
+- NEVER report "tests pass" without actually running them and showing output.
+- If tests cannot be run (missing dependencies, Docker not running), say so explicitly in the report.
+
+---
+
+## 10 · Self-Critique Phase
+
+> Replicates ForgeCode's think-critique-act pattern. Forces identification of failure modes before coding.
+
+### 10A — Mandatory Critique Questions
+
+Before coding any task larger than a one-line fix, answer these 5 questions:
+
+1. **What could go wrong?** List at least 2 failure modes.
+2. **What am I assuming that might not be true?** (e.g., "this import exists", "this channel is consumed")
+3. **Is there an existing codebase pattern I should follow?** Check adjacent services for the same pattern.
+4. **Could this break something downstream?** Which services consume what I'm modifying?
+5. **Am I introducing any anti-patterns from Section 7?** (float in financial code, inventing channels, pulling Phase 2 into Phase 1)
+
+### 10B — Critique Output Format
+
+```
+CRITIQUE
+────────
+Risks:       [2+ failure modes]
+Assumptions: [what I'm assuming]
+Pattern:     [existing pattern I'll follow, with file reference]
+Downstream:  [services affected]
+Anti-check:  [Section 7 items verified]
+Mitigation:  [how I'll address the top risk]
+```
+
+### 10C — When to Skip
+
+Skip the critique phase ONLY for: typo fixes in comments, adding a single test assertion, formatting-only changes (black/isort).
+
+---
+
+## 11 · Context Management
+
+> Reduces wasted context reads and front-loads critical information.
+
+### 11A — Context Loading Priority
+
+When starting a task, load context in this order. Stop when you have enough:
+
+1. This CLAUDE.md (already loaded)
+2. The specific service directory (`services/<name>/src/`)
+3. The relevant shared lib (`libs/core/`, `libs/messaging/`, etc.)
+4. Adjacent tests (`tests/unit/test_<name>.py`, `services/<name>/tests/`)
+5. Architecture docs (`docs/`) — only if needed
+
+### 11B — Service Quick-Reference Map
+
+| Service | Port | Key Libs | Redis Channels |
+|---------|------|----------|----------------|
+| api_gateway | 8000 | core, config, storage | — (HTTP only) |
+| ingestion | 8080 | core, exchange, messaging | pub: stream:market_data |
+| validation | 8081 | core, messaging | sub: stream:orders → pub: stream:validation_response |
+| hot_path | 8082 | core, indicators, messaging | sub: stream:market_data |
+| execution | 8083 | core, exchange, messaging | sub: stream:validation_response |
+| pnl | 8084 | core, storage, messaging | pub: pubsub:pnl_updates |
+| logger | 8085 | core, observability | sub: multiple |
+| backtesting | 8086 | core, storage, indicators | — (on-demand) |
+| analyst | 8087 | core | pub: analysis reports |
+| archiver | 8088 | core, storage | — (scheduled) |
+| tax | 8089 | core, storage | — (on-demand) |
+| ta_agent | 8090 | core, indicators | sub: stream:market_data |
+| regime_hmm | 8091 | core, indicators (hmmlearn) | pub: regime signals |
+| sentiment | 8092 | core | pub: sentiment signals |
+| risk | 8093 | core, storage | sub: pubsub:pnl_updates |
+| rate_limiter | 8094 | core, messaging (Redis) | — (Redis keys) |
+| slm_inference | 8095 | core | — (HTTP inference) |
+| debate | 8096 | core | sub: multiple agent signals |
+| strategy | (worker) | core, messaging | sub: stream:market_data → pub: stream:orders |
+
+**Redis channels source of truth**: `libs/messaging/channels.py`
+**Port assignments source of truth**: `run_all.sh`
+
+### 11C — File Read Budget
+
+Hard limit: **15 files** read before starting implementation. If you need more, your decomposition is too broad — break the task down further per Section 2.
+
+---
+
+## 12 · Security-Sensitive Code Protocol
+
+> Replicates Droid's 100% security task performance. Mandatory when touching sensitive code paths.
+
+### 12A — Automatic Security Review Triggers
+
+A security review (this section) is **mandatory** when modifying code in any of these categories:
+- Authentication / authorization (JWT, sessions, API keys)
+- Financial transactions (order execution, PnL, risk calculations)
+- Database queries (SQL, TimescaleDB operations)
+- User input processing (API request parsing, form data)
+- Secrets / credentials (env vars, config, settings)
+- External API calls (exchange APIs, third-party services)
+
+### 12B — General Security Checklist
+
+When triggered, verify all 8 points:
+
+- [ ] **Input validation**: All input validated via Pydantic `BaseModel`. No raw `request.json()` or `json.loads()` without schema.
+- [ ] **SQL safety**: All queries use parameterized placeholders (`$1`, `$2`). No f-strings or `.format()` with SQL.
+- [ ] **Credential exposure**: No secrets in logs, error messages, or API responses. All secrets via `settings.py` + env vars.
+- [ ] **Authorization**: Endpoints check user permissions. No unauthorized access to other users' resources.
+- [ ] **Rate limiting**: Public-facing endpoints integrate with `rate_limiter` service.
+- [ ] **Error sanitization**: Error responses return safe messages. No stack traces, internal paths, or system details to clients.
+- [ ] **Financial precision**: ALL monetary values use `Decimal` type. Zero `float()` calls in financial code.
+- [ ] **CORS**: Configuration is restrictive (not `*` in production).
+
+### 12C — Financial Transaction Checklist
+
+Additional checks for `services/execution/`, `services/pnl/`, `services/risk/`, `services/strategy/`:
+
+- [ ] Kill switch integration — can trading be halted via `KillSwitch` Redis key?
+- [ ] Stop-loss enforcement — `StopLossMonitor` checks position-level stops?
+- [ ] Position size limits — maximum position sizes enforced before order submission?
+- [ ] Decimal types — ALL calculations use `Decimal`, type aliases from `libs/core/types.py`?
+- [ ] Rate limiter — order submission endpoints are rate-limited?
+
+### 12D — ML Service Checklist
+
+Additional checks for `services/regime_hmm/`, `services/sentiment/`, `services/ta_agent/`, `services/slm_inference/`:
+
+- [ ] Model input validation — NaN and Infinity values rejected before inference?
+- [ ] Output bounding — model outputs clipped to valid ranges before downstream use?
+- [ ] Checkpoint safety — model files loaded from trusted paths only (no user-supplied paths)?
+- [ ] Numerical stability — division-by-zero guards? Log-of-zero guards? Underflow protection?
+- [ ] Async-safe serving — model inference is thread-safe for concurrent requests?
+
+---
+
+## 13 · Refactor Readiness
+
+> Preparation protocol for the planned deep refactor session.
+
+### 13A — Tech Debt Tracking
+
+When you encounter tech debt during any task:
+1. **Do NOT fix it** if it's unrelated to your current task.
+2. **Append it** to `docs/TECH-DEBT-REGISTRY.md` with: Service, Description, Severity (LOW/MED/HIGH), Effort (S/M/L), Date.
+3. Opportunistic tech debt fixes during unrelated work cause scope creep and regressions. Log it. Move on.
+
+### 13B — Service Health Indicators
+
+Before the deep refactor, run the `engineering-refactor-scout` agent to populate `docs/REFACTOR-READINESS.md`. Each service is assessed on:
+- Has unit tests (EXISTS/MISSING/PARTIAL)
+- Has documented startup sequence
+- Has clear dependency map (which libs, which channels)
+- Redis channels verified against `channels.py`
+- Risk level (LOW/MEDIUM/HIGH/CRITICAL)
+
+### 13C — Refactor Safety Net
+
+During any refactoring session:
+- Run `make test-unit` after every service change
+- Run `make lint` after every 3 files changed
+- Fix broken tests BEFORE continuing to the next service
+- Log all structural changes (moved files, renamed modules, changed interfaces) in `DECISIONS.md`
+- Never refactor more than one service's public interface at a time — downstream consumers must be updated atomically
+
+---
+
+*Framework derived from production patterns: coding harnesses (Karpathy, Steinberger/OpenClaw), project-scale harnesses (Cursor planner-executor), dark factories (eval-gated autonomous pipelines), auto research (Karpathy, Shopify Liquid optimization), and orchestration frameworks (LangGraph, CrewAI). Adapted for the Praxis Trading Platform. Sections 9-13 derived from ForgeCode (Terminal-Bench #1, 81.8%) and Droid (Terminal-Bench #6, 77.3%) engineering patterns.*

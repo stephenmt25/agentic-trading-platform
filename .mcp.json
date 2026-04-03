@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "stitch": {
-      "command": "npx",
-      "args": ["-y", "@_davideast/stitch-mcp", "proxy"],
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@_davideast/stitch-mcp", "proxy"],
       "env": {
-        "STITCH_API_KEY": "${STITCH_API_KEY}"
+        "STITCH_API_KEY": "AQ.Ab8RN6Le4DfxmqXpFpEBihhTewFj08jc2TLL29xRYHFJUvUQww"
       }
     },
     "blender": {
@@ -15,8 +15,8 @@
       }
     },
     "remotion": {
-      "command": "npx",
-      "args": ["-y", "@remotion/mcp@latest"]
+      "command": "cmd",
+      "args": ["/c", "npx", "-y", "@remotion/mcp@latest"]
     }
   }
 }

@@ -97,7 +97,11 @@ class HotPathProcessor:
                             continue
 
                         # 1. Strategy Eval
-                        sig_res, inds = StrategyEvaluator.evaluate(profile_state, tick)
+                        eval_result = StrategyEvaluator.evaluate(profile_state, tick)
+                        if eval_result is None:
+                            continue  # indicators still priming
+                        sig_res, inds = eval_result
+
 
                         # 1b. Proximity check for pre-fetching
                         if not sig_res:
@@ -117,11 +121,13 @@ class HotPathProcessor:
 
                         # 2. Abstention
                         if AbstentionChecker.check(profile_state, sig_res, tick, inds):
+                            logger.info("gate_block", gate="abstention", symbol=tick.symbol)
                             continue
 
                         # 3. Regime Dampener (now async with dual-regime support)
                         damp_res = await self._regime_dampener.check(profile_state, sig_res, tick, inds)
                         if not damp_res.proceed:
+                            logger.info("gate_block", gate="regime", symbol=tick.symbol)
                             continue
 
                         # Apply confidence multiplier
@@ -152,15 +158,18 @@ class HotPathProcessor:
 
                         # 4. Circuit Breaker
                         if CircuitBreaker.check(profile_state):
+                            logger.info("gate_block", gate="circuit_breaker", symbol=tick.symbol)
                             continue
 
                         # 5. Blacklist
                         if BlacklistChecker.check(profile_state, tick.symbol):
+                            logger.info("gate_block", gate="blacklist", symbol=tick.symbol)
                             continue
 
                         # 6. Risk Gate (now returns RiskGateResult with dynamic sizing)
                         risk_result = RiskGate.check(profile_state, sig_res, tick)
                         if risk_result.blocked:
+                            logger.info("gate_block", gate="risk_gate", symbol=tick.symbol, reason=risk_result.reason if hasattr(risk_result, 'reason') else "unknown")
                             continue
 
                         # 6b. HITL Gate (between risk_gate and validation)

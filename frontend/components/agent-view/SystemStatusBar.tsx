@@ -70,14 +70,48 @@ export function SystemStatusBar({
 
   return (
     <div
-      className="flex h-10 w-full items-center justify-between border-b border-slate-800 bg-[#0d1117] px-4"
+      className="flex h-10 w-full items-center justify-between border-b border-slate-800 bg-[#0d1117] px-2 md:px-4"
       role="banner"
       aria-label="System status bar"
     >
-      {/* Left section: Clock + State */}
-      <div className="flex items-center gap-4">
-        {/* System clock */}
-        <div className="flex items-center gap-1.5 text-xs">
+      {/* Left section: State + Clock */}
+      <div className="flex items-center gap-2 md:gap-4">
+        {/* System state pill */}
+        <span
+          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${STATE_STYLES[systemState]}`}
+        >
+          {systemState}
+        </span>
+
+        {/* Health — always visible, condensed on mobile */}
+        <div className="flex items-center gap-1 text-xs">
+          <span className="font-mono text-emerald-400">{health.healthy}</span>
+          <span className="text-slate-600">/</span>
+          <span className="font-mono text-slate-300">{totalAgents}</span>
+          <span className="hidden sm:inline text-slate-500">healthy</span>
+          {health.degraded > 0 && (
+            <>
+              <span className="text-slate-700">|</span>
+              <span className="font-mono text-amber-400">
+                {health.degraded}
+              </span>
+              <span className="hidden sm:inline text-slate-500">degraded</span>
+            </>
+          )}
+          {health.error > 0 && (
+            <>
+              <span className="text-slate-700">|</span>
+              <span className="font-mono text-red-400">{health.error}</span>
+              <span className="hidden sm:inline text-slate-500">error</span>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Center section: Clock + Throughput — clock hidden on mobile */}
+      <div className="flex items-center gap-2 md:gap-4">
+        {/* System clock — hidden on small screens */}
+        <div className="hidden md:flex items-center gap-1.5 text-xs">
           <Clock className="h-3 w-3 text-slate-500" />
           <span className="font-mono tabular-nums text-slate-300">
             {time.utc}
@@ -90,52 +124,20 @@ export function SystemStatusBar({
           <span className="text-slate-600">Local</span>
         </div>
 
-        {/* System state pill */}
-        <span
-          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${STATE_STYLES[systemState]}`}
-        >
-          {systemState}
-        </span>
-      </div>
-
-      {/* Center section: Health + Throughput */}
-      <div className="flex items-center gap-4">
-        {/* Agent health summary */}
-        <div className="flex items-center gap-1.5 text-xs">
-          <span className="font-mono text-emerald-400">{health.healthy}</span>
-          <span className="text-slate-600">/</span>
-          <span className="font-mono text-slate-300">{totalAgents}</span>
-          <span className="text-slate-500">healthy</span>
-          {health.degraded > 0 && (
-            <>
-              <span className="text-slate-700">|</span>
-              <span className="font-mono text-amber-400">
-                {health.degraded}
-              </span>
-              <span className="text-slate-500">degraded</span>
-            </>
-          )}
-          {health.error > 0 && (
-            <>
-              <span className="text-slate-700">|</span>
-              <span className="font-mono text-red-400">{health.error}</span>
-              <span className="text-slate-500">error</span>
-            </>
-          )}
-        </div>
-
-        {/* Message throughput */}
-        <div className="flex items-center gap-1.5 text-xs">
+        {/* Message throughput — always visible */}
+        <div className="flex items-center gap-1 text-xs">
           <Activity className="h-3 w-3 text-slate-500" />
           <span className="font-mono tabular-nums text-slate-300">
             {stats.messages_per_second.toFixed(1)}
           </span>
-          <span className="text-slate-500">msgs/sec</span>
+          <span className="hidden sm:inline text-slate-500">msgs/sec</span>
         </div>
       </div>
 
-      {/* Right section: Slow Mode */}
-      <SlowModeControl {...slowMode} />
+      {/* Right section: Slow Mode — hidden on mobile (available in Stats tab) */}
+      <div className="hidden md:block">
+        <SlowModeControl {...slowMode} />
+      </div>
     </div>
   );
 }

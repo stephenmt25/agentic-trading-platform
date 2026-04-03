@@ -178,24 +178,22 @@ export function MessageFlowPanel() {
   return (
     <div
       className={`
-        flex h-full shrink-0 flex-col border-l border-slate-800 bg-[#0d1117]
+        flex h-full shrink-0 flex-col bg-[#0d1117]
         transition-all duration-200
-        ${collapsed ? "w-0 overflow-hidden" : "w-72"}
+        w-full border-l-0
+        ${collapsed
+          ? "md:w-0 md:overflow-hidden md:border-l-0"
+          : "md:w-72 md:border-l md:border-slate-800"
+        }
       `}
     >
-      {/* Collapse toggle (always visible via absolute positioning) */}
+      {/* Collapse toggle — desktop only */}
       <button
         type="button"
         onClick={() => setCollapsed((p) => !p)}
-        className="absolute right-0 top-1/2 z-10 -translate-y-1/2 translate-x-full
+        className="hidden md:block relative
           rounded-r bg-slate-800 px-0.5 py-2 text-slate-400 hover:bg-slate-700
           hover:text-slate-200 transition-colors"
-        style={{
-          position: "relative",
-          right: "auto",
-          top: "auto",
-          transform: "none",
-        }}
         aria-label={collapsed ? "Expand message flow panel" : "Collapse message flow panel"}
       >
         {collapsed ? (
