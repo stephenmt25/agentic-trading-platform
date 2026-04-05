@@ -1,5 +1,6 @@
 import asyncio
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Dict, Any
 from .check_1_strategy import CheckResult
 from libs.core.enums import ValidationVerdict
@@ -39,8 +40,8 @@ class HallucinationCheck:
                     start=window_start, end=window_end
                 )
                 if candles and len(candles) >= 2:
-                    price_at_signal = float(candles[0]["close"])
-                    price_after = float(candles[-1]["close"])
+                    price_at_signal = Decimal(str(candles[0]["close"]))
+                    price_after = Decimal(str(candles[-1]["close"]))
                     actual_move = price_after - price_at_signal
                     # Check if sentiment direction matched actual price movement
                     if sentiment_direction == "BUY":

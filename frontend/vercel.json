@@ -3,6 +3,12 @@
   "framework": "nextjs",
   "buildCommand": "next build",
   "outputDirectory": ".next",
+  "rewrites": [
+    {
+      "source": "/api/backend/:path*",
+      "destination": "https://6b542e91-07d2-424a-aad1-cfe85a20f45a.cfargotunnel.com/:path*"
+    }
+  ],
   "headers": [
     {
       "source": "/(.*)",

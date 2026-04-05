@@ -19,7 +19,7 @@ class DriftCheck:
         try:
             snapshots = await self._pnl_repo.get_snapshots(profile_id, week_ago, now)
             if snapshots and len(snapshots) >= 2:
-                returns = [float(s["pct_return"]) for s in snapshots if s.get("pct_return") is not None]
+                returns = [float(s["pct_return"]) for s in snapshots if s.get("pct_return") is not None]  # float-ok: statistical computation (Sharpe ratio)
                 if returns and len(returns) >= 2:
                     mean_ret = sum(returns) / len(returns)
                     variance = sum((r - mean_ret) ** 2 for r in returns) / len(returns)
@@ -36,7 +36,7 @@ class DriftCheck:
                 # Backtest repo stores results keyed by job_id; we use profile_id convention
                 result = await self._backtest_repo.get_result(f"latest-{profile_id}")
                 if result:
-                    backtest_sharpe = float(result.get("sharpe", 0.0))
+                    backtest_sharpe = float(result.get("sharpe", 0.0))  # float-ok: statistical metric
             except Exception:
                 pass
 
@@ -44,7 +44,7 @@ class DriftCheck:
         if backtest_sharpe is None or live_sharpe is None:
             return CheckResult(passed=True, reason=None)
 
-        backtest_sharpe = float(backtest_sharpe)
+        backtest_sharpe = float(backtest_sharpe)  # float-ok: statistical metric
         if backtest_sharpe <= 0:
             return CheckResult(passed=True, reason=None)
 

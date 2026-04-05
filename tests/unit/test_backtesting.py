@@ -1,5 +1,6 @@
 """Sprint 8.6: Backtest engine verification tests."""
 import pytest
+from decimal import Decimal
 from services.backtesting.src.simulator import TradingSimulator, BacktestJob
 
 
@@ -37,7 +38,7 @@ class TestTradingSimulator:
                 "direction": "BUY",
                 "base_confidence": 0.85,
             },
-            slippage_pct=0.001,
+            slippage_pct=Decimal("0.001"),
         )
         candles = _make_candles(200)
         result = TradingSimulator.run(job, candles)
@@ -62,7 +63,7 @@ class TestTradingSimulator:
                 "direction": "BUY",
                 "base_confidence": 0.85,
             },
-            slippage_pct=0.001,
+            slippage_pct=Decimal("0.001"),
         )
         result = TradingSimulator.run(job, [])
         assert result.total_trades == 0
@@ -80,7 +81,7 @@ class TestTradingSimulator:
                 "direction": "BUY",
                 "base_confidence": 0.9,
             },
-            slippage_pct=0.001,
+            slippage_pct=Decimal("0.001"),
         )
         candles = _make_candles(200, base_price=3000.0)
         result = TradingSimulator.run(job, candles)
@@ -103,7 +104,7 @@ class TestTradingSimulator:
                 "direction": "BUY",
                 "base_confidence": 0.85,
             },
-            slippage_pct=0.01,  # 1% slippage to make effect visible
+            slippage_pct=Decimal("0.01"),  # 1% slippage to make effect visible
         )
         candles = _make_candles(200)
         result = TradingSimulator.run(job, candles)
@@ -125,7 +126,7 @@ class TestTradingSimulator:
                 "direction": "BUY",
                 "base_confidence": 0.85,
             },
-            slippage_pct=0.001,
+            slippage_pct=Decimal("0.001"),
         )
         candles = _make_candles(200)
         result = TradingSimulator.run(job, candles)

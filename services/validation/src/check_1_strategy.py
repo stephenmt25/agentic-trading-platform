@@ -29,7 +29,7 @@ class StrategyRecheck:
                 symbol=request.symbol, timeframe="5m", limit=20
             )
             if candles and len(candles) >= 14:
-                closes = [float(c["close"]) for c in candles]
+                closes = [float(c["close"]) for c in candles]  # float-ok: RSI computation requires float
                 wide_rsi = self._compute_rsi(closes, period=14)
             else:
                 # Not enough data for independent RSI, trust hot value

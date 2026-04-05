@@ -8,7 +8,11 @@ import { TelemetryGenerator } from '../mocks/telemetry-generator';
 import type { AgentTelemetryEvent } from '../types/telemetry';
 
 const USE_MOCK = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === 'true';
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// SSE goes through same-origin Vercel rewrite in production, direct in local dev
+const API_URL =
+  typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL
+    ? "/api/backend"
+    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 interface AgentTelemetryHandle {
   slowMode: ReturnType<typeof useSlowMode>;
@@ -42,7 +46,6 @@ export function useAgentTelemetry(): AgentTelemetryHandle {
 
       try {
         const res = await fetch(`${API_URL}/telemetry/stream`, {
-          headers: { 'ngrok-skip-browser-warning': 'true' },
           signal: abortController.signal,
         });
 

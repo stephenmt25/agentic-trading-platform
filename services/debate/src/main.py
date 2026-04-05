@@ -36,14 +36,14 @@ async def _get_market_context(redis_client, symbol: str) -> MarketContext:
     ta_score = 0.0
     if ta_raw:
         try:
-            ta_score = float(json.loads(ta_raw).get("score", 0))
+            ta_score = float(json.loads(ta_raw).get("score", 0))  # float-ok: ML score
         except Exception:
             pass
 
     sent_score = 0.0
     if sent_raw:
         try:
-            sent_score = float(json.loads(sent_raw).get("score", 0))
+            sent_score = float(json.loads(sent_raw).get("score", 0))  # float-ok: ML score
         except Exception:
             pass
 
@@ -56,12 +56,12 @@ async def _get_market_context(redis_client, symbol: str) -> MarketContext:
     if ind_raw:
         try:
             ind = json.loads(ind_raw)
-            rsi = float(ind.get("rsi", 50))
-            macd_hist = float(ind.get("macd_histogram", 0))
-            adx = float(ind.get("adx", 0))
-            bb_pct_b = float(ind.get("bb_pct_b", 0.5))
-            atr = float(ind.get("atr", 0))
-            price = float(ind.get("price", 0))
+            rsi = float(ind.get("rsi", 50))  # float-ok: indicator/ML values
+            macd_hist = float(ind.get("macd_histogram", 0))  # float-ok: indicator/ML values
+            adx = float(ind.get("adx", 0))  # float-ok: indicator/ML values
+            bb_pct_b = float(ind.get("bb_pct_b", 0.5))  # float-ok: indicator/ML values
+            atr = float(ind.get("atr", 0))  # float-ok: indicator/ML values
+            price = float(ind.get("price", 0))  # float-ok: indicator context (not financial calc)
         except Exception:
             pass
 

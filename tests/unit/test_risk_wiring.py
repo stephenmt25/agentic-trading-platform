@@ -111,7 +111,7 @@ class TestRiskGate:
         result = RiskGate.check(state, signal, tick)
         assert not result.blocked
         # 0.25 * 1.0 * 0.7 = 0.175
-        assert result.suggested_quantity == pytest.approx(0.175)
+        assert float(result.suggested_quantity) == pytest.approx(0.175)
 
     def test_dynamic_sizing_uses_confidence(self):
         """Position size should scale with signal confidence."""

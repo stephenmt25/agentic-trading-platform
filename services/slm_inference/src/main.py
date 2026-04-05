@@ -101,7 +101,8 @@ async def completions(req: CompletionRequest):
     try:
         text, tokens = _generate(req.prompt, req.max_tokens, req.temperature, req.stop)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Inference error", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal inference error")
     latency = (time.monotonic() - start) * 1000
 
     return CompletionResponse(text=text, tokens_used=tokens, latency_ms=round(latency, 1))
@@ -123,7 +124,8 @@ async def sentiment(req: SentimentRequest):
     try:
         text, _ = _generate(prompt, max_tokens=100, temperature=0.1, stop=["\n\n"])
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("Inference error", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal inference error")
     latency = (time.monotonic() - start) * 1000
 
     # Parse structured output

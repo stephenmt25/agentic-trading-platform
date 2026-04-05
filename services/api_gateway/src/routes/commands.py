@@ -2,12 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from typing import Optional
 from ..deps import get_current_user
-from libs.core.schemas import CommandIntent
+from libs.core.schemas import CommandIntent, KillSwitchStatusResponse, KillSwitchToggleResponse
 from libs.storage import RedisClient
 from libs.config import settings
 from services.hot_path.src.kill_switch import KillSwitch
 
-router = APIRouter(prefix="/commands", tags=["commands"])
+router = APIRouter(tags=["commands"])
 
 
 def _get_redis():
@@ -34,14 +34,14 @@ async def handle_command(
     )
 
 
-@router.get("/kill-switch")
+@router.get("/kill-switch", response_model=KillSwitchStatusResponse)
 async def get_kill_switch_status(user_id: str = Depends(get_current_user)):
     """Get the current kill switch status and recent activity log."""
     redis = _get_redis()
     return await KillSwitch.status(redis)
 
 
-@router.post("/kill-switch")
+@router.post("/kill-switch", response_model=KillSwitchToggleResponse)
 async def set_kill_switch(
     body: KillSwitchRequest,
     user_id: str = Depends(get_current_user),

@@ -53,7 +53,7 @@ async def telemetry_stream():
             pass
         except Exception as e:
             logger.error("Telemetry stream error", error=str(e))
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Telemetry stream error'})}\n\n"
         finally:
             try:
                 await pubsub.unsubscribe(PUBSUB_AGENT_TELEMETRY)

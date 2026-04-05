@@ -57,7 +57,7 @@ external APIs require it (CCXT exchange adapters) or for JSON serialization (Red
 |---|-------------|-----|----------|
 | ~~D-1~~ | `backtest_results` table used `DOUBLE PRECISION` | Migration `009_backtest_decimal_precision.sql` converts all 5 columns to `DECIMAL(20, 8)`. `BacktestResult`/`SimulatedTrade` dataclasses now use `Decimal`. | ~~CRITICAL~~ RESOLVED |
 | ~~D-2~~ | `PnLSnapshot` used `float` for all monetary fields | `PnLSnapshot`, `PnLCalculator`, `TaxEstimate`, `USTaxCalculator`, and tax brackets all converted to `Decimal`. Full chain: tick price → PnL calculation → tax → publisher. | ~~CRITICAL~~ RESOLVED |
-| ~~D-3~~ | 24+ `float()` conversions in financial code paths | Removed from: `calculator.py`, `check_6_risk_level.py`, `risk_gate.py`, `circuit_breaker.py`, `executor.py`, `reconciler.py`, `pnl_sync.py`, `hitl_gate.py`. Exchange adapters retain `float()` at CCXT boundary (documented). | ~~CRITICAL~~ RESOLVED |
+| ~~D-3~~ | 110+ `float()` conversions in financial code paths | Full sweep completed (2026-04-03): financial float() removed from reconciler, publisher, stop_loss_monitor, risk service, hitl_gate, check_2_hallucination, profiles, schemas. Remaining float() calls annotated `# float-ok` with reason: indicator/numpy interop, CCXT boundary, ML scores, display formatting, or JSON serialization. | ~~CRITICAL~~ RESOLVED |
 | ~~D-4~~ | `SignalEvent.confidence` typed as `float` | Changed to `Percentage` (Decimal alias) in `libs/core/schemas.py` | ~~HIGH~~ RESOLVED |
 | ~~D-5~~ | `PnlUpdateEvent.pct_return` typed as `float` | Changed to `Percentage` (Decimal alias) in `libs/core/schemas.py` | ~~HIGH~~ RESOLVED |
 | ~~D-6~~ | `ThresholdProximityEvent` fields typed as `float` | Changed to `Price`/`Percentage` (Decimal aliases) in `libs/core/schemas.py` | ~~HIGH~~ RESOLVED |
@@ -81,10 +81,10 @@ functional implementation.
 | # | Description | Location | Severity |
 |---|-------------|----------|----------|
 | ~~D-13~~ | ~~Port 8080 collision between 4+ services.~~ **RESOLVED** (2026-03-27). All services now have unique ports assigned in `run_all.sh`. | — | ~~HIGH~~ RESOLVED |
-| D-14 | 13 API endpoints lack `response_model` declarations. May leak internal database column names or SQLAlchemy metadata in responses. | Various API routers | MEDIUM |
-| D-15 | `profile_id` path parameters accept arbitrary strings. UUID conversion can raise unhandled `ValueError`, returning a 500 instead of 422. | API route handlers | MEDIUM |
+| ~~D-14~~ | ~~13 API endpoints lack `response_model` declarations.~~ **RESOLVED** (2026-04-03). Response models added to kill-switch (GET/POST), exchange test, risk check, tax calculate, backtest sweep, and quotas endpoints. SSE streaming endpoints (docs_chat, telemetry) return StreamingResponse and cannot use response_model. | Various API routers | ~~MEDIUM~~ RESOLVED |
+| ~~D-15~~ | ~~`profile_id` path parameters accept arbitrary strings.~~ **RESOLVED** (2026-04-03). Profile route path parameters changed from `str` to `UUID`. FastAPI auto-returns 422 on invalid UUIDs. | `services/api_gateway/src/routes/profiles.py` | ~~MEDIUM~~ RESOLVED |
 | ~~D-16~~ | ~~WebSocket Redis listener has no reconnection logic on disconnect.~~ **RESOLVED** (2026-03-27). `listen_to_redis` now wraps the subscribe/listen loop in an outer retry loop with exponential backoff (1s → 30s max). On Redis disconnect, pubsub is cleaned up and re-established automatically. Only exits on WebSocket close or task cancellation. | `services/api_gateway/src/routes/ws.py` | ~~HIGH~~ RESOLVED |
-| D-17 | CORS configuration uses `allow_methods=["*"]` and `allow_headers=["*"]`. Overly permissive for a trading API that handles financial operations. | FastAPI middleware config | MEDIUM |
+| ~~D-17~~ | ~~CORS configuration uses `allow_methods=["*"]` and `allow_headers=["*"]`.~~ **RESOLVED** (2026-04-03). Methods restricted to `["GET","POST","PUT","DELETE","PATCH","OPTIONS"]`, headers to `["Authorization","Content-Type","X-Request-ID","Accept"]`. Origins already configurable via `settings.CORS_ORIGINS`. | `services/api_gateway/src/main.py` | ~~MEDIUM~~ RESOLVED |
 
 ---
 

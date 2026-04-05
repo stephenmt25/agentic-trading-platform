@@ -8,7 +8,15 @@
 import { z } from "zod";
 import { useConnectionStore } from "../stores/connectionStore";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// REST calls use same-origin Vercel rewrite (no CORS needed).
+// In local dev, falls back to direct localhost.
+const API_BASE_URL =
+  typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL
+    ? "/api/backend"
+    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+// Direct backend URL — used only for WebSocket connections (Vercel can't proxy WS).
+export const BACKEND_DIRECT_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 export class BackendUnreachableError extends Error {
   constructor() {
@@ -41,7 +49,6 @@ async function apiRequest<T>(
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
     ...(customHeaders as Record<string, string>),
   };
 

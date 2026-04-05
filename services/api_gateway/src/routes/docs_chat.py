@@ -21,7 +21,7 @@ logger = get_logger("api-gateway.docs-chat")
 # Load .env from project root to pick up ANTHROPIC_API_KEY (not PRAXIS_ prefixed)
 load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", ".env"))
 
-router = APIRouter(prefix="/docs", tags=["docs-chat"])
+router = APIRouter(tags=["docs-chat"])
 
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = "claude-haiku-4-5-20251001"
@@ -178,7 +178,7 @@ async def docs_chat(body: ChatRequest):
             return
         except Exception as e:
             logger.error("Streaming error", error=str(e))
-            yield _sse({"type": "error", "error": str(e)})
+            yield _sse({"type": "error", "error": "An internal error occurred. Please try again."})
             return
 
         yield _sse({"type": "done"})

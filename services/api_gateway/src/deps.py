@@ -45,4 +45,6 @@ def get_current_user(request: Request) -> str:
 
 
 async def verify_token_dep(request: Request):
+    if request.method == "OPTIONS":
+        return
     await verify_jwt(request)

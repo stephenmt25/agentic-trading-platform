@@ -4,17 +4,17 @@ import { useAlertStore } from '../stores/alertStore';
 import { useHITLStore } from '../stores/hitlStore';
 import { useConnectionStore } from '../stores/connectionStore';
 import { useAgentViewStore } from '../stores/agentViewStore';
+import { BACKEND_DIRECT_URL } from '../api/client';
 
 function getWsUrl(): string {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-    // Convert http(s) to ws(s)
-    return apiUrl.replace(/^http/, 'ws') + '/ws';
+    // WebSocket must connect directly to the backend (Vercel can't proxy WS)
+    return BACKEND_DIRECT_URL.replace(/^http/, 'ws') + '/ws';
 }
 
 class WebSocketClient {
     private socket: WebSocket | null = null;
     private reconnectAttempts = 0;
-    private maxReconnectAttempts = 5;
+    private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private pingInterval: ReturnType<typeof setInterval> | null = null;
 
     connect() {
@@ -133,11 +133,11 @@ class WebSocketClient {
     }
 
     private attemptReconnect() {
-        if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            return;
-        }
-        const delay = Math.pow(2, this.reconnectAttempts) * 1000;
-        setTimeout(() => this.connect(), delay);
+        // Unlimited retries with exponential backoff (max 60s) + jitter
+        const base = Math.min(Math.pow(2, this.reconnectAttempts) * 1000, 60000);
+        const jitter = base * 0.2 * Math.random();
+        const delay = base + jitter;
+        this.reconnectTimer = setTimeout(() => this.connect(), delay);
         this.reconnectAttempts++;
     }
 
@@ -146,11 +146,16 @@ class WebSocketClient {
     }
 
     disconnect() {
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
         if (this.socket) {
             this.socket.close();
             this.socket = null;
         }
         this.stopHeartbeat();
+        this.reconnectAttempts = 0;
     }
 }
 

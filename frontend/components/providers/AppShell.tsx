@@ -39,15 +39,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const isPublic = PUBLIC_PATHS.some((p) => pathname.startsWith(p));
 
-  // Connect/disconnect WebSocket based on auth state
+  // Connect/disconnect WebSocket and health polling based on auth state
   useEffect(() => {
     if (jwt) {
       wsClient.connect();
+      useConnectionStore.getState().startHealthPolling();
     } else {
       wsClient.disconnect();
+      useConnectionStore.getState().stopHealthPolling();
     }
     return () => {
       wsClient.disconnect();
+      useConnectionStore.getState().stopHealthPolling();
     };
   }, [jwt]);
 

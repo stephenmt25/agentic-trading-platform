@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException
 import json
 import ccxt.async_support as ccxt
 
-from libs.core.schemas import ExchangeKeyCreate, ExchangeKeyTest, ExchangeKeyResponse
+from libs.core.schemas import ExchangeKeyCreate, ExchangeKeyTest, ExchangeKeyResponse, ExchangeTestResponse
 from libs.core.secrets import SecretManager
 from libs.config import settings
 from libs.observability import get_logger
@@ -48,7 +48,7 @@ async def list_exchange_keys(
     ]
 
 
-@router.post("/test")
+@router.post("/test", response_model=ExchangeTestResponse)
 async def test_exchange_connection(data: ExchangeKeyTest):
     """Test API keys with CCXT before saving them."""
     if not hasattr(ccxt, data.exchange_id):

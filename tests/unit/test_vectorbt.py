@@ -6,6 +6,7 @@ simulator on basic cases, and parameter sweep works correctly.
 
 import pytest
 import math
+from decimal import Decimal
 from services.backtesting.src.simulator import TradingSimulator, BacktestJob, BacktestResult
 from services.backtesting.src.vectorbt_runner import (
     VectorBTRunner, run_sweep, _compute_indicators, _evaluate_conditions_vectorized,
@@ -33,7 +34,7 @@ def _make_candles(n=100, base_price=100.0, trend=0.1):
     return candles
 
 
-def _make_job(rules=None, slippage=0.001):
+def _make_job(rules=None, slippage=Decimal("0.001")):
     if rules is None:
         rules = {
             "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
@@ -184,8 +185,8 @@ class TestVectorBTRunner:
         }
         candles = _make_candles(200)
 
-        result_no_slip = VectorBTRunner.run(_make_job(rules, slippage=0.0), candles)
-        result_with_slip = VectorBTRunner.run(_make_job(rules, slippage=0.01), candles)
+        result_no_slip = VectorBTRunner.run(_make_job(rules, slippage=Decimal("0")), candles)
+        result_with_slip = VectorBTRunner.run(_make_job(rules, slippage=Decimal("0.01")), candles)
 
         if result_no_slip.total_trades > 0 and result_with_slip.total_trades > 0:
             # Slippage should reduce returns

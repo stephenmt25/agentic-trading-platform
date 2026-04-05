@@ -6,10 +6,14 @@ import { useHITLStore, type HITLRequest } from '@/lib/stores/hitlStore';
 import { motion } from "framer-motion";
 import { pageEnter } from "@/lib/motion";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// Use same-origin rewrite in production, direct in local dev
+const API_BASE_URL =
+  typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL
+    ? "/api/backend"
+    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 async function respondToHITL(eventId: string, status: 'APPROVED' | 'REJECTED', reason?: string) {
-    const res = await fetch(`${API_BASE_URL}/api/hitl/respond`, {
+    const res = await fetch(`${API_BASE_URL}/hitl/respond`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ request_id: eventId, status, reason }),

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Literal
 from uuid import UUID, uuid4
 import os
@@ -172,7 +173,7 @@ class ProfileResponse(BaseModel):
     name: str
     is_active: bool
     rules_json: Dict[str, Any]
-    allocation_pct: float
+    allocation_pct: Percentage
     created_at: str
     deleted_at: Optional[str] = None
 
@@ -250,7 +251,7 @@ class BacktestRequest(BaseModel):
     })
     start_date: str = Field(..., example="2025-01-01T00:00:00")
     end_date: str = Field(..., example="2025-06-01T00:00:00")
-    slippage_pct: float = Field(default=0.001, ge=0.0, le=0.05)
+    slippage_pct: Percentage = Field(default=Decimal("0.001"), ge=0, le=Decimal("0.05"))
 
 
 class BacktestResponse(BaseModel):
@@ -384,3 +385,86 @@ class RuleSchema(BaseModel):
 class QuotaConfig(BaseModel):
     limit: int
     window_sec: int
+
+
+# ---------------------------------------------------------------------------
+# Phase C response models — prevent internal column leakage
+# ---------------------------------------------------------------------------
+
+class KillSwitchStatusResponse(BaseModel):
+    active: bool
+    reason: Optional[str] = None
+    activated_at: Optional[str] = None
+
+class KillSwitchToggleResponse(BaseModel):
+    status: str
+    reason: Optional[str] = None
+
+class ExchangeTestResponse(BaseModel):
+    status: str
+    message: str
+
+class RiskCheckResponse(BaseModel):
+    allowed: bool
+    reason: Optional[str] = None
+
+class TaxEstimateResponse(BaseModel):
+    estimated_tax: Decimal
+    effective_rate: Decimal
+    classification: str
+
+class SweepResultItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+class BacktestSweepResponse(BaseModel):
+    job_id: str
+    symbol: str
+    num_combinations: int
+    results: List[Any]
+
+
+# ---------------------------------------------------------------------------
+# Phase D: Validated financial JSON structures (replacing raw json.loads)
+# ---------------------------------------------------------------------------
+
+class AgentScorePayload(BaseModel):
+    """Validated agent score from Redis (ta, sentiment, debate)."""
+    score: float
+    direction: Optional[str] = None
+    confidence: Optional[float] = None
+    regime: Optional[str] = None
+    state_index: Optional[int] = None
+    model_config = ConfigDict(extra="allow")
+
+
+class DailyPnlPayload(BaseModel):
+    """Validated daily PnL data from Redis."""
+    total_pct: str  # stored as string Decimal
+
+    def total_pct_decimal(self) -> Decimal:
+        return Decimal(self.total_pct)
+
+
+class DrawdownPayload(BaseModel):
+    """Validated drawdown data from Redis."""
+    drawdown_pct: str  # stored as string Decimal
+
+    def drawdown_pct_decimal(self) -> Decimal:
+        return Decimal(self.drawdown_pct)
+
+
+class AllocationPayload(BaseModel):
+    """Validated allocation data from Redis."""
+    allocation_pct: str  # stored as string Decimal
+
+    def allocation_pct_decimal(self) -> Decimal:
+        return Decimal(self.allocation_pct)
+
+
+class RiskLimitsPayload(BaseModel):
+    """Validated risk limits JSON from profile."""
+    max_allocation_pct: Optional[float] = None
+    stop_loss_pct: Optional[float] = 0.05
+    max_drawdown_pct: Optional[float] = None
+    circuit_breaker_daily_loss_pct: Optional[float] = None
+    model_config = ConfigDict(extra="allow")

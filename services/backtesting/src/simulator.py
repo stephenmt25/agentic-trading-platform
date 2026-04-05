@@ -65,9 +65,9 @@ class TradingSimulator:
         open_trade: Optional[SimulatedTrade] = None
 
         for candle in data:
-            close_f = float(candle["close"])
-            high_f = float(candle["high"])
-            low_f = float(candle["low"])
+            close_f = float(candle["close"])  # float-ok: indicator library requires float
+            high_f = float(candle["high"])  # float-ok: indicator library requires float
+            low_f = float(candle["low"])  # float-ok: indicator library requires float
             close = _D(str(candle["close"]))
             candle_time = str(candle.get("time", ""))
 
@@ -78,7 +78,7 @@ class TradingSimulator:
 
             adx_val = indicators.adx.update(high_f, low_f, close_f) if indicators.adx else None
             bb_val = indicators.bollinger.update(close_f) if indicators.bollinger else None
-            volume_f = float(candle.get("volume", 0))
+            volume_f = float(candle.get("volume", 0))  # float-ok: indicator library requires float
             obv_val = indicators.obv.update(close_f, volume_f) if indicators.obv else None
             chop_val = indicators.choppiness.update(high_f, low_f, close_f) if indicators.choppiness else None
 

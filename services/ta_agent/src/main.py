@@ -39,9 +39,9 @@ async def scoring_loop(redis_client, market_repo: MarketDataRepository, telemetr
                     for candle in candles:
                         scorer.update_timeframe(
                             tf,
-                            float(candle["high"]),
-                            float(candle["low"]),
-                            float(candle["close"]),
+                            float(candle["high"]),  # float-ok: indicator library requires float
+                            float(candle["low"]),  # float-ok: indicator library requires float
+                            float(candle["close"]),  # float-ok: indicator library requires float
                         )
 
                 score = scorer.score()

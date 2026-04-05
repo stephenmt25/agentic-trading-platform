@@ -110,7 +110,7 @@ class BalanceReconciler:
                 if abs(db_qty) < _EPSILON:
                     continue
                 drift = abs(exchange_qty - db_qty) / abs(db_qty)
-                drift_details[currency] = {"db": float(db_qty), "exchange": float(exchange_qty), "drift_pct": float(drift)}
+                drift_details[currency] = {"db": str(db_qty), "exchange": str(exchange_qty), "drift_pct": str(drift)}
                 max_drift = max(max_drift, drift)
 
             # 4. Alert if drift exceeds threshold

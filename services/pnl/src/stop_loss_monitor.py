@@ -12,6 +12,7 @@ from decimal import Decimal
 from typing import Optional
 
 from libs.core.models import Position
+from libs.core.schemas import RiskLimitsPayload
 from libs.storage.repositories import ProfileRepository
 from libs.observability import get_logger
 
@@ -50,10 +51,12 @@ class StopLossMonitor:
             if profile:
                 raw_limits = profile.get("risk_limits", "{}")
                 if isinstance(raw_limits, str):
-                    risk_limits = json.loads(raw_limits)
+                    risk_limits = RiskLimitsPayload.model_validate_json(raw_limits)
+                elif isinstance(raw_limits, dict):
+                    risk_limits = RiskLimitsPayload.model_validate(raw_limits)
                 else:
-                    risk_limits = raw_limits if isinstance(raw_limits, dict) else {}
-                stop_loss = Decimal(str(risk_limits.get("stop_loss_pct", _DEFAULT_STOP_LOSS)))
+                    risk_limits = RiskLimitsPayload()
+                stop_loss = Decimal(str(risk_limits.stop_loss_pct))
         except Exception as e:
             logger.error("Failed to load stop-loss for profile", profile_id=profile_id, error=str(e))
 
@@ -91,10 +94,10 @@ class StopLossMonitor:
             position_id=str(position.position_id),
             profile_id=str(position.profile_id),
             symbol=position.symbol,
-            loss_pct=float(loss_pct),
-            stop_loss_pct=float(stop_loss_pct),
-            current_price=float(current_price),
-            entry_price=float(position.entry_price),
+            loss_pct=str(loss_pct),  # float-ok: structlog serialization
+            stop_loss_pct=str(stop_loss_pct),  # float-ok: structlog serialization
+            current_price=str(current_price),  # float-ok: structlog serialization
+            entry_price=str(position.entry_price),  # float-ok: structlog serialization
         )
 
         try:

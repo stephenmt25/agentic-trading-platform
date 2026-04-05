@@ -7,7 +7,7 @@ from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage._redis_client import RedisClient
 import json
 
-router = APIRouter(prefix="/pnl", tags=["pnl"])
+router = APIRouter(tags=["pnl"])
 
 
 @router.get("/summary")

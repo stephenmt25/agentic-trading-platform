@@ -103,9 +103,12 @@ When receiving any task larger than a single function or single file change:
 
 - Parse the spec completely before writing any code.
 - Map spec requirements → implementation tasks → eval criteria.
-- Execute methodically. Do not ask clarifying questions mid-run unless genuine ambiguity would cause divergent outcomes.
+- **Do NOT ask clarifying questions.** Make the best judgment call and LOG it in `DECISIONS.md`. Asking breaks the autonomous loop and wastes human time.
+- **Do NOT hedge or present alternatives.** Commit to one approach. If it fails evals, iterate — don't ask permission to try something else.
+- **Assume reasonable defaults.** If a spec is ambiguous on a detail (naming, error message wording, default values), pick the most conventional option and move on.
+- **No conversational branching.** Your output should be code, decisions, and eval results — not questions, options, or status updates.
 - After each major component, run available tests/evals. If failing, iterate automatically.
-- Track all decisions in `DECISIONS.md` for human audit.
+- Track ALL decisions in `DECISIONS.md` for human audit — this is how the human reviews your judgment calls after the run.
 
 **Quality gate**: All evals pass. Present completion report:
 ```
@@ -486,4 +489,110 @@ During any refactoring session:
 
 ---
 
-*Framework derived from production patterns: coding harnesses (Karpathy, Steinberger/OpenClaw), project-scale harnesses (Cursor planner-executor), dark factories (eval-gated autonomous pipelines), auto research (Karpathy, Shopify Liquid optimization), and orchestration frameworks (LangGraph, CrewAI). Adapted for the Praxis Trading Platform. Sections 9-13 derived from ForgeCode (Terminal-Bench #1, 81.8%) and Droid (Terminal-Bench #6, 77.3%) engineering patterns.*
+## 14 · Mandatory Todo Tracking
+
+> ForgeCode's biggest single-technique win: 38% → 66% pass rate from enforcing todo tracking.
+
+### 14A — When to Create Todos
+
+**MANDATORY** for any task with 2 or more steps. This includes:
+- Any feature that touches more than one file
+- Any bug fix that requires investigation before fixing
+- Any refactor across services
+- Any Dark Factory or Project-Scale Harness execution
+
+**Skip only** for: single-line fixes, adding a comment, running a command.
+
+### 14B — Todo Rules
+
+1. Create todos **before writing any code**. The todo list IS your plan.
+2. Each item must have clear acceptance criteria (what "done" means).
+3. Mark items `in_progress` **before** starting work on them.
+4. Mark items `completed` **immediately** after finishing — do not batch.
+5. Only **1 item** should be `in_progress` at any time.
+6. If you discover new work mid-task, add it as a new todo item.
+7. The **final todo item** on every list must be: "Run Section 9 verification."
+
+### 14C — Anti-Drift Rule
+
+If you have written code across **3 or more tool calls** without updating your todo list, **STOP**. Update your todo status before continuing. This catches the #1 failure mode: drifting away from the plan without realizing it.
+
+### 14D — Discovery Phase Exception
+
+During initial exploration (reading files, grepping for context), you do not need todos. Todos begin when you transition from understanding to implementing.
+
+---
+
+## 15 · Semantic Entry-Point Discovery
+
+> ForgeCode's entry-point discovery eliminates random exploration. Context size is a multiplier — entry-point accuracy is the base.
+
+### 15A — Before Reading Any Service Code
+
+Do NOT start by reading `main.py` of every service. Instead:
+
+1. **Parse the task** for entity names: service names, file names, function names, Redis channel names, database table names, class names.
+2. **Consult the service map** (Section 11B) to identify the 1–2 most likely services.
+3. **Run targeted Grep** (max 3 calls) for the entity names within those services:
+   ```
+   Grep pattern="<entity>" path="services/<likely_service>/"
+   ```
+4. **Read the entry-point files** identified by grep — typically `main.py` + the primary business logic file.
+5. **Only then** begin implementation.
+
+### 15B — Anti-Pattern: Shotgun Exploration
+
+**Wrong:** Reading `main.py` of 5+ services to "understand the codebase." That wastes 5000+ tokens of context on code you won't modify.
+
+**Right:** Service map → Grep → Read 2-3 files → Code.
+
+### 15C — When Grep Returns Nothing
+
+If targeted grep finds no matches:
+1. Broaden to `libs/` — the entity may be in shared code.
+2. Check `libs/core/enums.py`, `libs/core/schemas.py`, `libs/messaging/channels.py` — these are the most commonly referenced shared files.
+3. If still nothing, the entity may not exist yet. Proceed with creation, following existing patterns from the closest adjacent service.
+
+---
+
+## 16 · Progressive Effort Allocation
+
+> ForgeCode allocates high reasoning early, low during execution, high again for verification. This prevents "brilliant but meandering" trajectories.
+
+### Phase 1 — Planning (first 1–3 interactions)
+
+**Effort: HIGH.** This is where most mistakes originate.
+
+- Run Section 15 entry-point discovery
+- Run Section 10 self-critique
+- Create Section 14 todo list
+- Read broadly to understand the problem shape
+- Identify the existing pattern you will follow (Section 10A Q3)
+
+**Budget:** Up to 10 file reads. Up to 5 grep calls. This is your exploration budget.
+
+### Phase 2 — Execution (middle interactions)
+
+**Effort: FOCUSED.** One todo item at a time.
+
+- Read only the files needed for the current todo item
+- Write code
+- Mark todo complete
+- Move to next item
+
+**Budget:** 2–3 file reads per todo item. If you need more, your decomposition was wrong — add a sub-task.
+
+**Anti-pattern:** Re-reading CLAUDE.md, re-reading the architecture docs, or re-reading files you already read during planning. If you need that context, your planning was insufficient.
+
+### Phase 3 — Verification (final interaction)
+
+**Effort: HIGH.** Switch back to thorough review mode.
+
+- Run Section 9 verification protocol
+- Re-read ALL modified files (fresh, not from memory)
+- Run tests and lint
+- Challenge your own work: "Did I actually solve the problem or just look like I did?"
+
+---
+
+*Framework derived from production patterns: coding harnesses (Karpathy, Steinberger/OpenClaw), project-scale harnesses (Cursor planner-executor), dark factories (eval-gated autonomous pipelines), auto research (Karpathy, Shopify Liquid optimization), and orchestration frameworks (LangGraph, CrewAI). Adapted for the Praxis Trading Platform. Sections 9-13 derived from ForgeCode (Terminal-Bench #1, 81.8%) and Droid (Terminal-Bench #6, 77.3%) engineering patterns. Sections 14-16 derived from ForgeCode blog analysis (mandatory todo enforcement, semantic entry-point discovery, progressive thinking policy).*

@@ -5,6 +5,7 @@ Provides position size limits, concentration limits, and portfolio-level guards.
 
 import json
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Dict, Any, Optional
 from libs.observability import get_logger
 
@@ -22,8 +23,8 @@ class RiskService:
     from the validation service or executor before order placement."""
 
     # Hard system-wide limits (defence in depth — independent of profile config)
-    MAX_SINGLE_ORDER_USD = 50_000.0
-    MAX_POSITION_CONCENTRATION_PCT = 0.25  # 25% of portfolio in one asset
+    MAX_SINGLE_ORDER_USD = Decimal("50000")
+    MAX_POSITION_CONCENTRATION_PCT = Decimal("0.25")  # 25% of portfolio in one asset
     MAX_OPEN_POSITIONS_PER_PROFILE = 50
 
     def __init__(self, profile_repo=None, position_repo=None, redis_client=None):
@@ -32,11 +33,13 @@ class RiskService:
         self._redis = redis_client
 
     async def check_order(self, profile_id: str, symbol: str,
-                          quantity: float, price: float,
+                          quantity: Decimal, price: Decimal,
                           side: str = "BUY") -> RiskCheckResult:
         """Run all risk checks against a proposed order. Returns RiskCheckResult."""
+        quantity = Decimal(str(quantity))
+        price = Decimal(str(price))
 
-        order_value = quantity * price if price > 0 else 0.0
+        order_value = quantity * price if price > 0 else Decimal("0")
 
         # 1. Hard cap on single order notional
         if order_value > self.MAX_SINGLE_ORDER_USD:
@@ -47,19 +50,19 @@ class RiskService:
 
         # 2. Load profile risk limits from DB
         risk_limits = {}
-        portfolio_value = 0.0
+        portfolio_value = Decimal("0")
         if self._profile_repo:
             try:
                 profile = await self._profile_repo.get_profile(profile_id)
                 if profile:
                     raw = profile.get("risk_limits", "{}")
                     risk_limits = json.loads(raw) if isinstance(raw, str) else (raw or {})
-                    portfolio_value = float(profile.get("allocation_pct", 1.0)) * 10_000
+                    portfolio_value = Decimal(str(profile.get("allocation_pct", 1.0))) * Decimal("10000")
             except Exception as e:
                 logger.error("Failed to load profile for risk check", error=str(e))
 
         # 3. Profile-specific max allocation per trade
-        max_alloc_pct = float(risk_limits.get("max_allocation_pct", 1.0))
+        max_alloc_pct = Decimal(str(risk_limits.get("max_allocation_pct", 1.0)))
         if portfolio_value > 0 and order_value > 0:
             alloc_pct = order_value / portfolio_value
             if alloc_pct > max_alloc_pct:
@@ -83,8 +86,8 @@ class RiskService:
                 # Symbol concentration
                 if portfolio_value > 0:
                     symbol_exposure = sum(
-                        float(p.get("quantity", 0) if isinstance(p, dict) else getattr(p, "quantity", 0))
-                        * float(p.get("entry_price", 0) if isinstance(p, dict) else getattr(p, "entry_price", 0))
+                        (Decimal(str(p.get("quantity", 0) if isinstance(p, dict) else getattr(p, "quantity", 0)))
+                        * Decimal(str(p.get("entry_price", 0) if isinstance(p, dict) else getattr(p, "entry_price", 0))))
                         for p in open_positions
                         if (p.get("symbol") if isinstance(p, dict) else getattr(p, "symbol", "")) == symbol
                     )

@@ -18,7 +18,7 @@ from ..deps import get_timescale, get_current_user, get_redis
 
 logger = get_logger("auth-routes")
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter(tags=["auth"])
 
 
 @router.post("/callback", response_model=AuthResponse)

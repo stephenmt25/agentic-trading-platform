@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..deps import get_timescale, get_current_user
 from libs.storage._timescale_client import TimescaleClient
 
-router = APIRouter(prefix="/paper-trading", tags=["paper-trading"])
+router = APIRouter(tags=["paper-trading"])
 
 
 @router.get("/status")

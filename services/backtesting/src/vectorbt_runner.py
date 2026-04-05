@@ -115,7 +115,7 @@ def _evaluate_conditions_vectorized(
     for cond in conditions:
         ind_key = cond["indicator"]
         op = cond["operator"]
-        val = float(cond["value"])
+        val = float(cond["value"])  # float-ok: numpy array comparison
 
         arr = indicators.get(ind_key)
         if arr is None:
@@ -161,10 +161,10 @@ class VectorBTRunner:
 
         # Extract OHLCV arrays
         n = len(data)
-        closes = np.array([float(c["close"]) for c in data])
-        highs = np.array([float(c["high"]) for c in data])
-        lows = np.array([float(c["low"]) for c in data])
-        volumes = np.array([float(c.get("volume", 0)) for c in data])
+        closes = np.array([float(c["close"]) for c in data])  # float-ok: numpy interop
+        highs = np.array([float(c["high"]) for c in data])  # float-ok: numpy interop
+        lows = np.array([float(c["low"]) for c in data])  # float-ok: numpy interop
+        volumes = np.array([float(c.get("volume", 0)) for c in data])  # float-ok: numpy interop
         times = [str(c.get("time", "")) for c in data]
 
         # Compute indicators
@@ -176,6 +176,7 @@ class VectorBTRunner:
             indicators, compiled.conditions, compiled.logic,
         )
         direction = compiled.direction.value  # "BUY" or "SELL"
+        slippage_f = float(job.slippage_pct)  # float-ok: numpy vectorized engine requires float
 
         # Simulate trades from signal array
         trades: List[SimulatedTrade] = []
@@ -193,7 +194,7 @@ class VectorBTRunner:
                 in_position = True
             elif signals[i] and in_position:
                 # Close + re-open on signal while in position
-                slip = closes[i] * job.slippage_pct
+                slip = closes[i] * slippage_f
                 entry_price = closes[entry_idx] + (slip if direction == "BUY" else -slip)
                 exit_price = closes[i] - (slip if direction == "BUY" else -slip)
 
@@ -218,7 +219,7 @@ class VectorBTRunner:
         # Close remaining position
         if in_position:
             i = n - 1
-            slip = closes[i] * job.slippage_pct
+            slip = closes[i] * slippage_f
             entry_price = closes[entry_idx] + (slip if direction == "BUY" else -slip)
             exit_price = closes[i] - (slip if direction == "BUY" else -slip)
 

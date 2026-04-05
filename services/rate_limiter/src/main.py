@@ -61,7 +61,7 @@ def health():
     return {"status": "healthy"}
 
 
-@app.get("/quotas")
+@app.get("/quotas", response_model=dict)
 async def get_quotas():
     """Return configured exchange rate limits."""
     return {

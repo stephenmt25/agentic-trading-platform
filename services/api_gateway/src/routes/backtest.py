@@ -11,7 +11,7 @@ from ..deps import get_redis, get_current_user
 router = APIRouter()
 
 
-@router.post("", response_model=BacktestResponse)
+@router.post("/", response_model=BacktestResponse)
 async def create_backtest(
     req: BacktestRequest,
     user_id: str = Depends(get_current_user),

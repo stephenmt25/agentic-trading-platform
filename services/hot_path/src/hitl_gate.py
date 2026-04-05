@@ -10,6 +10,7 @@ Fail-safe: timeout or error → reject (block trade).
 import json
 import time
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import Optional, Dict, Any
 from uuid import UUID
 
@@ -167,8 +168,10 @@ class HITLGate:
         # 3. Large trade size relative to allocation
         max_alloc = state.risk_limits.max_allocation_pct
         if max_alloc > 0:
-            size_pct = float(risk_result.suggested_quantity / max_alloc) * 100
-            if size_pct > settings.HITL_SIZE_THRESHOLD_PCT:
+            qty = Decimal(str(risk_result.suggested_quantity))
+            alloc = Decimal(str(max_alloc))
+            size_pct = qty / alloc * 100
+            if float(size_pct) > settings.HITL_SIZE_THRESHOLD_PCT:  # float-ok: comparison with float setting
                 return f"large_trade_{size_pct:.1f}pct"
 
         return None

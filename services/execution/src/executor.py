@@ -3,7 +3,7 @@ import json
 import uuid
 from decimal import Decimal
 from datetime import datetime
-from libs.core.schemas import OrderApprovedEvent, OrderExecutedEvent, OrderRejectedEvent, BaseEvent
+from libs.core.schemas import OrderApprovedEvent, OrderExecutedEvent, OrderRejectedEvent, BaseEvent, AgentScorePayload
 from libs.core.models import Order, Position
 from libs.core.enums import OrderStatus, PositionStatus
 from libs.core.secrets import SecretManager
@@ -102,14 +102,14 @@ class OrderExecutor:
             direction = side if isinstance(side, str) else side.value
 
             if ta_raw:
-                data = json.loads(ta_raw)
-                agents["ta"] = {"direction": direction, "score": float(data.get("score", 0))}
+                data = AgentScorePayload.model_validate_json(ta_raw)
+                agents["ta"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
             if sent_raw:
-                data = json.loads(sent_raw)
-                agents["sentiment"] = {"direction": direction, "score": float(data.get("score", 0))}
+                data = AgentScorePayload.model_validate_json(sent_raw)
+                agents["sentiment"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
             if debate_raw:
-                data = json.loads(debate_raw)
-                agents["debate"] = {"direction": direction, "score": float(data.get("score", 0))}
+                data = AgentScorePayload.model_validate_json(debate_raw)
+                agents["debate"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
 
             if agents:
                 tracker = AgentPerformanceTracker(self._redis_client)

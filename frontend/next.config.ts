@@ -29,8 +29,9 @@ const nextConfig: NextConfig = {
           {
             key: "Content-Security-Policy",
             value: (() => {
+              // REST API calls go through same-origin Vercel rewrite (/api/backend/*).
+              // Only WebSocket needs a direct connection to the backend URL.
               const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").trim();
-              // Derive WS URL from API URL for tunnel support
               const wsUrl = apiUrl.replace(/^https/, "wss").replace(/^http/, "ws");
               return [
                 "default-src 'self'",
@@ -38,7 +39,7 @@ const nextConfig: NextConfig = {
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                 "font-src 'self' https://fonts.gstatic.com",
                 "img-src 'self' data: blob: https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
-                `connect-src 'self' ${apiUrl} ${wsUrl}`,
+                `connect-src 'self' ${wsUrl}`,
               ].join("; ");
             })(),
           },

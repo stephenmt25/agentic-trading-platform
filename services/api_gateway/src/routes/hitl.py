@@ -8,7 +8,7 @@ from ..deps import get_current_user
 from libs.storage import RedisClient
 from libs.config import settings
 
-router = APIRouter(prefix="/api/hitl", tags=["hitl"])
+router = APIRouter(tags=["hitl"])
 
 
 def _get_redis():

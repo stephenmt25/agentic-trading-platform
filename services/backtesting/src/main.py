@@ -63,10 +63,10 @@ def health():
 
 from datetime import datetime
 
-from libs.core.schemas import SweepRequest
+from libs.core.schemas import SweepRequest, BacktestSweepResponse
 
 
-@app.post("/backtest/sweep")
+@app.post("/backtest/sweep", response_model=BacktestSweepResponse)
 async def backtest_sweep(req: SweepRequest):
     """Run a vectorized parameter grid sweep."""
     loader = _app_state.get("loader")

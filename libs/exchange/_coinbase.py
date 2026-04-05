@@ -50,8 +50,8 @@ class CoinbaseAdapter(ExchangeAdapter):
             symbol=symbol,
             type='limit',
             side=side.name.lower(),
-            amount=float(qty),
-            price=float(price),
+            amount=float(qty),  # float-ok: ccxt api requires float
+            price=float(price),  # float-ok: ccxt api requires float
         )
         return OrderResult(
             order_id=res['id'],

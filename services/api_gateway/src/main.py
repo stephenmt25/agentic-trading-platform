@@ -69,8 +69,8 @@ def create_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=settings.CORS_ORIGINS,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type", "X-Request-ID", "Accept"],
         expose_headers=["X-Request-ID"],
     )
 
@@ -130,12 +130,12 @@ def create_app() -> FastAPI:
         return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
     # ------------------------------------------------------------------
-    # Public routes (no auth)
+    # Public routes (no auth) — all prefixes defined here at mount time
     # ------------------------------------------------------------------
     app.include_router(health.router)
-    app.include_router(auth.router)
+    app.include_router(auth.router, prefix="/auth")
     app.include_router(ws.router)
-    app.include_router(docs_chat.router)
+    app.include_router(docs_chat.router, prefix="/docs")
     app.include_router(telemetry_stream.router)
 
     # ------------------------------------------------------------------
@@ -152,12 +152,11 @@ def create_app() -> FastAPI:
         (paper_trading.router, "/paper-trading"),
         (agents.router, "/agents"),
         (backtest.router, "/backtest"),
-        (hitl.router, "/api/hitl"),
+        (hitl.router, "/hitl"),
     ]
 
     for router, prefix in secure_routes:
-        route_prefix = "" if router.prefix else prefix
-        app.include_router(router, prefix=route_prefix, dependencies=[Depends(verify_token_dep)])
+        app.include_router(router, prefix=prefix, dependencies=[Depends(verify_token_dep)])
 
     return app
 

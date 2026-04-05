@@ -1,6 +1,7 @@
 import asyncio
 import json
 from decimal import Decimal
+from libs.core.schemas import DrawdownPayload, AllocationPayload
 from libs.messaging.channels import PUBSUB_PNL_UPDATES
 from libs.observability import get_logger
 
@@ -94,14 +95,14 @@ class PnlSync:
                     # Drawdown
                     dd_raw = await self._redis.get(f"risk:drawdown:{pid}")
                     if dd_raw:
-                        data = json.loads(dd_raw)
-                        state.current_drawdown_pct = Decimal(str(data.get("drawdown_pct", 0)))
+                        parsed = DrawdownPayload.model_validate_json(dd_raw)
+                        state.current_drawdown_pct = parsed.drawdown_pct_decimal()
 
                     # Allocation
                     alloc_raw = await self._redis.get(f"risk:allocation:{pid}")
                     if alloc_raw:
-                        data = json.loads(alloc_raw)
-                        state.current_allocation_pct = Decimal(str(data.get("allocation_pct", 0)))
+                        parsed = AllocationPayload.model_validate_json(alloc_raw)
+                        state.current_allocation_pct = parsed.allocation_pct_decimal()
 
             except asyncio.CancelledError:
                 break

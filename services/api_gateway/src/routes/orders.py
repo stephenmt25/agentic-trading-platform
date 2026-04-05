@@ -4,7 +4,7 @@ from uuid import UUID
 from ..deps import get_order_repo, get_current_user
 from libs.storage.repositories import OrderRepository
 
-router = APIRouter(prefix="/orders", tags=["orders"])
+router = APIRouter(tags=["orders"])
 
 
 @router.get("/")

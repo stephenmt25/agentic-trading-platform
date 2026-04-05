@@ -1,10 +1,12 @@
+from decimal import Decimal
+from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List
 from ..deps import get_profile_repo, get_current_user
 from libs.core.schemas import ProfileCreate, ProfileUpdate, ProfileToggle, ProfileResponse
 from libs.storage.repositories.profile_repo import ProfileRepository
 
-router = APIRouter(prefix="/profiles", tags=["profiles"])
+router = APIRouter(tags=["profiles"])
 
 
 @router.get("/", response_model=List[ProfileResponse])
@@ -28,7 +30,7 @@ async def get_profiles(
             name=p.get("name", ""),
             is_active=p.get("is_active", False),
             rules_json=raw_rules,
-            allocation_pct=float(p.get("allocation_pct", 0)),
+            allocation_pct=Decimal(str(p.get("allocation_pct", 0))),
             created_at=str(p.get("created_at", "")),
             deleted_at=str(p.get("deleted_at", "")) if p.get("deleted_at") else None,
         ))
@@ -57,13 +59,13 @@ async def create_profile(
 
 @router.put("/{profile_id}")
 async def update_profile(
-    profile_id: str,
+    profile_id: UUID,
     profile_data: ProfileUpdate,
     user_id: str = Depends(get_current_user),
     repo: ProfileRepository = Depends(get_profile_repo),
 ):
     """Update strategy rules for an existing profile (owned by current user)."""
-    updated = await repo.update_profile(profile_id, user_id, profile_data.rules_json, profile_data.is_active)
+    updated = await repo.update_profile(str(profile_id), user_id, profile_data.rules_json, profile_data.is_active)
     if not updated:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"status": "updated", "profile": updated}
@@ -71,13 +73,13 @@ async def update_profile(
 
 @router.patch("/{profile_id}/toggle")
 async def toggle_profile(
-    profile_id: str,
+    profile_id: UUID,
     body: ProfileToggle,
     user_id: str = Depends(get_current_user),
     repo: ProfileRepository = Depends(get_profile_repo),
 ):
     """Toggle a profile's active state (owned by current user)."""
-    result = await repo.toggle_active(profile_id, user_id, body.is_active)
+    result = await repo.toggle_active(str(profile_id), user_id, body.is_active)
     if not result:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"status": "toggled", "is_active": body.is_active}
@@ -85,12 +87,12 @@ async def toggle_profile(
 
 @router.delete("/{profile_id}")
 async def delete_profile(
-    profile_id: str,
+    profile_id: UUID,
     user_id: str = Depends(get_current_user),
     repo: ProfileRepository = Depends(get_profile_repo),
 ):
     """Soft-delete a profile (owned by current user)."""
-    result = await repo.soft_delete(profile_id, user_id)
+    result = await repo.soft_delete(str(profile_id), user_id)
     if not result:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"status": "deleted", "deleted_at": str(result.get("deleted_at", ""))}

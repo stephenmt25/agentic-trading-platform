@@ -5,7 +5,7 @@
 # Frontend is deployed on Vercel. This script starts backend services only.
 # Use --with-tunnel to also start a Cloudflare Tunnel for Vercel connectivity.
 # Use --local-frontend to also start the local Next.js dev server on :3000.
-set -uo pipefail
+set -euo pipefail
 cd "$(dirname "$0")"
 
 # Resolve poetry — check common Windows paths (WSL /mnt/c and Git Bash /c)
@@ -65,6 +65,20 @@ trap cleanup SIGINT SIGTERM
 
 # ---------- Prep ----------
 mkdir -p "$LOGDIR"
+
+# Guard against double-launch: if PID file exists with live processes, abort
+if [[ -f "$PIDFILE" ]]; then
+    LIVE=0
+    while read -r pid name; do
+        kill -0 "$pid" 2>/dev/null && LIVE=$((LIVE + 1))
+    done < "$PIDFILE"
+    if [[ $LIVE -gt 0 ]]; then
+        echo "ERROR: $LIVE service(s) still running from a previous launch."
+        echo "  Run 'bash run_all.sh --stop' first, then try again."
+        exit 1
+    fi
+    rm -f "$PIDFILE"
+fi
 > "$PIDFILE"
 
 echo "============================================"
@@ -103,12 +117,25 @@ echo "=== [2/4] Running Database Migrations ==="
 $POETRY run python scripts/migrate.py
 echo ""
 
+# ---------- Helper: check port availability ----------
+check_port() {
+    local port=$1
+    local name=$2
+    if netstat -ano 2>/dev/null | grep -q "[:.]${port} .*LISTEN"; then
+        local holder_pid=$(netstat -ano 2>/dev/null | grep "[:.]${port} .*LISTEN" | awk '{print $5}' | head -1)
+        echo "  WARNING: Port $port ($name) already in use by PID $holder_pid — killing it"
+        kill "$holder_pid" 2>/dev/null || taskkill //PID "$holder_pid" //F 2>/dev/null || true
+        sleep 1
+    fi
+}
+
 # ---------- Helper: launch a background service ----------
 launch() {
     local name=$1
     local module=$2
     local port=$3
 
+    check_port "$port" "$name"
     echo "  Starting $name on :$port"
     $POETRY run python -m $module > "$LOGDIR/$name.log" 2>&1 &
     local pid=$!
@@ -123,6 +150,22 @@ launch_async() {
     $POETRY run python -m $module > "$LOGDIR/$name.log" 2>&1 &
     local pid=$!
     echo "$pid $name" >> "$PIDFILE"
+}
+
+# Verify recently launched processes are still alive after a brief settle
+verify_launches() {
+    local failures=0
+    sleep 3
+    while read -r pid name; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            echo "  ERROR: $name (PID $pid) crashed on startup. Check $LOGDIR/$name.log"
+            failures=$((failures + 1))
+        fi
+    done < "$PIDFILE"
+    if [[ $failures -gt 0 ]]; then
+        echo ""
+        echo "  WARNING: $failures service(s) failed to start. Review logs above."
+    fi
 }
 
 # ---------- 3. Backend Services ----------
@@ -151,33 +194,55 @@ launch "sentiment"     "services.sentiment.src.main"     8092
 launch "risk"          "services.risk.src.main"          8093
 launch "debate"        "services.debate.src.main"        8096
 
+# Infrastructure services
+launch "rate_limiter" "services.rate_limiter.src.main" 8094
+launch "slm_inference" "services.slm_inference.src.main" 8095
+
 # Standalone async services (no HTTP server)
 launch_async "strategy"     "services.strategy.src.main"
-launch "rate_limiter" "services.rate_limiter.src.main" 8094
 
 echo ""
 
+# Verify all services are still alive after settling
+verify_launches
+
+# Health gate: confirm API gateway is actually responding
+echo ""
+echo "  Checking API gateway health..."
+for i in $(seq 1 10); do
+    if curl -s http://localhost:8000/health 2>/dev/null | grep -q "healthy"; then
+        echo "  API Gateway: healthy"
+        break
+    fi
+    if [[ $i -eq 10 ]]; then
+        echo "  WARNING: API Gateway not responding on :8000. Check $LOGDIR/api_gateway.log"
+    fi
+    sleep 1
+done
+
 # ---------- 4. Cloudflare Tunnel (optional) ----------
+TUNNEL_ID="6b542e91-07d2-424a-aad1-cfe85a20f45a"
+TUNNEL_URL="https://${TUNNEL_ID}.cfargotunnel.com"
+
 if [[ "$WITH_TUNNEL" == true ]]; then
-    echo "=== [4/5] Starting Cloudflare Tunnel ==="
+    echo "=== [4/5] Starting Cloudflare Tunnel (named: praxis-dev) ==="
     CLOUDFLARED=""
     for p in \
         "/c/Program Files (x86)/cloudflared/cloudflared.exe" \
         "/mnt/c/Program Files (x86)/cloudflared/cloudflared.exe"; do
         [[ -f "$p" ]] && CLOUDFLARED="$p" && break
     done
-    [[ -n "$CLOUDFLARED" ]] || CLOUDFLARED="$(command -v cloudflared 2>/dev/null || true)"
+    [[ -n "$CLOUDFLARED" ]] || CLOUDFLARED="$(command -v cloudflared 2>/dev/null)" || true
     if [[ -n "$CLOUDFLARED" ]]; then
-        "$CLOUDFLARED" tunnel --url http://localhost:8000 > "$LOGDIR/cloudflared.log" 2>&1 &
+        "$CLOUDFLARED" tunnel run praxis-dev > "$LOGDIR/cloudflared.log" 2>&1 &
         TUNNEL_PID=$!
         echo "$TUNNEL_PID cloudflared" >> "$PIDFILE"
-        sleep 6
-        TUNNEL_URL=$(grep -o 'https://[a-z0-9-]*\.trycloudflare\.com' "$LOGDIR/cloudflared.log" | head -1)
-        if [[ -n "$TUNNEL_URL" ]]; then
-            echo "  Tunnel: $TUNNEL_URL"
-            echo "  Update NEXT_PUBLIC_API_URL on Vercel if the URL changed."
+        sleep 4
+        if kill -0 "$TUNNEL_PID" 2>/dev/null; then
+            echo "  Tunnel: $TUNNEL_URL (permanent)"
         else
-            echo "  WARNING: Tunnel started but URL not detected. Check $LOGDIR/cloudflared.log"
+            echo "  ERROR: Tunnel failed to start. Check $LOGDIR/cloudflared.log"
+            echo "  If not set up yet, run: cloudflared tunnel login && cloudflared tunnel create praxis-dev"
         fi
     else
         echo "  WARNING: cloudflared not found. Install with: winget install Cloudflare.cloudflared"
@@ -225,6 +290,7 @@ echo "    Regime HMM ..... :8091"
 echo "    Sentiment ...... :8092"
 echo "    Risk ........... :8093"
 echo "    Rate Limiter ... :8094"
+echo "    SLM Inference .. :8095"
 echo "    Debate ......... :8096"
 echo ""
 echo "  Frontend:"
@@ -232,7 +298,7 @@ if [[ "$LOCAL_FRONTEND" == true ]]; then
     echo "    Local .......... http://localhost:3000"
 fi
 echo "    Vercel ......... https://frontend-seven-khaki-13.vercel.app"
-if [[ "$WITH_TUNNEL" == true ]] && [[ -n "${TUNNEL_URL:-}" ]]; then
+if [[ "$WITH_TUNNEL" == true ]]; then
     echo "    Tunnel ......... $TUNNEL_URL"
 fi
 echo ""

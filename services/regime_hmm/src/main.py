@@ -21,6 +21,11 @@ SCORE_TTL_S = 600
 HMM_FIT_TIMEOUT_S = 30
 # Number of recent points to hold out from training for prediction
 HMM_PREDICT_WINDOW = 1
+# Minimum forward-algorithm probability for the decoded state before the
+# regime signal is published.  Predictions below this threshold are
+# suppressed — the Redis key is not written and a telemetry event is
+# emitted instead so the dashboard can surface low-confidence periods.
+CONFIDENCE_THRESHOLD = 0.70
 
 
 async def classification_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher):
@@ -37,7 +42,7 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository, t
                 if not candles:
                     continue
 
-                prices = [float(c["close"]) for c in candles]
+                prices = [float(c["close"]) for c in candles]  # float-ok: numpy/hmmlearn requires float
                 model = models[symbol]
 
                 # Split: train on all but last N points, predict on full series
@@ -61,18 +66,49 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository, t
                 if state is not None:
                     regime = map_state_to_regime(model, state)
                     if regime:
-                        key = f"agent:regime_hmm:{symbol}"
-                        await redis_client.set(
-                            key,
-                            json.dumps({"regime": regime.value, "state_index": state}),
-                            ex=SCORE_TTL_S,
-                        )
-                        logger.info("HMM regime updated", symbol=symbol, regime=regime.value)
-                        await telemetry.emit(
-                            "state_update",
-                            {"symbol": symbol, "regime": regime.value, "state_index": state},
-                            target_agent="hot_path",
-                        )
+                        confidence = model.predict_confidence(prices, state)
+                        if confidence is not None and confidence >= CONFIDENCE_THRESHOLD:
+                            key = f"agent:regime_hmm:{symbol}"
+                            await redis_client.set(
+                                key,
+                                json.dumps({"regime": regime.value, "state_index": state, "confidence": confidence}),
+                                ex=SCORE_TTL_S,
+                            )
+                            logger.info(
+                                "HMM regime updated",
+                                symbol=symbol,
+                                regime=regime.value,
+                                confidence=round(confidence, 4),
+                            )
+                            await telemetry.emit(
+                                "state_update",
+                                {
+                                    "symbol": symbol,
+                                    "regime": regime.value,
+                                    "state_index": state,
+                                    "confidence": confidence,
+                                },
+                                target_agent="hot_path",
+                            )
+                        else:
+                            logger.info(
+                                "HMM regime suppressed (low confidence)",
+                                symbol=symbol,
+                                regime=regime.value,
+                                confidence=confidence,
+                                threshold=CONFIDENCE_THRESHOLD,
+                            )
+                            await telemetry.emit(
+                                "regime_suppressed",
+                                {
+                                    "symbol": symbol,
+                                    "regime": regime.value,
+                                    "state_index": state,
+                                    "confidence": confidence,
+                                    "threshold": CONFIDENCE_THRESHOLD,
+                                },
+                                target_agent="hot_path",
+                            )
 
         except Exception as e:
             logger.error("HMM classification loop error", error=str(e))

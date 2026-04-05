@@ -38,7 +38,7 @@ class RegimeDampener:
     async def check(
         self, state: ProfileState, signal: SignalResult, tick: NormalisedTick, inds: EvaluatedIndicators
     ) -> DampenerResult:
-        price = float(tick.price)
+        price = float(tick.price)  # float-ok: indicator library requires float
 
         # 1. Rule-based regime from existing indicator
         rule_regime = state.indicators.regime.update(price, inds.atr)

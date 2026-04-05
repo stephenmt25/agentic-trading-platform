@@ -45,9 +45,9 @@ class IndicatorHydrator:
                 ts_ms = int(c['time'].timestamp() * 1000)
                 # Store enough info to prime indicators (e.g., close price, high, low)
                 val = json.dumps({
-                    "price": float(c['close']),
-                    "high": float(c['high']),
-                    "low": float(c['low'])
+                    "price": float(c['close']),  # float-ok: indicator library requires float
+                    "high": float(c['high']),  # float-ok: indicator library requires float
+                    "low": float(c['low']),  # float-ok: indicator library requires float
                 })
                 pipe.zadd(key, {val: ts_ms})
             

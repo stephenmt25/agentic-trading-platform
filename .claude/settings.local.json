@@ -120,7 +120,12 @@
       "Bash(npx --yes vercel deploy --cwd \"C:/Users/stevo/DEV/agent_trader_1/aion-trading/frontend\" --prod -b NEXT_PUBLIC_API_URL=\"https://cameras-experts-creating-florida.trycloudflare.com\")",
       "Bash(cloudflared tunnel:*)",
       "Bash(\"/c/Program Files \\(x86\\)/cloudflared/cloudflared.exe\" tunnel list)",
-      "Bash(npx:*)"
+      "Bash(npx:*)",
+      "Read(//tmp/**)",
+      "Bash(taskkill:*)",
+      "Bash(grep -r \"APIRouter\" /c/Users/stevo/DEV/agent_trader_1/aion-trading/services/api_gateway/src/routes/*.py)",
+      "Bash(/c/Users/stevo/AppData/Local/Programs/Python/Python312/Scripts/poetry.exe run python -c ':*)",
+      "Bash(\"/c/Users/stevo/AppData/Local/Programs/Python/Python312/Scripts/poetry.exe\" run:*)"
     ]
   },
   "enabledMcpjsonServers": [

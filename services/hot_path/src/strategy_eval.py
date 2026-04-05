@@ -29,7 +29,7 @@ class SignalResult:
 class StrategyEvaluator:
     @staticmethod
     def evaluate(state: ProfileState, tick: NormalisedTick) -> Optional[tuple[SignalResult, EvaluatedIndicators]]:
-        price = float(tick.price)
+        price = float(tick.price)  # float-ok: indicator library requires float
 
         # 1. Update Indicators Incrementally
         rsi_val = state.indicators.rsi.update(price)
@@ -37,8 +37,8 @@ class StrategyEvaluator:
 
         # Derive high/low from bid/ask if available, else estimate from prev_close
         if tick.bid is not None and tick.ask is not None:
-            tick_high = float(tick.ask)
-            tick_low = float(tick.bid)
+            tick_high = float(tick.ask)  # float-ok: indicator library requires float
+            tick_low = float(tick.bid)  # float-ok: indicator library requires float
         else:
             prev = state.indicators.atr.prev_close if state.indicators.atr.prev_close else price
             tick_high = max(price, prev)
@@ -48,7 +48,7 @@ class StrategyEvaluator:
         # New indicators (optional — None means still priming or not configured)
         adx_val = state.indicators.adx.update(tick_high, tick_low, price) if state.indicators.adx else None
         bb_val = state.indicators.bollinger.update(price) if state.indicators.bollinger else None
-        obv_val = state.indicators.obv.update(price, float(tick.volume)) if state.indicators.obv else None
+        obv_val = state.indicators.obv.update(price, float(tick.volume)) if state.indicators.obv else None  # float-ok: indicator library requires float
         chop_val = state.indicators.choppiness.update(tick_high, tick_low, price) if state.indicators.choppiness else None
 
         if rsi_val is None or macd_val is None or atr_val is None:

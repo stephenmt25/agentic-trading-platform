@@ -18,7 +18,11 @@ interface Message {
   stage?: "searching" | "reading" | "generating" | "done";
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// Use same-origin rewrite in production, direct in local dev
+const API_URL =
+  typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL
+    ? "/api/backend"
+    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
 const STAGE_ICONS = {
   searching: Search,

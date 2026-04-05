@@ -7,7 +7,7 @@ from libs.storage._redis_client import RedisClient
 from libs.messaging import PubSubBroadcaster
 from libs.messaging.channels import PUBSUB_PNL_UPDATES
 from libs.storage.repositories import PnlRepository
-from libs.core.schemas import PnlUpdateEvent
+from libs.core.schemas import PnlUpdateEvent, DailyPnlPayload, DrawdownPayload
 
 _ZERO = Decimal("0")
 _SNAPSHOT_THRESHOLD = Decimal("0.005")
@@ -65,10 +65,10 @@ class PnLPublisher:
         raw = await self._redis.get(key)
 
         if raw:
-            data = json.loads(raw)
-            data["total_pct"] = float(Decimal(str(data.get("total_pct", 0))) + pct_return)
+            parsed = DailyPnlPayload.model_validate_json(raw)
+            data = {"total_pct": str(parsed.total_pct_decimal() + pct_return)}
         else:
-            data = {"total_pct": float(pct_return)}
+            data = {"total_pct": str(pct_return)}
 
         # Calculate seconds until next midnight UTC
         now = datetime.now(timezone.utc)
@@ -85,13 +85,14 @@ class PnLPublisher:
     async def _update_drawdown(self, profile_id: str, snapshot):
         """Track current drawdown in Redis."""
         key = f"risk:drawdown:{profile_id}"
-        drawdown_pct = float(max(_ZERO, -snapshot.pct_return) if snapshot.pct_return < 0 else _ZERO)
+        drawdown_pct = max(_ZERO, -snapshot.pct_return) if snapshot.pct_return < 0 else _ZERO
 
         raw = await self._redis.get(key)
         if raw:
-            data = json.loads(raw)
-            data["drawdown_pct"] = max(data.get("drawdown_pct", 0.0), drawdown_pct)
+            parsed = DrawdownPayload.model_validate_json(raw)
+            prev = parsed.drawdown_pct_decimal()
+            data = {"drawdown_pct": str(max(prev, drawdown_pct))}
         else:
-            data = {"drawdown_pct": drawdown_pct}
+            data = {"drawdown_pct": str(drawdown_pct)}
 
         await self._redis.set(key, json.dumps(data), ex=86400)

@@ -9,7 +9,7 @@ class AbstentionChecker:
         # True = abstain
         
         # 1. ATR < 0.3% of price (Whipsaw protection)
-        price = float(tick.price)
+        price = float(tick.price)  # float-ok: indicator library requires float
         if inds.atr < (price * 0.003):
             return True
             

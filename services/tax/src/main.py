@@ -1,11 +1,11 @@
 from fastapi import FastAPI
 from .us_tax import USTaxCalculator
-from libs.core.schemas import TaxRequest
+from libs.core.schemas import TaxRequest, TaxEstimateResponse
 import uvicorn
 
 app = FastAPI(title="Tax Calculation Service")
     
-@app.post("/calculate")
+@app.post("/calculate", response_model=TaxEstimateResponse)
 def calculate_tax(req: TaxRequest):
     est = USTaxCalculator.calculate(
         holding_duration_days=req.holding_duration_days,

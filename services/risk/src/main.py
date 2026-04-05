@@ -3,6 +3,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 
 from libs.config import settings
+from libs.core.schemas import RiskCheckResponse
 from libs.storage import RedisClient, TimescaleClient
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
@@ -49,7 +50,7 @@ def health():
     return {"status": "healthy"}
 
 
-@app.post("/check")
+@app.post("/check", response_model=RiskCheckResponse)
 async def check_order(
     profile_id: str,
     symbol: str,
