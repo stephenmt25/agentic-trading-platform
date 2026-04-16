@@ -4,7 +4,7 @@
       "command": "cmd",
       "args": ["/c", "npx", "-y", "@_davideast/stitch-mcp", "proxy"],
       "env": {
-        "STITCH_API_KEY": "AQ.Ab8RN6Le4DfxmqXpFpEBihhTewFj08jc2TLL29xRYHFJUvUQww"
+        "STITCH_API_KEY": "REPLACE_WITH_NEW_KEY"
       }
     },
     "blender": {
