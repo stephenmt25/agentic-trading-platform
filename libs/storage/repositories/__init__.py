@@ -1,3 +1,4 @@
+from .agent_score_repo import AgentScoreRepository
 from .audit_repo import AuditRepository
 from .backtest_repo import BacktestRepository
 from .decision_repo import DecisionRepository
@@ -9,6 +10,7 @@ from .profile_repo import ProfileRepository
 from .validation_repo import ValidationRepository
 
 __all__ = [
+    "AgentScoreRepository",
     "AuditRepository",
     "BacktestRepository",
     "DecisionRepository",

@@ -1,0 +1,40 @@
+import { create } from "zustand";
+
+export type Timeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+export type AgentOverlay = "ta" | "sentiment" | "debate" | "regime_hmm";
+
+interface AnalysisState {
+  symbol: string;
+  timeframe: Timeframe;
+  visibleOverlays: AgentOverlay[];
+  showIndicators: boolean;
+  showTradeMarkers: boolean;
+  showRegimeBands: boolean;
+  setSymbol: (s: string) => void;
+  setTimeframe: (tf: Timeframe) => void;
+  toggleOverlay: (agent: AgentOverlay) => void;
+  setShowIndicators: (v: boolean) => void;
+  setShowTradeMarkers: (v: boolean) => void;
+  setShowRegimeBands: (v: boolean) => void;
+}
+
+export const useAnalysisStore = create<AnalysisState>((set) => ({
+  symbol: "BTC/USDT",
+  timeframe: "1h",
+  visibleOverlays: ["ta", "sentiment", "debate"],
+  showIndicators: true,
+  showTradeMarkers: true,
+  showRegimeBands: true,
+
+  setSymbol: (symbol) => set({ symbol }),
+  setTimeframe: (timeframe) => set({ timeframe }),
+  toggleOverlay: (agent) =>
+    set((state) => ({
+      visibleOverlays: state.visibleOverlays.includes(agent)
+        ? state.visibleOverlays.filter((a) => a !== agent)
+        : [...state.visibleOverlays, agent],
+    })),
+  setShowIndicators: (v) => set({ showIndicators: v }),
+  setShowTradeMarkers: (v) => set({ showTradeMarkers: v }),
+  setShowRegimeBands: (v) => set({ showRegimeBands: v }),
+}));
