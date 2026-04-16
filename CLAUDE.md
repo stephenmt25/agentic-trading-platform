@@ -19,7 +19,7 @@ Architecture is governed by a merged architecture document (v2.0) organized into
 │                   #   analyst, archiver, backtesting, debate, ingestion, logger, rate_limiter,
 │                   #   regime_hmm, risk, sentiment, slm_inference, strategy, tax)
 ├── frontend/       # Next.js 16 dashboard
-├── migrations/     # SQL migration files (in migrations/versions/)
+├── migrations/     # 11 SQL migration files (in migrations/versions/)
 ├── docs/           # Markdown documentation (incl. AGENT-FRAMEWORK.md, DOCUMENTATION-GAPS.md, TECH-DEBT-REGISTRY.md)
 ├── deploy/         # Docker Compose, Kubernetes, Terraform
 ├── docker/         # Dockerfiles
@@ -74,7 +74,7 @@ The `edit-validator.sh` hook blocks new `float(` introductions in `services/exec
 | Kill switch / emergency shutdown | **RESOLVED** — `KillSwitch` via Redis key + API endpoint |
 | Position-level stop-loss enforcement | **RESOLVED** — `StopLossMonitor` in PnL tick processor |
 
-**Remaining (MEDIUM):** 13 API endpoints lack `response_model`, `profile_id` UUID validation missing, CORS overly permissive. See `docs/DOCUMENTATION-GAPS.md`.
+**Remaining:** All MEDIUM code defects (D-14, D-15, D-17) resolved as of 2026-04-03. Open items are architecture doc discrepancies (A-2, A-3, A-4, A-6) and documentation gaps (G-1 through G-7, G-10, G-11). See `docs/DOCUMENTATION-GAPS.md`.
 
 ### 2E — Tech Debt Handling
 

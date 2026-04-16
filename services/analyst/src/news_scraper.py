@@ -1,11 +1,17 @@
 import httpx
 from typing import List
+from libs.observability import get_logger
+
+logger = get_logger("analyst.news_scraper")
+
 
 class NewsScraper:
     def __init__(self, api_key: str = ""):
         self._api_key = api_key
         # Example using CryptoCompare News API
         self._base_url = "https://min-api.cryptocompare.com/data/v2/news/?categories="
+        if not self._api_key:
+            logger.warning("NEWS_API_KEY not set — news scraper will return empty results. Set PRAXIS_NEWS_API_KEY to enable.")
 
     async def get_headlines(self, symbol: str, limit: int = 10) -> List[str]:
         if not self._api_key:

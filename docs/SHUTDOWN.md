@@ -1,6 +1,10 @@
 # Safe System Shutdown Instructions
 
-To safely shut down the Agentic Trading Platform and ensure no data corruption or dangling processes, follow these steps in order:
+> **Legacy Document** (covers 8 services). The platform now has 19 backend services.
+> The recommended shutdown method is `bash run_all.sh --stop`, which handles all services automatically.
+> For a complete list of services and their ports, see `run_all.sh` or the [Architecture Overview](architecture-overview.md) service catalog.
+
+To safely shut down the Praxis Trading Platform and ensure no data corruption or dangling processes, follow these steps in order:
 
 ## 1. Stop the Frontend Server
 If you are running the Next.js frontend, navigate to the terminal window where it is running (usually displaying `npm run dev`) and press **`Ctrl + C`**. 

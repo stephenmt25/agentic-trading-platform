@@ -35,6 +35,7 @@ class Settings(BaseSettings):
     LLM_API_KEY: str = Field(default="")
     NEWS_API_KEY: str = Field(default="")
     PAGERDUTY_API_KEY: str = Field(default="")
+    SLACK_WEBHOOK: str = Field(default="")
     GCS_BUCKET_NAME: str = Field(default="")
 
     # Phase 2: Auth & Secrets

@@ -4,7 +4,7 @@
 > with a latency-optimized execution pipeline to generate, validate, and execute
 > trading signals across multiple exchanges.
 
-**Last updated**: 2026-03-19 | **Phase**: 3 | **Platform version**: Python 3.11+ / Next.js 16
+**Last updated**: 2026-04-16 | **Phase**: 3 | **Platform version**: Python 3.11+ / Next.js 16
 
 ---
 
@@ -106,7 +106,7 @@ See `docs/configuration.md` for Vercel deployment setup steps.
 
 ## Container Diagram (C4 Level 2)
 
-This diagram decomposes Praxis into its 17 services, two data stores, and the frontend.
+This diagram decomposes Praxis into its 19 services, two data stores, and the frontend.
 All backend services communicate through Redis 7 (streams, pub/sub, and list-based RPC).
 
 ```mermaid
@@ -122,7 +122,7 @@ C4Container
 
         Container(ingestion, "Ingestion", "FastAPI :8080", "Exchange WebSocket subscriber, normalises candles to stream:market_data")
         Container(validation, "Validation", "FastAPI :8081", "Dual-layer: sync fast-gate (50ms) + async LLM audit with 6 checks")
-        Container(hot_path, "Hot-Path", "FastAPI :8082", "9-stage signal pipeline with 50ms deadline")
+        Container(hot_path, "Hot-Path", "FastAPI :8082", "11-stage signal pipeline with 50ms deadline")
         Container(execution, "Execution", "FastAPI :8083", "Optimistic order ledger, exchange routing via CCXT")
         Container(pnl, "PnL", "FastAPI :8084", "Real-time profit/loss calculation, broadcasts snapshots")
         Container(logger_svc, "Logger", "FastAPI :8085", "Immutable audit trail to TimescaleDB")
@@ -133,12 +133,14 @@ C4Container
         Container(sentiment, "Sentiment", "FastAPI :8092", "LLM-based sentiment scoring with prompt evaluation")
 
         Container(strategy, "Strategy Agent", "asyncio (no server)", "Indicator hydration at startup, strategy parameter management")
-        Container(risk, "Risk", "Library (no server)", "Position sizing, drawdown limits, exposure checks")
-        Container(rate_limiter, "Rate Limiter", "Library (stub)", "Sliding window rate limiting via Redis -- currently always allows")
+        Container(risk, "Risk", "FastAPI :8093", "Position sizing, drawdown limits, exposure checks (5-layer validation)")
+        Container(rate_limiter, "Rate Limiter", "FastAPI :8094", "Exchange rate limit quota service; enforcement via Redis sliding window in RateLimiterClient")
 
-        Container(analyst, "Analyst", "FastAPI :8080", "Market analysis and reporting")
-        Container(tax, "Tax", "FastAPI :8080", "US tax calculation (FIFO, wash sale detection)")
-        Container(archiver, "Archiver", "FastAPI :8080", "Data archival to Google Cloud Storage")
+        Container(analyst, "Analyst", "FastAPI :8087", "Dynamic agent weight recomputation via EWMA accuracy tracking")
+        Container(tax, "Tax", "FastAPI :8089", "US tax calculation (FIFO, wash sale detection)")
+        Container(archiver, "Archiver", "FastAPI :8088", "Redis cleanup + TimescaleDB archiving; GCS export deferred")
+        Container(slm_inference, "SLM Inference", "FastAPI :8095", "Local GGUF model inference (optional llama-cpp-python); mock fallback")
+        Container(debate, "Debate", "FastAPI :8096", "Adversarial bull/bear debate consensus via LLM backend")
 
         ContainerDb(timescale, "TimescaleDB", "PostgreSQL 15 + TimescaleDB 2.13.1", "Hypertables: orders, audit_log, validation_events, pnl_snapshots, market_data_ohlcv")
         ContainerDb(redis, "Redis", "Redis 7 (256MB, password-protected)", "Streams, pub/sub, caching, list-based RPC, rate limiting")
@@ -172,7 +174,7 @@ C4Container
 
 ### Trading Engine (Hot-Path Pipeline)
 
-The hot-path service implements a 9-stage pipeline that processes each incoming market
+The hot-path service implements an 11-stage pipeline that processes each incoming market
 data tick. The entire pipeline targets a 50ms end-to-end deadline. Each stage is a
 discrete module in `services/hot_path/src/`.
 
@@ -182,7 +184,7 @@ C4Component
 
     Container_Boundary(hot_path, "Hot-Path Service (services/hot_path/src/)") {
 
-        Component(processor, "Processor", "processor.py", "Orchestrates the 9-stage pipeline, enforces 50ms deadline")
+        Component(processor, "Processor", "processor.py", "Orchestrates the 11-stage pipeline, enforces 50ms deadline")
         Component(state, "State Manager", "state.py", "In-memory state: latest candles, agent scores, positions")
         Component(strategy_eval, "Strategy Evaluator", "strategy_eval.py", "Evaluates hydrated strategy indicators against market data")
         Component(agent_mod, "Agent Modifier", "agent_modifier.py", "Applies agent confidence scores (TA, HMM, sentiment) to signal strength")
@@ -223,7 +225,7 @@ C4Component
     Container_Boundary(agents, "Agent Services") {
 
         Component(ta, "TA Agent", "services/ta_agent/", "Multi-timeframe technical analysis: RSI, MACD, Bollinger Bands, volume profile. Cache TTL: 120s")
-        Component(hmm, "Regime HMM Agent", "services/regime_hmm/", "Hidden Markov Model with 3 states (bull/bear/sideways). Uses hmmlearn. Cache TTL: 600s")
+        Component(hmm, "Regime HMM Agent", "services/regime_hmm/", "Hidden Markov Model with 5 states (TRENDING_UP, TRENDING_DOWN, RANGE_BOUND, HIGH_VOLATILITY, CRISIS). Uses hmmlearn. Cache TTL: 600s")
         Component(sent, "Sentiment Agent", "services/sentiment/", "LLM-based market sentiment scoring with promptfoo evaluation harness. Cache TTL: 900s")
     }
 
@@ -253,7 +255,7 @@ to be built.
 
 | Feature | Phase | Status | Source Reference |
 |---------|-------|--------|------------------|
-| Hot-path 9-stage pipeline | 1 | Implemented | `services/hot_path/src/processor.py` |
+| Hot-path 11-stage pipeline | 1 | Implemented | `services/hot_path/src/processor.py` |
 | Strategy indicator hydration | 1 | Implemented | `services/strategy/` |
 | Exchange connectors (Binance, Coinbase) | 1 | Implemented | `libs/exchange/_binance.py`, `_coinbase.py` |
 | Execution engine + optimistic ledger | 1 | Implemented | `services/execution/src/ledger.py`, `executor.py` |
@@ -281,14 +283,14 @@ to be built.
 | Exchange key encryption | 2 | Implemented | `services/api_gateway/src/routes/exchange_keys.py` |
 | Tax calculation (US) | 2 | Implemented | `services/tax/` |
 | Reconciliation | 2 | Implemented | `services/execution/src/reconciler.py` |
-| Archiver (GCS) | 2 | Implemented | `services/archiver/` |
+| Archiver (Redis cleanup + TimescaleDB archiving) | 2 | Partial | `services/archiver/` (GCS export deferred — logs but does not upload) |
 | Learning loop | 2 | Implemented | `services/validation/src/learning_loop.py` |
 | CI/CD pipeline | 2 | Implemented | `.github/` (assumed), `deploy/docker-compose.yml` |
 | Promptfoo LLM evaluations | 2 | Implemented | `promptfooconfig.yaml`, `promptfoo-redteam.yaml` |
 | Kubernetes (Kustomize) | 3 | Scaffolded | `deploy/k8s/base/`, `deploy/k8s/overlays/` |
 | Terraform modules | 3 | Empty | `deploy/terraform/` |
-| Validation: CHECK_3 Bias | 3 | Stubbed | `services/validation/src/check_3_bias.py` |
-| Rate limiter service | 3 | Stubbed | `services/rate_limiter/` |
+| Validation: CHECK_3 Bias | 1 | Implemented | `services/validation/src/check_3_bias.py` (rolling z-score, resolved 2026-03-27) |
+| Rate limiter service | 1 | Implemented | `services/rate_limiter/`, `libs/exchange/_rate_limiter_client.py` (Redis sliding window, resolved 2026-03-27) |
 | Kill switch (emergency halt) | 1 | Implemented | `KillSwitch` in hot-path, Redis-backed, API-toggleable, fails safe |
 | Position-level stop-loss | 1 | Implemented | `StopLossMonitor` in PnL service, per-tick enforcement against `stop_loss_pct` |
 
@@ -590,8 +592,10 @@ Exchange WebSocket connections use exponential backoff on disconnection:
 
 Rate limiting uses a sliding window algorithm implemented over Redis. The gateway
 applies rate limits via middleware (`services/api_gateway/src/middleware/rate_limit.py`).
-The standalone rate limiter service (`services/rate_limiter/`) is currently a stub that
-always allows requests.
+The `RateLimiterClient` (`libs/exchange/_rate_limiter_client.py`) enforces per-exchange
+quotas (Binance: 1200 req/min, Coinbase: 300 req/min) via Redis sorted-set sliding
+windows. The standalone rate limiter service (`services/rate_limiter/` on port 8094)
+exposes quota metrics via `GET /quotas`.
 
 ### Authentication and Authorization
 
@@ -623,12 +627,14 @@ inspection and replay.
 | TA Agent | 8090 | `services/ta_agent/` | Redis List RPC | -- (cache only) |
 | Regime HMM | 8091 | `services/regime_hmm/` | Redis List RPC | -- (cache only) |
 | Sentiment | 8092 | `services/sentiment/` | Redis List RPC | -- (cache only) |
-| Strategy | -- | `services/strategy/` | asyncio.run (startup) | -- |
-| Risk | -- | `services/risk/` | Library import | -- |
-| Rate Limiter | -- | `services/rate_limiter/` | Library (stub) | -- |
-| Analyst | 8080 | `services/analyst/` | REST API | -- |
-| Tax | 8080 | `services/tax/` | REST API | -- |
-| Archiver | 8080 | `services/archiver/` | REST API -> GCS | -- |
+| Strategy | -- | `services/strategy/` | asyncio.run (startup hydration) | -- |
+| Risk | 8093 | `services/risk/` | REST API | -- |
+| Rate Limiter | 8094 | `services/rate_limiter/` | REST API + Redis enforcement | -- |
+| Analyst | 8087 | `services/analyst/` | REST API | -- |
+| Tax | 8089 | `services/tax/` | REST API | -- |
+| Archiver | 8088 | `services/archiver/` | REST API + Redis/TimescaleDB archiving | -- |
+| SLM Inference | 8095 | `services/slm_inference/` | REST API (OpenAI-compatible) | -- |
+| Debate | 8096 | `services/debate/` | REST API + LLM backend | -- |
 | Frontend | 3000 | `frontend/` | HTTPS + WSS | -- (client) |
 
 ---

@@ -12,6 +12,7 @@
 | [Architecture Overview](architecture-overview.md) | System context, container, and component diagrams; ADRs; technology stack |
 | [Trading Engine and Order Lifecycle](trading-engine.md) | Order state machine, execution flow, exchange connectors |
 | [Agent Architecture](agent-architecture.md) | Agent catalog, lifecycle, inter-agent communication, orchestration |
+| [Agent Framework](AGENT-FRAMEWORK.md) | Agent framework specification and patterns |
 | [Event Bus and Real-Time Data Flow](event-system.md) | Redis channels, event schemas, data flow diagrams |
 
 ## Data and Risk
@@ -41,12 +42,21 @@
 | Storage and Repositories | [modules/storage.md](modules/storage.md) |
 | PnL Service | [modules/pnl.md](modules/pnl.md) |
 
+## SLM and AI
+
+| Document | Description |
+|----------|-------------|
+| [SLM Implementation Rationale](SLM-Implementation-Rationale.md) | Rationale for small language model architecture decisions |
+| [SLM Multi-Agent Implementation Plan](SLM-Multi-Agent-Implementation-Plan.md) | 6-phase multi-agent implementation roadmap with status |
+
 ## Reference
 
 | Document | Description |
 |----------|-------------|
 | [Glossary and Domain Model](glossary.md) | Trading terms, system-specific concepts, acronym registry |
 | [Documentation Gaps and Defects](DOCUMENTATION-GAPS.md) | Known gaps, code defects, doc-vs-code discrepancies |
+| [Tech Debt Registry](TECH-DEBT-REGISTRY.md) | Tracked technical debt items by service |
+| [Refactor Readiness](REFACTOR-READINESS.md) | Service-level refactoring readiness assessment |
 
 ## Legacy Documentation
 
@@ -57,8 +67,10 @@ but may contain inaccuracies noted in [DOCUMENTATION-GAPS.md](DOCUMENTATION-GAPS
 |----------|-------|
 | [WALKTHROUGH.md](WALKTHROUGH.md) | Original system walkthrough. Contains known inaccuracies (migration count, auth endpoints). |
 | [RUNTIME_ARCHITECTURE.md](RUNTIME_ARCHITECTURE.md) | Runtime flow description. Fast gate timing and migration count are outdated. |
-| [SHUTDOWN.md](SHUTDOWN.md) | Graceful shutdown procedures. Lists 8 services; 17 actually exist. |
+| [SHUTDOWN.md](SHUTDOWN.md) | Graceful shutdown procedures. Lists 8 services; 19 actually exist. Use `run_all.sh --stop` instead. |
+| [FRONTEND-AUDIT.md](FRONTEND-AUDIT.md) | Frontend component and route audit |
+| [FRONTEND-AUDIT-FINAL.md](FRONTEND-AUDIT-FINAL.md) | Final frontend audit report |
 
 ---
 
-*Last updated: 2026-03-19*
+*Last updated: 2026-04-16*

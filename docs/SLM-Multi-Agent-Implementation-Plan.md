@@ -2,7 +2,7 @@
 
 ## Context
 
-The Gemini blueprint describes an ideal multi-agent SLM-driven trading engine with local model inference, adversarial debate, statistical arbitrage, candlestick CNNs, knowledge graphs, and more. The Praxis platform already has a solid foundation — 17 microservices, 3 ML agents (TA, Sentiment, Regime HMM), a 9-stage hot-path pipeline, and Redis-based agent score aggregation. This plan identifies what to build incrementally, prioritized by impact and feasibility for a solo developer.
+The Gemini blueprint describes an ideal multi-agent SLM-driven trading engine with local model inference, adversarial debate, statistical arbitrage, candlestick CNNs, knowledge graphs, and more. The Praxis platform already has a solid foundation — 19 microservices, 3 ML agents (TA, Sentiment, Regime HMM), an 11-stage hot-path pipeline, and Redis-based agent score aggregation. This plan identifies what to build incrementally, prioritized by impact and feasibility for a solo developer.
 
 ## Gap Analysis (Blueprint vs Current State)
 

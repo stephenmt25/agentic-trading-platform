@@ -15,6 +15,7 @@ export const DOC_SECTIONS: DocSection[] = [
       { slug: "architecture-overview", label: "Architecture Overview" },
       { slug: "trading-engine", label: "Trading Engine & Order Lifecycle" },
       { slug: "agent-architecture", label: "Agent Architecture" },
+      { slug: "AGENT-FRAMEWORK", label: "Agent Framework" },
       { slug: "event-system", label: "Event Bus & Real-Time Data Flow" },
     ],
   },
@@ -46,10 +47,19 @@ export const DOC_SECTIONS: DocSection[] = [
     ],
   },
   {
+    title: "SLM & AI",
+    docs: [
+      { slug: "SLM-Implementation-Rationale", label: "SLM Implementation Rationale" },
+      { slug: "SLM-Multi-Agent-Implementation-Plan", label: "SLM Multi-Agent Plan" },
+    ],
+  },
+  {
     title: "Reference",
     docs: [
       { slug: "glossary", label: "Glossary & Domain Model" },
       { slug: "DOCUMENTATION-GAPS", label: "Documentation Gaps & Defects" },
+      { slug: "TECH-DEBT-REGISTRY", label: "Tech Debt Registry" },
+      { slug: "REFACTOR-READINESS", label: "Refactor Readiness" },
     ],
   },
   {
@@ -58,6 +68,8 @@ export const DOC_SECTIONS: DocSection[] = [
       { slug: "RUNTIME_ARCHITECTURE", label: "Runtime Architecture" },
       { slug: "WALKTHROUGH", label: "Feature Walkthrough" },
       { slug: "SHUTDOWN", label: "Shutdown Procedures" },
+      { slug: "FRONTEND-AUDIT", label: "Frontend Audit" },
+      { slug: "FRONTEND-AUDIT-FINAL", label: "Frontend Audit (Final)" },
     ],
   },
 ];

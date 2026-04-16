@@ -25,7 +25,10 @@ async def lifespan(app: FastAPI):
     pubsub = PubSubBroadcaster(redis_instance)
     audit_repo = AuditRepository(timescale_client)
     
-    alerter = Alerter(pagerduty_key=None, slack_webhook=None)
+    alerter = Alerter(
+        pagerduty_key=settings.PAGERDUTY_API_KEY or None,
+        slack_webhook=settings.SLACK_WEBHOOK or None,
+    )
     subscriber = EventSubscriber(consumer, pubsub, audit_repo, alerter)
 
     # Background Tasks

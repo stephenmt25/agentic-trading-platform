@@ -1,5 +1,13 @@
 # Runtime Architecture: What Runs, When, and How
 
+> **Legacy Document** (covers the original 8-service system). The platform now has 19 services.
+> Key differences from current state:
+> 1. All services have unique port assignments (8000–8096) — port 8080 is only used by Ingestion.
+> 2. Fast Gate timeout is 50ms (not 35ms as stated below).
+> 3. ML agents (TA Agent, Sentiment, Regime HMM, Debate, Analyst, SLM Inference) and infrastructure services (Rate Limiter, Risk) are not covered here.
+>
+> For the current architecture, see [Architecture Overview](architecture-overview.md).
+
 ## Infrastructure (Always Running First)
 
 These must be started before any Python service. They are containers defined in `deploy/docker-compose.yml`.

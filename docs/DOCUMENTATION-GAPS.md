@@ -5,7 +5,7 @@
 > Phase 2 readiness issues. Each item includes a severity, location, and recommended action.
 
 **Audit date**: 2026-03-19
-**Last updated**: 2026-03-27
+**Last updated**: 2026-04-16
 
 ---
 
@@ -85,6 +85,11 @@ functional implementation.
 | ~~D-15~~ | ~~`profile_id` path parameters accept arbitrary strings.~~ **RESOLVED** (2026-04-03). Profile route path parameters changed from `str` to `UUID`. FastAPI auto-returns 422 on invalid UUIDs. | `services/api_gateway/src/routes/profiles.py` | ~~MEDIUM~~ RESOLVED |
 | ~~D-16~~ | ~~WebSocket Redis listener has no reconnection logic on disconnect.~~ **RESOLVED** (2026-03-27). `listen_to_redis` now wraps the subscribe/listen loop in an outer retry loop with exponential backoff (1s → 30s max). On Redis disconnect, pubsub is cleaned up and re-established automatically. Only exits on WebSocket close or task cancellation. | `services/api_gateway/src/routes/ws.py` | ~~HIGH~~ RESOLVED |
 | ~~D-17~~ | ~~CORS configuration uses `allow_methods=["*"]` and `allow_headers=["*"]`.~~ **RESOLVED** (2026-04-03). Methods restricted to `["GET","POST","PUT","DELETE","PATCH","OPTIONS"]`, headers to `["Authorization","Content-Type","X-Request-ID","Accept"]`. Origins already configurable via `settings.CORS_ORIGINS`. | `services/api_gateway/src/main.py` | ~~MEDIUM~~ RESOLVED |
+| D-18 | `llama-cpp-python` not in `pyproject.toml` but SLM Inference service imports it. This is intentional — the library requires platform-specific C++/GPU toolchain and is lazy-imported. When not installed, the service returns mock responses. Documented as optional dependency in `agent-architecture.md`. | `services/slm_inference/src/main.py` | LOW (by design) |
+| ~~D-19~~ | ~~Strategy Agent main loop was an empty `sleep(60)` — no profile update consumption.~~ **RESOLVED** (2026-04-16). Added periodic profile polling: fetches active profiles from DB every 60s, detects changes via hash comparison, re-validates and re-compiles rules, caches compiled rule sets in Redis (`strategy:compiled:{profile_id}`). | `services/strategy/src/main.py` | ~~MEDIUM~~ RESOLVED |
+| ~~D-20~~ | ~~Logger Alerter hardcoded with `pagerduty_key=None, slack_webhook=None`.~~ **RESOLVED** (2026-04-16). Wired to `settings.PAGERDUTY_API_KEY` and new `settings.SLACK_WEBHOOK`. Alerter activates when env vars are set. | `services/logger/src/main.py`, `libs/config/settings.py` | ~~MEDIUM~~ RESOLVED |
+| D-21 | Archiver GCS export is deferred — when `PRAXIS_GCS_BUCKET_NAME` is set, the service logs "deferred to batch pipeline" but does not upload. Redis cleanup and TimescaleDB table archiving work correctly. | `services/archiver/src/migrator.py` | LOW |
+| ~~D-22~~ | ~~News scraper silently returns `[]` when no API key is configured.~~ **RESOLVED** (2026-04-16). Added startup warning log when `NEWS_API_KEY` is not set. | `services/analyst/src/news_scraper.py` | ~~LOW~~ RESOLVED |
 
 ---
 
@@ -99,8 +104,15 @@ Conflicts between existing documentation files and the actual codebase.
 | A-3 | `RUNTIME_ARCHITECTURE.md` | "Fast Gate responds in 35ms" | `constants.py` sets the fast gate timeout to 50ms. 35ms is not referenced anywhere in code. | MEDIUM |
 | A-4 | `SHUTDOWN.md` | Lists 8 services for graceful shutdown | 19 services exist in the codebase (14 HTTP + 5 async). 11 services have no documented shutdown procedure. | HIGH |
 | ~~A-5~~ | `README.md` (root) | Lists a subset of services | **RESOLVED** (2026-03-24). README updated with all services including Analyst, SLM Inference, Debate, and HITL. | ~~HIGH~~ RESOLVED |
-| A-6 | `RUNTIME_ARCHITECTURE.md` | "migrate.py applies 001 to 005" | `migrate.py` applies migrations `001` through `009`. | MEDIUM |
+| A-6 | `RUNTIME_ARCHITECTURE.md` | "migrate.py applies 001 to 005" | `migrate.py` applies migrations `001` through `010`. | MEDIUM |
 | ~~A-7~~ | Multiple docs | Services documented on port 8080 | **RESOLVED** (2026-03-27). All services have unique port assignments. See `run_all.sh`. | ~~HIGH~~ RESOLVED |
+| ~~A-8~~ | `architecture-overview.md`, `trading-engine.md`, `event-system.md`, `agent-architecture.md`, `SLM-Multi-Agent-Implementation-Plan.md` | Pipeline described as "9-stage" | **RESOLVED** (2026-04-16). Standardized to "11-stage" across all docs. Code has 11 labeled steps in `processor.py`. | ~~MEDIUM~~ RESOLVED |
+| ~~A-9~~ | `architecture-overview.md`, `SLM-Multi-Agent-Implementation-Plan.md` | "17 services" | **RESOLVED** (2026-04-16). Updated to 19 (matching `run_all.sh`). | ~~MEDIUM~~ RESOLVED |
+| ~~A-10~~ | `architecture-overview.md` | Analyst/Tax/Archiver on port 8080; Risk as "Library (no server)" | **RESOLVED** (2026-04-16). Container diagram and service catalog updated with correct ports. | ~~HIGH~~ RESOLVED |
+| ~~A-11~~ | `architecture-overview.md` | Regime HMM has "3 states (bull/bear/sideways)" | **RESOLVED** (2026-04-16). Updated to 5 states matching `Regime` enum in `libs/core/enums.py`. | ~~MEDIUM~~ RESOLVED |
+| ~~A-12~~ | `architecture-overview.md` | Phase Boundary table marks CHECK_3 and Rate Limiter as "Stubbed" | **RESOLVED** (2026-04-16). Updated to "Implemented" (both resolved 2026-03-27). | ~~MEDIUM~~ RESOLVED |
+| ~~A-13~~ | `CLAUDE.md` | "22 markdown documentation files" | **RESOLVED** (2026-04-16). Updated to 28. | ~~LOW~~ RESOLVED |
+| ~~A-14~~ | `CLAUDE.md` | "Remaining (MEDIUM): 13 API endpoints lack response_model..." | **RESOLVED** (2026-04-16). All MEDIUM defects resolved as of 2026-04-03. Note updated. | ~~LOW~~ RESOLVED |
 
 ---
 
@@ -187,18 +199,18 @@ The platform was renamed from **Aion** to **Praxis**:
 | Severity | Count | Items |
 |----------|-------|-------|
 | **CRITICAL** | 0 | — |
-| **HIGH** | 0 | — |
-| **MEDIUM** | 5 | D-14, D-15, D-17, A-3, A-6 |
-| **LOW** | 1 | D-12 |
-| **RESOLVED** | 16 | D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-8, D-9, D-10, D-11, D-13, D-16, A-1, A-5, A-7, G-8 |
+| **HIGH** | 2 | A-2, A-4 |
+| **MEDIUM** | 2 | A-3, A-6 |
+| **LOW** | 3 | D-12, D-18, D-21 |
+| **RESOLVED** | 27 | D-1–D-11, D-13–D-17, D-19, D-20, D-22, A-1, A-5, A-7–A-14, G-8 |
 
 ---
 
 ## How to Use This Document
 
-**For engineers**: All CRITICAL and HIGH defects have been resolved as of 2026-03-27.
-Remaining MEDIUM items (D-14, D-15, D-17, A-2, A-3, A-4, A-6) should be addressed before
-production deployment but are not blocking.
+**For engineers**: All CRITICAL defects have been resolved. Two HIGH items remain (A-2: stale
+auth endpoint in WALKTHROUGH.md, A-4: stale shutdown list in SHUTDOWN.md) — both are in legacy
+docs with warning banners. Remaining MEDIUM items (A-3, A-6) are stale values in legacy docs.
 
 **For documentation**: Remaining gaps (G-1 through G-7, G-10, G-11) require input from the
 engineering team. Schedule a 30-minute review session per gap to capture the missing information.
@@ -210,4 +222,4 @@ context of how financial values flow through the system.
 
 ---
 
-*Last updated: 2026-03-27*
+*Last updated: 2026-04-16*

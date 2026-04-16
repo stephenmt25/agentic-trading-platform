@@ -519,7 +519,7 @@ flowchart LR
     end
 
     subgraph "Hot-Path Processor"
-        HP[9-Stage Pipeline]
+        HP[11-Stage Pipeline]
     end
 
     subgraph "Validation Agent"
@@ -764,7 +764,7 @@ Redis Streams do not enforce a maximum length by default. Praxis relies on the f
 |---|---|
 | **Batch consumption** | Consumers read in configurable batches (`count` parameter). Hot-Path and Logger read up to 100 events per call. Async Audit reads up to 50. |
 | **Block timeout** | `XREADGROUP` blocks for a configurable duration (`block_ms`) before returning empty. This prevents tight polling loops. |
-| **Processing rate** | The Hot-Path processes ticks as fast as the 9-stage pipeline allows. If ticks arrive faster than processing, they queue in `stream:market_data`. The stream grows until consumers catch up. |
+| **Processing rate** | The Hot-Path processes ticks as fast as the 11-stage pipeline allows. If ticks arrive faster than processing, they queue in `stream:market_data`. The stream grows until consumers catch up. |
 | **Archiver Agent** | Daily cron job migrates historical data to GCS, keeping TimescaleDB and Redis lean. |
 
 ### Dead Letter Queue (DLQ)

@@ -1,4 +1,13 @@
-# Agentic Trading Platform — Full Feature Walkthrough
+# Praxis Trading Platform — Full Feature Walkthrough
+
+> **Legacy Document** (written for an earlier version of the platform). Known inaccuracies:
+> 1. References `POST /auth/login` — no such endpoint exists; authentication uses OAuth via `/auth/callback`.
+> 2. Port 8080 was shared by multiple services — all 19 services now have unique ports (8000–8096). See `run_all.sh`.
+> 3. Fast Gate timeout is 50ms (not 35ms as stated below).
+> 4. The hot-path pipeline has 11 stages (not 9).
+> 5. Migration count may differ from what's stated.
+>
+> For the current system overview, see [Architecture Overview](architecture-overview.md). For local setup, see [Developer Guide](developer-guide.md).
 
 A detailed guide to running, testing, and verifying every component of the platform locally on Windows.
 

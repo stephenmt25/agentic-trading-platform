@@ -186,8 +186,10 @@ The scorer uses an `LLMBackend` protocol (`async def complete(prompt: str) -> Op
 **Details:**
 - Loads a GGUF model at startup via `llama-cpp-python` (e.g., Phi-3-mini-4k Q4, ~2.3GB VRAM).
 - Model path configured via `PRAXIS_SLM_MODEL_PATH`.
-- Returns mock responses when no model is loaded (development mode).
+- Returns mock responses when no model is loaded (development mode): `{"score": 0.0, "confidence": 0.3}`.
 - GPU layer offloading configurable via `PRAXIS_SLM_GPU_LAYERS` (-1 = all).
+
+**Implementation Status:** The service scaffold is complete (173 lines) with working OpenAI-compatible endpoints. `llama-cpp-python` is an optional platform-specific dependency (requires GPU/C++ build toolchain) — it is lazy-imported at startup and not listed in `pyproject.toml`. When `PRAXIS_SLM_MODEL_PATH` is empty (the default), all inference calls return hardcoded mock responses. The sentiment backend's fallback chain (`local -> cloud -> neutral`) in `services/sentiment/` works correctly when the model is loaded.
 
 **Source:** `services/slm_inference/src/main.py`
 
@@ -231,7 +233,7 @@ The scorer uses an `LLMBackend` protocol (`async def complete(prompt: str) -> Op
 | **Service** | `services/hot_path` |
 | **Trigger** | Every market tick from `stream:market_data` |
 | **Output channels** | `stream:orders`, `stream:validation` |
-| **Responsibility** | Run the 9-stage decision pipeline per profile, per tick |
+| **Responsibility** | Run the 11-stage decision pipeline per profile, per tick |
 
 **Inputs:**
 - `MarketTickEvent` from `stream:market_data` (via consumer group)
@@ -245,7 +247,7 @@ The scorer uses an `LLMBackend` protocol (`async def complete(prompt: str) -> Op
 - `CircuitBreakerEvent` to `stream:orders` (on circuit break)
 - `AlertEvent` to `pubsub:alerts` (on regime disagreement)
 
-**9-Stage Pipeline (per profile, per tick):**
+**11-Stage Pipeline (per profile, per tick):**
 
 | Stage | Name | Action |
 |---|---|---|
@@ -316,6 +318,8 @@ The scorer uses an `LLMBackend` protocol (`async def complete(prompt: str) -> Op
 **Outputs:**
 - `ProfileState` objects in `ProfileStateCache` (in-memory, consumed by Hot-Path)
 - Compiled rule sets (`CompiledRuleSet`) for strategy evaluation
+
+**Implementation Status:** The service hydrates all profiles at startup via `IndicatorHydrator.hydrate_all_profiles()`, then enters a periodic polling loop. The supporting infrastructure is complete: `hydrator.py` (candle fetch + Redis sorted-set storage), `rule_validator.py` (schema validation), and `compiler.py` (rule compilation with condition evaluator). The polling loop re-checks profiles from the database every 60 seconds and re-validates/re-compiles any that changed, pushing updated compiled rules to Redis cache.
 
 ---
 
@@ -409,6 +413,8 @@ The scorer uses an `LLMBackend` protocol (`async def complete(prompt: str) -> Op
 - RED-level alerts are dispatched to the external alerter (e.g., Slack, PagerDuty).
 - All pub/sub messages are written to the audit log regardless of level.
 
+**Implementation Status:** The `Alerter` class (`services/logger/src/alerter.py`, 82 lines) is fully implemented with PagerDuty Events API v2 and Slack Incoming Webhook dispatch. To enable alerting, set `PRAXIS_PAGERDUTY_API_KEY` and `PRAXIS_SLACK_WEBHOOK` environment variables. When neither is set, alerts are logged locally.
+
 **Source:** `services/logger/src/event_subscriber.py`
 
 ---
@@ -428,8 +434,10 @@ The scorer uses an `LLMBackend` protocol (`async def complete(prompt: str) -> Op
 | Property | Value |
 |---|---|
 | **Service** | `services/archiver` |
-| **Trigger** | Daily cron |
-| **Responsibility** | Migrate aged data from TimescaleDB to Google Cloud Storage for long-term retention |
+| **Trigger** | Daily cron (`asyncio.sleep(86400)`) |
+| **Responsibility** | Clean stale Redis keys and archive aged TimescaleDB rows |
+
+**Implementation Status:** Redis key cleanup (scanning patterns `fast_gate:*`, `risk:allocation:*`, `halt:*` and applying TTLs) and TimescaleDB table-to-archive migration (5 tables with retention policies) are fully implemented. GCS export is configured but deferred — when `PRAXIS_GCS_BUCKET_NAME` is set, the service logs a message but does not upload. The cron uses `asyncio.sleep(86400)` rather than a production scheduler (APScheduler/Celery).
 
 ---
 

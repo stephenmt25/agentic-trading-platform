@@ -1,12 +1,12 @@
 # Trading Engine
 
-> Signal-to-position execution pipeline: how the Praxis Trading Platform evaluates market data, approves orders through a 9-stage hot-path, executes them on exchanges, and reconciles the resulting positions.
+> Signal-to-position execution pipeline: how the Praxis Trading Platform evaluates market data, approves orders through an 11-stage hot-path, executes them on exchanges, and reconciles the resulting positions.
 
 ## Table of Contents
 
 - [Order Lifecycle](#order-lifecycle)
 - [Order Types](#order-types)
-- [9-Stage Hot-Path Pipeline](#9-stage-hot-path-pipeline)
+- [11-Stage Hot-Path Pipeline](#11-stage-hot-path-pipeline)
 - [Risk Gate and Position Sizing](#risk-gate-and-position-sizing)
 - [Execution Flow](#execution-flow)
 - [Position Management](#position-management)
@@ -77,7 +77,7 @@ Both exchange adapters currently submit **limit orders** via CCXT's `create_orde
 
 ---
 
-## 9-Stage Hot-Path Pipeline
+## 11-Stage Hot-Path Pipeline
 
 The `HotPathProcessor` (`services/hot_path/src/processor.py`) consumes `MarketTickEvent` messages from the tick stream, evaluates each tick against every active profile, and emits `OrderApprovedEvent` messages for orders that pass all gates.
 
