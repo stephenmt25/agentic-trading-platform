@@ -11,8 +11,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import uvicorn
 
+from decimal import Decimal
+
 from libs.config import settings
 from libs.storage import RedisClient
+from libs.storage._timescale_client import TimescaleClient
+from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
 from services.sentiment.src.scorer import create_backend
@@ -79,7 +83,7 @@ async def _get_market_context(redis_client, symbol: str) -> MarketContext:
     )
 
 
-async def debate_loop(redis_client, engine: DebateEngine, telemetry: TelemetryPublisher):
+async def debate_loop(redis_client, engine: DebateEngine, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
     """Periodically run debates for tracked symbols and write results to Redis."""
     while True:
         try:
@@ -100,6 +104,17 @@ async def debate_loop(redis_client, engine: DebateEngine, telemetry: TelemetryPu
                     }),
                     ex=DEBATE_TTL_S,
                 )
+                # Persist to TimescaleDB for charting overlays
+                if score_repo:
+                    try:
+                        await score_repo.write_score(
+                            symbol, "debate",
+                            Decimal(str(result.score)),
+                            confidence=Decimal(str(result.confidence)),
+                            metadata={"num_rounds": len(result.rounds), "latency_ms": result.total_latency_ms},
+                        )
+                    except Exception as pe:
+                        logger.warning("Failed to persist debate score", error=str(pe))
                 logger.info(
                     "Debate completed",
                     symbol=symbol,
@@ -127,6 +142,9 @@ async def debate_loop(redis_client, engine: DebateEngine, telemetry: TelemetryPu
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     redis_conn = RedisClient.get_instance(settings.REDIS_URL).get_connection()
+    timescale = TimescaleClient(settings.DATABASE_URL)
+    await timescale.init_pool()
+    score_repo = AgentScoreRepository(timescale)
 
     # Reuse the same LLM backend as sentiment (local or cloud)
     backends = create_backend(llm_key=settings.LLM_API_KEY)
@@ -143,12 +161,13 @@ async def lifespan(app: FastAPI):
     telemetry = TelemetryPublisher(redis_conn, "debate", "scoring")
     await telemetry.start_health_loop()
 
-    task = asyncio.create_task(debate_loop(redis_conn, engine, telemetry))
+    task = asyncio.create_task(debate_loop(redis_conn, engine, telemetry, score_repo))
     logger.info("Debate Agent started", backend_mode=settings.LLM_BACKEND)
     yield
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await telemetry.stop()
+    await timescale.close()
     logger.info("Debate Agent shutdown")
 
 

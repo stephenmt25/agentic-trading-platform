@@ -418,6 +418,53 @@ export const api = {
       }),
   },
 
+  marketData: {
+    candles: (symbol: string, timeframe: string = "1h", limit: number = 500) =>
+      apiRequest<Array<{
+        time: number;
+        open: number;
+        high: number;
+        low: number;
+        close: number;
+        volume: number;
+      }>>(`/market-data/candles/${encodeURIComponent(symbol)}?timeframe=${timeframe}&limit=${limit}`),
+  },
+
+  agentPerformance: {
+    scores: (symbol: string, params?: { start?: string; end?: string; agents?: string; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.start) qs.set("start", params.start);
+      if (params?.end) qs.set("end", params.end);
+      if (params?.agents) qs.set("agents", params.agents);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return apiRequest<Array<{
+        symbol: string;
+        agent_name: string;
+        score: number;
+        confidence: number | null;
+        metadata: Record<string, unknown> | null;
+        recorded_at: string;
+      }>>(`/agent-performance/scores/${encodeURIComponent(symbol)}${query ? `?${query}` : ""}`);
+    },
+
+    weights: (symbol: string) =>
+      apiRequest<{
+        weights: Record<string, number>;
+        trackers: Record<string, { ewma: number | null; samples: number; last_updated: string | null }>;
+      }>(`/agent-performance/weights/${encodeURIComponent(symbol)}`),
+
+    attribution: (symbol: string, limit: number = 50) =>
+      apiRequest<Array<{
+        event_id: string;
+        symbol: string;
+        outcome: string;
+        input_price: number | null;
+        agents: Record<string, unknown> | null;
+        created_at: string | null;
+      }>>(`/agent-performance/attribution/${encodeURIComponent(symbol)}?limit=${limit}`),
+  },
+
   auth: {
     callback: (data: {
       email: string;

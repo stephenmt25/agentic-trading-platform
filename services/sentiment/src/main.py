@@ -5,8 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 import uvicorn
 
+from decimal import Decimal
+
 from libs.config import settings
 from libs.storage import RedisClient
+from libs.storage._timescale_client import TimescaleClient
+from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
 from .news_client import NewsClient
@@ -18,7 +22,7 @@ SCORE_INTERVAL_S = 300  # 5 minutes
 SCORE_TTL_S = 900  # 15 minutes
 
 
-async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: NewsClient, telemetry: TelemetryPublisher):
+async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: NewsClient, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
     """Periodically score sentiment for tracked symbols and write to Redis."""
     while True:
         try:
@@ -37,6 +41,17 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
                     }),
                     ex=SCORE_TTL_S,
                 )
+                # Persist to TimescaleDB for charting overlays
+                if score_repo:
+                    try:
+                        await score_repo.write_score(
+                            symbol, "sentiment",
+                            Decimal(str(result.score)),
+                            confidence=Decimal(str(result.confidence)),
+                            metadata={"source": result.source},
+                        )
+                    except Exception as pe:
+                        logger.warning("Failed to persist sentiment score", error=str(pe))
                 logger.info(
                     "Sentiment score updated",
                     symbol=symbol,
@@ -58,6 +73,9 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     redis_instance = RedisClient.get_instance(settings.REDIS_URL).get_connection()
+    timescale = TimescaleClient(settings.DATABASE_URL)
+    await timescale.init_pool()
+    score_repo = AgentScoreRepository(timescale)
     news_client = NewsClient(api_key=settings.NEWS_API_KEY)
     backends = create_backend(llm_key=settings.LLM_API_KEY)
     scorer = LLMSentimentScorer(
@@ -72,12 +90,13 @@ async def lifespan(app: FastAPI):
     telemetry = TelemetryPublisher(redis_instance, "sentiment", "sentiment")
     await telemetry.start_health_loop()
 
-    task = asyncio.create_task(sentiment_loop(redis_instance, scorer, news_client, telemetry))
+    task = asyncio.create_task(sentiment_loop(redis_instance, scorer, news_client, telemetry, score_repo))
     logger.info("Sentiment Agent started")
     yield
     task.cancel()
     await asyncio.gather(task, return_exceptions=True)
     await telemetry.stop()
+    await timescale.close()
     logger.info("Sentiment Agent shutdown")
 
 
