@@ -41,6 +41,23 @@ export type AgentCategory =
   | 'Intelligence';
 
 // ---------------------------------------------------------------------------
+// Data Sources
+// ---------------------------------------------------------------------------
+
+export type DataSourceType =
+  | 'exchange_ws'     // Binance/Coinbase WebSocket
+  | 'database'        // TimescaleDB queries
+  | 'redis_stream'    // Redis Streams consumption
+  | 'redis_pubsub'    // Redis Pub/Sub subscription
+  | 'external_api'    // News APIs, LLM backends
+  | 'internal';       // Derived from other agents' outputs
+
+export interface DataSource {
+  type: DataSourceType;
+  label: string;
+}
+
+// ---------------------------------------------------------------------------
 // Core Event
 // ---------------------------------------------------------------------------
 
@@ -81,6 +98,8 @@ export interface AgentInfo {
   uptime_s: number;
   /** HTTP port the service listens on. */
   port: number;
+  /** Data sources this agent reads from. */
+  data_sources?: DataSource[];
 }
 
 // ---------------------------------------------------------------------------

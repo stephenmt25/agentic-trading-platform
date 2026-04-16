@@ -21,8 +21,8 @@ class RateLimiterMiddleware:
         return request.url.path
 
     async def __call__(self, request: Request, call_next):
-        # Skip internal health checks
-        if request.url.path in ["/health", "/ready"]:
+        # Skip internal health checks and auth callbacks (called server-side by NextAuth)
+        if request.url.path in ["/health", "/ready", "/auth/callback", "/auth/refresh"]:
             return await call_next(request)
 
         identifier = getattr(request.state, "user_id", request.client.host)

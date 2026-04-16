@@ -1,8 +1,31 @@
+import json
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
-from ..deps import get_timescale, get_current_user
+from ..deps import get_timescale, get_current_user, get_decision_repo
 from libs.storage._timescale_client import TimescaleClient
+from libs.storage.repositories.decision_repo import DecisionRepository
+from libs.config import settings
 
 router = APIRouter(tags=["paper-trading"])
+
+
+@router.get("/mode")
+async def get_trading_mode(user_id: str = Depends(get_current_user)):
+    """Return the current trading mode configuration flags."""
+    if settings.PAPER_TRADING_MODE:
+        effective = "PAPER"
+    elif settings.BINANCE_TESTNET or settings.COINBASE_SANDBOX:
+        effective = "TESTNET"
+    else:
+        effective = "LIVE"
+
+    return {
+        "trading_enabled": settings.TRADING_ENABLED,
+        "paper_trading_mode": settings.PAPER_TRADING_MODE,
+        "binance_testnet": settings.BINANCE_TESTNET,
+        "coinbase_sandbox": settings.COINBASE_SANDBOX,
+        "effective_mode": effective,
+    }
 
 
 @router.get("/status")
@@ -67,3 +90,55 @@ async def get_paper_trading_status(
             for r in reports
         ],
     }
+
+
+def _serialize_decision(row: dict) -> dict:
+    """Convert a trade_decisions DB row to a JSON-safe dict."""
+    result = dict(row)
+    result["event_id"] = str(result["event_id"])
+    result["profile_id"] = str(result["profile_id"])
+    result["input_price"] = float(result["input_price"]) if result.get("input_price") else None
+    result["input_volume"] = float(result["input_volume"]) if result.get("input_volume") else None
+    result["order_id"] = str(result["order_id"]) if result.get("order_id") else None
+    result["created_at"] = result["created_at"].isoformat() if result.get("created_at") else None
+    # JSONB columns come as dicts from asyncpg — ensure they're dicts not strings
+    for col in ("indicators", "strategy", "regime", "agents", "gates", "profile_rules"):
+        val = result.get(col)
+        if isinstance(val, str):
+            result[col] = json.loads(val)
+    return result
+
+
+@router.get("/decisions")
+async def list_decisions(
+    profile_id: Optional[str] = None,
+    symbol: Optional[str] = None,
+    outcome: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0,
+    user_id: str = Depends(get_current_user),
+    repo: DecisionRepository = Depends(get_decision_repo),
+):
+    """Return a paginated list of trade decisions (approved + blocked)."""
+    capped_limit = min(limit, 200)
+    rows = await repo.get_decisions(
+        profile_id=profile_id,
+        symbol=symbol,
+        outcome=outcome,
+        limit=capped_limit,
+        offset=offset,
+    )
+    return [_serialize_decision(r) for r in rows]
+
+
+@router.get("/decisions/{event_id}")
+async def get_decision_detail(
+    event_id: str,
+    user_id: str = Depends(get_current_user),
+    repo: DecisionRepository = Depends(get_decision_repo),
+):
+    """Return full decision trace for a single event."""
+    row = await repo.get_decision(event_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Decision not found")
+    return _serialize_decision(row)

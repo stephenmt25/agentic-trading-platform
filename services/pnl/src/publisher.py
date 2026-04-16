@@ -1,13 +1,12 @@
 import json
 import time
 from decimal import Decimal
-from datetime import datetime, timezone
 
 from libs.storage._redis_client import RedisClient
 from libs.messaging import PubSubBroadcaster
 from libs.messaging.channels import PUBSUB_PNL_UPDATES
 from libs.storage.repositories import PnlRepository
-from libs.core.schemas import PnlUpdateEvent, DailyPnlPayload, DrawdownPayload
+from libs.core.schemas import PnlUpdateEvent, DrawdownPayload
 
 _ZERO = Decimal("0")
 _SNAPSHOT_THRESHOLD = Decimal("0.005")
@@ -17,6 +16,8 @@ class _DecimalEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, Decimal):
             return float(o)
+        if hasattr(o, 'hex'):  # UUID
+            return str(o)
         return super().default(o)
 
 
@@ -30,13 +31,12 @@ class PnLPublisher:
     async def publish_update(self, profile_id: str, snapshot):
         ev = PnlUpdateEvent(
             profile_id=profile_id,
-            position_id=snapshot.position_id,
             symbol=snapshot.symbol,
-            net_post_tax=snapshot.net_post_tax,
-            net_pre_tax=snapshot.net_pre_tax,
-            roi_pct=snapshot.pct_return,
+            gross_pnl=snapshot.gross_pnl,
+            net_pnl=snapshot.net_pre_tax,
+            pct_return=snapshot.pct_return,
             timestamp_us=int(time.time() * 1000000),
-            source_service="pnl"
+            source_service="pnl",
         )
 
         # 1. Pub/Sub (Dashboard)
@@ -46,8 +46,9 @@ class PnLPublisher:
         cache_key = f"pnl:{profile_id}:{snapshot.position_id}:latest"
         await self._redis.set(cache_key, json.dumps(ev.dict(), cls=_DecimalEncoder))
 
-        # 3. Maintain daily running total for CircuitBreaker
-        await self._update_daily_pnl(profile_id, snapshot.pct_return)
+        # 3. Daily running total is owned by hot_path/pnl_sync via HINCRBY on the
+        # same pubsub event — see services/hot_path/src/pnl_sync.py. Writing here
+        # caused a Redis WRONGTYPE collision (string vs hash).
 
         # 4. Write drawdown to Redis
         await self._update_drawdown(profile_id, snapshot)
@@ -56,31 +57,20 @@ class PnLPublisher:
         last_pct = self._last_snapshot.get(snapshot.position_id, _ZERO)
         diff = abs(snapshot.pct_return - last_pct)
         if diff > _SNAPSHOT_THRESHOLD:
-            await self._pnl_repo.write_snapshot(ev)
+            cost_basis = snapshot.gross_pnl + snapshot.net_pre_tax  # entry_price * qty approximation
+            # Use the PnLSnapshot fields directly — matches pnl_repo.write_snapshot() expected dict
+            await self._pnl_repo.write_snapshot({
+                "profile_id": profile_id,
+                "symbol": snapshot.symbol,
+                "gross_pnl": snapshot.gross_pnl,
+                "net_pnl_pre_tax": snapshot.net_pre_tax,
+                "net_pnl_post_tax": snapshot.net_post_tax,
+                "total_fees": snapshot.fees,
+                "estimated_tax": snapshot.tax_estimate,
+                "cost_basis": cost_basis,
+                "pct_return": snapshot.pct_return,
+            })
             self._last_snapshot[snapshot.position_id] = snapshot.pct_return
-
-    async def _update_daily_pnl(self, profile_id: str, pct_return: Decimal):
-        """Maintain running daily PnL total in Redis with midnight UTC expiry."""
-        key = f"pnl:daily:{profile_id}"
-        raw = await self._redis.get(key)
-
-        if raw:
-            parsed = DailyPnlPayload.model_validate_json(raw)
-            data = {"total_pct": str(parsed.total_pct_decimal() + pct_return)}
-        else:
-            data = {"total_pct": str(pct_return)}
-
-        # Calculate seconds until next midnight UTC
-        now = datetime.now(timezone.utc)
-        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        next_midnight = midnight.replace(day=now.day + 1) if now.hour > 0 or now.minute > 0 else midnight
-        try:
-            ttl = int((next_midnight - now).total_seconds())
-        except OverflowError:
-            ttl = 86400
-        ttl = max(1, min(ttl, 86400))
-
-        await self._redis.set(key, json.dumps(data), ex=ttl)
 
     async def _update_drawdown(self, profile_id: str, snapshot):
         """Track current drawdown in Redis."""

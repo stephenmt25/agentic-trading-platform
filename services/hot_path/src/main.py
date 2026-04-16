@@ -29,6 +29,8 @@ from .state import ProfileState, ProfileStateCache
 from .validation_client import ValidationClient
 from .processor import HotPathProcessor
 from .pnl_sync import PnlSync
+from .decision_writer import DecisionTraceWriter
+from libs.storage.repositories.decision_repo import DecisionRepository
 
 logger = get_logger("hot-path.main")
 
@@ -106,6 +108,10 @@ async def lifespan(app: FastAPI):
             rules = json.loads(rules_raw)
         else:
             rules = rules_raw
+        required_keys = {"logic", "direction", "base_confidence", "conditions"}
+        if not rules or not required_keys.issubset(rules.keys()):
+            logger.warning("Profile %s has incomplete strategy_rules, skipping", prof.get("profile_id"))
+            continue
         compiled = RuleCompiler.compile(rules)
 
         # Parse risk limits (JSONB comes as dict from asyncpg)
@@ -152,6 +158,10 @@ async def lifespan(app: FastAPI):
     telemetry = TelemetryPublisher(redis_instance, "hot_path", "orchestrator")
     await telemetry.start_health_loop()
 
+    # Decision trace writer
+    decision_repo = DecisionRepository(ts_client)
+    decision_writer = DecisionTraceWriter(decision_repo)
+
     processor = HotPathProcessor(
         state_cache=state_cache,
         consumer=consumer,
@@ -163,6 +173,7 @@ async def lifespan(app: FastAPI):
         proximity_pubsub_channel=PUBSUB_THRESHOLD_PROXIMITY,
         redis_client=redis_instance,
         telemetry=telemetry,
+        decision_writer=decision_writer,
     )
 
     logger.info("Injecting Hot-Path background loop.")

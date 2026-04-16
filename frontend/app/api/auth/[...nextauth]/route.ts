@@ -42,8 +42,10 @@ const handler = NextAuth({
         token.idToken = account.id_token || "";
       }
 
-      // Get backend token if we don't have one yet (initial sign-in or retry)
-      if (!token.backendAccessToken && token.email) {
+      // Get backend token if we don't have one yet, or if it expired/failed previously
+      const needsBackendToken = !token.backendAccessToken ||
+        (token.backendTokenExp && Date.now() > (token.backendTokenExp as number));
+      if (needsBackendToken && token.email) {
         try {
           // Create a plain HS256 JWT the Python backend can verify with pyjwt
           const sessionToken = await createBackendToken({
@@ -68,6 +70,8 @@ const handler = NextAuth({
             const data = await res.json();
             token.backendAccessToken = data.access_token;
             token.backendUserId = data.user_id;
+            // Track expiry so we auto-refresh (backend tokens are 5min)
+            token.backendTokenExp = Date.now() + 4 * 60 * 1000;
           } else {
             console.error("Backend auth callback failed:", res.status);
           }

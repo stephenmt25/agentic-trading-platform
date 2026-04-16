@@ -24,6 +24,11 @@ class Settings(BaseSettings):
 
     FAST_GATE_TIMEOUT_MS: int = Field(default=50)
     CIRCUIT_BREAKER_DAILY_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
+
+    # Position exit policy defaults (overridable per-profile via risk_limits JSONB)
+    DEFAULT_STOP_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
+    DEFAULT_TAKE_PROFIT_PCT: Decimal = Field(default=Decimal("0.015"))
+    DEFAULT_MAX_HOLDING_HOURS: float = Field(default=48.0)
     HOT_DATA_RETENTION_DAYS: int = Field(default=7)
     SENTIMENT_CACHE_TTL_S: int = Field(default=900)
 

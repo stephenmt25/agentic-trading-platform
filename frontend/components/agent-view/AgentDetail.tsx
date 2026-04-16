@@ -10,6 +10,7 @@ import { AGENT_TYPE_COLORS } from "@/lib/constants/agent-view";
 import { AgentInputStream } from "./AgentInputStream";
 import { AgentDecisionState } from "./AgentDecisionState";
 import { AgentOutputStream } from "./AgentOutputStream";
+import { DataSourceIndicator } from "./DataSourceBadge";
 
 // ---------------------------------------------------------------------------
 // Collapsible Section (mobile accordion)
@@ -84,7 +85,7 @@ export function AgentDetail() {
             <span className="text-sm font-semibold text-slate-200">
               {agent.display_name}
             </span>
-            <div className="flex items-center gap-2 mt-0.5">
+            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
               <Badge
                 variant="secondary"
                 className="px-1.5 text-[10px] font-mono font-medium"
@@ -95,6 +96,7 @@ export function AgentDetail() {
               >
                 {agent.agent_type}
               </Badge>
+              <DataSourceIndicator data_sources={agent.data_sources} />
               <span className="font-mono text-[10px] text-slate-500 truncate">
                 {agent.agent_id}
               </span>
@@ -147,6 +149,7 @@ export function AgentDetail() {
         >
           {agent.agent_type}
         </Badge>
+        <DataSourceIndicator data_sources={agent.data_sources} />
         <span className="ml-auto font-mono text-[10px] text-slate-500">
           {agent.agent_id}
         </span>

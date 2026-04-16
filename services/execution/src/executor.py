@@ -24,6 +24,7 @@ logger = get_logger("execution.executor")
 EXCHANGE_FEE_RATES = {
     "BINANCE": Decimal("0.001"),    # 0.10%
     "COINBASE": Decimal("0.006"),   # 0.60%
+    "PAPER": Decimal("0.001"),      # 0.10% (matches Binance testnet for realistic simulation)
 }
 DEFAULT_FEE_RATE = Decimal("0.002")  # 0.20% conservative fallback
 
@@ -57,6 +58,11 @@ class OrderExecutor:
 
     async def _resolve_adapter(self, profile_id: str):
         """Load the user's exchange keys from SecretManager and return the correct adapter."""
+        # Paper trading mode — bypass all exchange credential logic
+        if settings.PAPER_TRADING_MODE:
+            logger.info("paper_mode_active", profile_id=profile_id)
+            return get_adapter("PAPER"), "PAPER"
+
         exchange_name = "BINANCE"  # default
         api_key = ""
         api_secret = ""
@@ -132,6 +138,18 @@ class OrderExecutor:
 
             for msg_id, ev in events:
                 if not ev or not isinstance(ev, OrderApprovedEvent):
+                    continue
+
+                if not settings.TRADING_ENABLED:
+                    logger.warning("TRADING_ENABLED=false, rejecting order", profile_id=str(ev.profile_id), symbol=ev.symbol)
+                    fail_ev = OrderRejectedEvent(
+                        profile_id=ev.profile_id,
+                        symbol=ev.symbol,
+                        reason="Trading disabled (TRADING_ENABLED=false)",
+                        timestamp_us=int(datetime.utcnow().timestamp() * 1000000),
+                        source_service="execution"
+                    )
+                    await self._publisher.publish(self._channel, fail_ev)
                     continue
 
                 if self._telemetry:

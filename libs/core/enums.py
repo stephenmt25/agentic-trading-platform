@@ -73,3 +73,8 @@ class HITLStatus(str, Enum):
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
+
+class TradingMode(str, Enum):
+    PAPER = "PAPER"
+    TESTNET = "TESTNET"
+    LIVE = "LIVE"

@@ -28,7 +28,7 @@ class PositionCloser:
         self._redis = redis_client
         self._tracker = AgentPerformanceTracker(redis_client)
 
-    async def close(self, position: Position, exit_price: Decimal, taker_rate: Decimal):
+    async def close(self, position: Position, exit_price: Decimal, taker_rate: Decimal, close_reason: str = "stop_loss"):
         """Close a position and record outcome for agent weight feedback."""
         # 1. Close in DB
         await self._position_repo.close_position(position.position_id, exit_price)
@@ -59,6 +59,7 @@ class PositionCloser:
                 "Position closed with agent outcome tagging",
                 position_id=str(position.position_id),
                 outcome=outcome,
+                close_reason=close_reason,
                 pnl_pct=round(snapshot.pct_return, 6),
                 agents=list(agent_scores.keys()),
             )
@@ -67,6 +68,7 @@ class PositionCloser:
                 "Position closed (no agent scores found)",
                 position_id=str(position.position_id),
                 outcome=outcome,
+                close_reason=close_reason,
                 pnl_pct=round(snapshot.pct_return, 6),
             )
 

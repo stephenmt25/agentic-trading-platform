@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
 # Praxis Trading Platform — Full System Launcher
-# Usage: bash run_all.sh [--stop] [--with-tunnel] [--local-frontend]
+# Usage: bash run_all.sh [--stop] [--local-frontend]
 #
-# Frontend is deployed on Vercel. This script starts backend services only.
-# Use --with-tunnel to also start a Cloudflare Tunnel for Vercel connectivity.
-# Use --local-frontend to also start the local Next.js dev server on :3000.
+# Starts the 19 backend microservices on localhost. Frontend runs locally
+# at http://localhost:3000 when --local-frontend is passed.
+#
+# --local-frontend  Also start the Next.js dev server on :3000.
+# --stop            Gracefully stop all services and infrastructure.
+#
+# Prerequisites:
+#   - Docker Desktop running (Redis + TimescaleDB)
+#   - Poetry installed and in PATH
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -22,12 +28,10 @@ PIDFILE=".praxis_pids"
 LOGDIR=".praxis_logs"
 
 # ---------- Parse flags ----------
-WITH_TUNNEL=false
 LOCAL_FRONTEND=false
 for arg in "$@"; do
     case "$arg" in
         --stop) ;;  # handled below
-        --with-tunnel) WITH_TUNNEL=true ;;
         --local-frontend) LOCAL_FRONTEND=true ;;
     esac
 done
@@ -35,6 +39,7 @@ done
 # ---------- Stop mode ----------
 if [[ "${1:-}" == "--stop" ]]; then
     echo "=== Stopping Praxis Trading Platform ==="
+    # First: tracked PIDs from the current pidfile
     if [[ -f "$PIDFILE" ]]; then
         while read -r pid name; do
             if kill -0 "$pid" 2>/dev/null; then
@@ -43,6 +48,23 @@ if [[ "${1:-}" == "--stop" ]]; then
         done < "$PIDFILE"
         rm -f "$PIDFILE"
     fi
+    # Second: sweep any untracked zombie holding a known Praxis port.
+    # This catches orphans from prior runs whose pidfile was already cleared.
+    # Disable pipefail/errexit locally — grep returns 1 when a port is free,
+    # which under `set -o pipefail` would abort the whole sweep silently.
+    set +eo pipefail
+    PRAXIS_PORTS="8000 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 8090 8091 8092 8093 8094 8095 8096"
+    for port in $PRAXIS_PORTS; do
+        holder_pid=$(netstat -ano 2>/dev/null | grep "[:.]${port} .*LISTEN" | awk '{print $5}' | head -1)
+        if [[ -n "$holder_pid" ]]; then
+            if kill "$holder_pid" 2>/dev/null || taskkill //PID "$holder_pid" //F >/dev/null 2>&1; then
+                echo "  Swept zombie on :$port (PID $holder_pid)"
+            else
+                echo "  WARNING: Could not kill PID $holder_pid on :$port (may need elevated shell)"
+            fi
+        fi
+    done
+    set -eo pipefail
     docker compose -f deploy/docker-compose.yml down 2>/dev/null || true
     echo "=== All stopped ==="
     exit 0
@@ -126,6 +148,11 @@ check_port() {
         echo "  WARNING: Port $port ($name) already in use by PID $holder_pid — killing it"
         kill "$holder_pid" 2>/dev/null || taskkill //PID "$holder_pid" //F 2>/dev/null || true
         sleep 1
+        # Verify the kill actually freed the port — fail loudly if not
+        if netstat -ano 2>/dev/null | grep -q "[:.]${port} .*LISTEN"; then
+            echo "  ERROR: Port $port still held after kill. Run 'taskkill //F //PID $holder_pid' in an elevated shell, then retry."
+            exit 1
+        fi
     fi
 }
 
@@ -201,6 +228,12 @@ launch "slm_inference" "services.slm_inference.src.main" 8095
 # Standalone async services (no HTTP server)
 launch_async "strategy"     "services.strategy.src.main"
 
+# Daily paper-trading report daemon: runs a backfill on startup, then
+# regenerates each completed UTC day at 00:05 UTC. Idempotent (upsert).
+echo "  Starting daily_report (daemon)"
+$POETRY run python scripts/daily_report.py --daemon > "$LOGDIR/daily_report.log" 2>&1 &
+echo "$! daily_report" >> "$PIDFILE"
+
 echo ""
 
 # Verify all services are still alive after settling
@@ -220,40 +253,9 @@ for i in $(seq 1 10); do
     sleep 1
 done
 
-# ---------- 4. Cloudflare Tunnel (optional) ----------
-TUNNEL_ID="6b542e91-07d2-424a-aad1-cfe85a20f45a"
-TUNNEL_URL="https://${TUNNEL_ID}.cfargotunnel.com"
-
-if [[ "$WITH_TUNNEL" == true ]]; then
-    echo "=== [4/5] Starting Cloudflare Tunnel (named: praxis-dev) ==="
-    CLOUDFLARED=""
-    for p in \
-        "/c/Program Files (x86)/cloudflared/cloudflared.exe" \
-        "/mnt/c/Program Files (x86)/cloudflared/cloudflared.exe"; do
-        [[ -f "$p" ]] && CLOUDFLARED="$p" && break
-    done
-    [[ -n "$CLOUDFLARED" ]] || CLOUDFLARED="$(command -v cloudflared 2>/dev/null)" || true
-    if [[ -n "$CLOUDFLARED" ]]; then
-        "$CLOUDFLARED" tunnel run praxis-dev > "$LOGDIR/cloudflared.log" 2>&1 &
-        TUNNEL_PID=$!
-        echo "$TUNNEL_PID cloudflared" >> "$PIDFILE"
-        sleep 4
-        if kill -0 "$TUNNEL_PID" 2>/dev/null; then
-            echo "  Tunnel: $TUNNEL_URL (permanent)"
-        else
-            echo "  ERROR: Tunnel failed to start. Check $LOGDIR/cloudflared.log"
-            echo "  If not set up yet, run: cloudflared tunnel login && cloudflared tunnel create praxis-dev"
-        fi
-    else
-        echo "  WARNING: cloudflared not found. Install with: winget install Cloudflare.cloudflared"
-        echo "  Skipping tunnel — Vercel frontend will show Backend Offline."
-    fi
-    echo ""
-fi
-
-# ---------- 5. Local Frontend (optional) ----------
+# ---------- 4. Local Frontend (optional) ----------
 if [[ "$LOCAL_FRONTEND" == true ]]; then
-    echo "=== Starting Local Frontend (Next.js) ==="
+    echo "=== [4/4] Starting Local Frontend (Next.js) ==="
     rm -f frontend/.next/dev/lock 2>/dev/null
     if command -v powershell.exe >/dev/null 2>&1; then
         powershell.exe -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { \$_ -ne 0 } | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null
@@ -293,15 +295,10 @@ echo "    Rate Limiter ... :8094"
 echo "    SLM Inference .. :8095"
 echo "    Debate ......... :8096"
 echo ""
-echo "  Frontend:"
 if [[ "$LOCAL_FRONTEND" == true ]]; then
-    echo "    Local .......... http://localhost:3000"
+    echo "  Frontend:       http://localhost:3000"
+    echo ""
 fi
-echo "    Vercel ......... https://frontend-seven-khaki-13.vercel.app"
-if [[ "$WITH_TUNNEL" == true ]]; then
-    echo "    Tunnel ......... $TUNNEL_URL"
-fi
-echo ""
 echo "  Logs: $LOGDIR/"
 echo "  Stop: bash run_all.sh --stop"
 echo ""

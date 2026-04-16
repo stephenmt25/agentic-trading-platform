@@ -60,17 +60,18 @@ async def get_risk_status(
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    # Pipeline all Redis reads for this profile
+    # Pipeline all Redis reads for this profile.
+    # `pnl:daily:{profile_id}` is a hash with field `total_pct_micro` (int, pct * 1e6)
+    # written atomically via HINCRBY in hot_path/pnl_sync.py.
     pipe = redis.pipeline()
-    pipe.get(f"pnl:daily:{profile_id}")
+    pipe.hget(f"pnl:daily:{profile_id}", "total_pct_micro")
     pipe.get(f"risk:drawdown:{profile_id}")
     pipe.get(f"risk:allocation:{profile_id}")
     pnl_raw, dd_raw, alloc_raw = await pipe.execute()
 
     result = RiskStatus(profile_id=profile_id)
-    if pnl_raw:
-        data = json.loads(pnl_raw)
-        result.daily_pnl_pct = data.get("total_pct", 0.0)
+    if pnl_raw is not None:
+        result.daily_pnl_pct = int(pnl_raw) / 1_000_000.0
     if dd_raw:
         data = json.loads(dd_raw)
         result.drawdown_pct = data.get("drawdown_pct", 0.0)
@@ -96,14 +97,13 @@ async def get_all_risk_status(
         status = RiskStatus(profile_id=pid)
 
         pipe = redis.pipeline()
-        pipe.get(f"pnl:daily:{pid}")
+        pipe.hget(f"pnl:daily:{pid}", "total_pct_micro")
         pipe.get(f"risk:drawdown:{pid}")
         pipe.get(f"risk:allocation:{pid}")
         pnl_raw, dd_raw, alloc_raw = await pipe.execute()
 
-        if pnl_raw:
-            data = json.loads(pnl_raw)
-            status.daily_pnl_pct = data.get("total_pct", 0.0)
+        if pnl_raw is not None:
+            status.daily_pnl_pct = int(pnl_raw) / 1_000_000.0
         if dd_raw:
             data = json.loads(dd_raw)
             status.drawdown_pct = data.get("drawdown_pct", 0.0)

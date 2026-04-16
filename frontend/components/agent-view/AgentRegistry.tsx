@@ -5,7 +5,18 @@ import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeft } from "lucide-rea
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { useAgentSelection } from "@/lib/hooks/useAgentSelection";
 import { AGENT_CATEGORIES, HEALTH_COLORS } from "@/lib/constants/agent-view";
-import type { AgentCategory, AgentInfo } from "@/lib/types/telemetry";
+import type { AgentCategory, AgentInfo, DataSourceType } from "@/lib/types/telemetry";
+
+const IS_MOCK = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
+
+const SOURCE_ABBREV: Record<DataSourceType, string> = {
+  exchange_ws: 'WS',
+  database: 'DB',
+  redis_stream: 'Redis',
+  redis_pubsub: 'PubSub',
+  external_api: 'API',
+  internal: 'Int.',
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -70,8 +81,19 @@ function AgentRow({ agent, isSelected, onSelect }: AgentRowProps) {
         aria-hidden="true"
       />
 
-      {/* Agent name */}
-      <span className="flex-1 truncate">{agent.display_name}</span>
+      {/* Agent name + data source */}
+      <span className="flex-1 min-w-0">
+        <span className="block truncate">{agent.display_name}</span>
+        {IS_MOCK ? (
+          <span className="block text-[9px] font-mono text-amber-500/70 leading-tight">
+            Simulated
+          </span>
+        ) : agent.data_sources?.length ? (
+          <span className="block text-[9px] font-mono text-slate-600 leading-tight truncate">
+            {agent.data_sources.map((s) => SOURCE_ABBREV[s.type]).join(' + ')}
+          </span>
+        ) : null}
+      </span>
 
       {/* Messages count */}
       <span className="shrink-0 font-mono text-[10px] tabular-nums text-slate-500">

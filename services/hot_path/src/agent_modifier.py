@@ -1,9 +1,19 @@
 import json
-from typing import Optional
+from dataclasses import dataclass
+from typing import Dict, Optional
 from libs.observability import get_logger
 from .strategy_eval import SignalResult
 from libs.core.enums import SignalDirection
 from libs.core.agent_registry import AgentPerformanceTracker, AGENT_DEFAULTS
+
+
+@dataclass(frozen=True)
+class AgentModifierTrace:
+    """Trace output from apply_traced() capturing per-agent details."""
+    signal: SignalResult
+    agents: Dict[str, dict]  # {name: {score, weight, adjustment}}
+    confidence_before: float
+    confidence_after: float
 
 logger = get_logger("hot-path.agent-modifier")
 
@@ -79,6 +89,61 @@ class AgentModifier:
             direction=signal.direction,
             confidence=new_confidence,
             rule_matched=signal.rule_matched,
+        )
+
+    async def apply_traced(self, symbol: str, signal: SignalResult) -> AgentModifierTrace:
+        """Same as apply() but returns full per-agent trace for decision logging."""
+        pipe = self._redis.pipeline(transaction=False)
+        for key_pattern, _, _ in self.AGENTS:
+            pipe.get(key_pattern.format(symbol=symbol))
+        pipe.hgetall(f"agent:weights:{symbol}")
+        results = await pipe.execute()
+
+        agent_results = results[:-1]
+        weights_raw = results[-1]
+        weights = self._parse_weights(weights_raw)
+
+        confidence_before = signal.confidence
+        total_adj = 0.0
+        agents_trace: Dict[str, dict] = {}
+
+        for i, (_, agent_name, extractor_name) in enumerate(self.AGENTS):
+            raw = agent_results[i]
+            score = None
+            if raw:
+                extractor = getattr(self, extractor_name)
+                score = extractor(raw, signal)
+
+            weight = weights.get(agent_name, AGENT_DEFAULTS.get(agent_name, 0.15))
+
+            if score is not None:
+                adj = score * weight
+                adj = max(-weight, min(weight, adj))
+                total_adj += adj
+                agents_trace[agent_name] = {
+                    "score": round(score, 6),
+                    "weight": round(weight, 4),
+                    "adjustment": round(adj, 6),
+                }
+            else:
+                agents_trace[agent_name] = {
+                    "score": None,
+                    "weight": round(weight, 4),
+                    "adjustment": 0.0,
+                }
+
+        new_confidence = max(0.0, min(1.0, signal.confidence + total_adj))
+        new_signal = SignalResult(
+            direction=signal.direction,
+            confidence=new_confidence,
+            rule_matched=signal.rule_matched,
+        )
+
+        return AgentModifierTrace(
+            signal=new_signal,
+            agents=agents_trace,
+            confidence_before=confidence_before,
+            confidence_after=new_confidence,
         )
 
     @staticmethod

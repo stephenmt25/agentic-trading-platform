@@ -8,11 +8,12 @@ import { AlertTray } from "@/components/validation/AlertTray";
 import { wsClient } from "@/lib/ws/client";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
-import { LogOut, Settings, Menu, X, WifiOff } from "lucide-react";
+import { LogOut, Settings, Menu, X, WifiOff, FlaskConical } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { tapScale, tapTransition, navIndicatorTransition, easing, duration } from "@/lib/motion";
 
 const PUBLIC_PATHS = ["/login"];
+const IS_MOCK_DATA = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
 
 const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
@@ -243,7 +244,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Connection Status */}
             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 text-xs text-muted-foreground">
               <span className="relative flex h-2 w-2">
-                {backendStatus === 'connected' && wsConnected ? (
+                {IS_MOCK_DATA ? (
+                  <span className="inline-flex rounded-full h-2 w-2 bg-amber-500 animate-pulse" />
+                ) : backendStatus === 'connected' && wsConnected ? (
                   <span className="inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                 ) : backendStatus === 'connected' ? (
                   <span className="inline-flex rounded-full h-2 w-2 bg-amber-500" />
@@ -252,13 +255,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 )}
               </span>
               <span className={`font-mono tabular-nums uppercase font-medium text-xs tracking-wider ${
-                backendStatus === 'connected' && wsConnected
+                IS_MOCK_DATA
+                  ? "text-amber-500/80"
+                  : backendStatus === 'connected' && wsConnected
                   ? "text-emerald-500/80"
                   : backendStatus === 'connected'
                   ? "text-amber-500/80"
                   : "text-red-500/80"
               }`}>
-                {backendStatus === 'connected' && wsConnected
+                {IS_MOCK_DATA
+                  ? "Mock Data"
+                  : backendStatus === 'connected' && wsConnected
                   ? "Live"
                   : backendStatus === 'connected'
                   ? "API Only"
@@ -336,6 +343,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           </div>
         </header>
+
+        {/* Mock Data Banner — non-dismissible, always visible when mock is active */}
+        {IS_MOCK_DATA && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 flex items-center gap-3 text-sm text-amber-400 shrink-0">
+            <FlaskConical className="w-4 h-4 shrink-0" />
+            <span className="font-mono text-xs uppercase tracking-wider font-semibold">Mock Data</span>
+            <span className="text-amber-400/70 text-xs">
+              Telemetry is simulated. Set <code className="bg-amber-500/10 px-1 rounded text-amber-400">NEXT_PUBLIC_AGENT_VIEW_MOCK=false</code> to use live data.
+            </span>
+          </div>
+        )}
 
         {/* Backend Offline Banner */}
         <AnimatePresence>

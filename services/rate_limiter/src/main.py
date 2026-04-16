@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
 
                     MetricsCollector.increment_counter(
                         "rate_limiter.active_profiles",
-                        tags={"exchange": exchange, "count": str(total_keys)},
+                        tags={"exchange": exchange, "active_keys": str(total_keys)},
                     )
 
                 MetricsCollector.increment_counter("system.heartbeat", tags={"service": "rate-limiter"})

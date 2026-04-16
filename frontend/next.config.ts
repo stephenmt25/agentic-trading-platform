@@ -39,7 +39,7 @@ const nextConfig: NextConfig = {
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                 "font-src 'self' https://fonts.gstatic.com",
                 "img-src 'self' data: blob: https://lh3.googleusercontent.com https://avatars.githubusercontent.com",
-                `connect-src 'self' ${wsUrl}`,
+                `connect-src 'self' ${apiUrl} ${wsUrl}`,
               ].join("; ");
             })(),
           },

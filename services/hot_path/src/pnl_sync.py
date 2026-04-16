@@ -1,5 +1,6 @@
 import asyncio
 import json
+import msgpack
 from decimal import Decimal
 from libs.core.schemas import DrawdownPayload, AllocationPayload
 from libs.messaging.channels import PUBSUB_PNL_UPDATES
@@ -38,8 +39,13 @@ class PnlSync:
         async def on_message(data):
             try:
                 if isinstance(data, bytes):
-                    data = data.decode()
-                message = json.loads(data) if isinstance(data, str) else data
+                    # PubSubBroadcaster serialises with msgpack — decode accordingly
+                    raw = msgpack.unpackb(data, raw=False)
+                    message = raw
+                elif isinstance(data, str):
+                    message = json.loads(data)
+                else:
+                    message = data
                 profile_id = message.get("profile_id")
                 if not profile_id:
                     return

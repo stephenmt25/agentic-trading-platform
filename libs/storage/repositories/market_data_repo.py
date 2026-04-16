@@ -27,7 +27,7 @@ class MarketDataRepository(BaseRepository):
         records = await self._fetch(query, symbol, timeframe, start, end)
         return [dict(r) for r in records]
 
-    async def write_candle(self, symbol: str, timeframe: str, ohlcv: Dict[str, Any], bucket: str):
+    async def write_candle(self, symbol: str, timeframe: str, ohlcv: Dict[str, Any], bucket: datetime):
         query = """
         INSERT INTO market_data_ohlcv (symbol, timeframe, open, high, low, close, volume, bucket)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

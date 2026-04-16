@@ -105,7 +105,7 @@ Open positions are loaded from TimescaleDB into `active_positions_cache` at star
 |--------|---------|--------|
 | Dashboard | PubSub `pubsub:pnl_updates` | `PnlUpdateEvent` |
 | Dashboard cache | Redis key `pnl:{profile_id}:{position_id}:latest` | JSON |
-| Hot-Path circuit breaker | Redis key `pnl:daily:{profile_id}` | JSON |
+| Hot-Path circuit breaker | Redis key `pnl:daily:{profile_id}` | Hash, field `total_pct_micro` = int(pct × 1e6), atomic `HINCRBY` |
 | Hot-Path risk gate | Redis key `risk:drawdown:{profile_id}` | JSON |
 | Historical storage | TimescaleDB `pnl_snapshots` table | Row insert |
 

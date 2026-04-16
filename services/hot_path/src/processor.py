@@ -1,5 +1,6 @@
-import asyncio
-from typing import Dict, List, Any
+import uuid
+from dataclasses import asdict
+from typing import Dict, Any, Optional
 from .state import ProfileStateCache
 from .strategy_eval import StrategyEvaluator, SignalResult, EvaluatedIndicators
 from .abstention import AbstentionChecker
@@ -11,7 +12,9 @@ from .risk_gate import RiskGate
 from .hitl_gate import HITLGate
 from .kill_switch import KillSwitch
 from .validation_client import ValidationClient
+from .decision_writer import DecisionTraceWriter
 
+from libs.config import settings
 from libs.core.enums import SignalDirection, EventType, ValidationCheck, ValidationVerdict, ValidationMode
 from libs.core.models import NormalisedTick
 from libs.core.schemas import MarketTickEvent, OrderApprovedEvent, ThresholdProximityEvent, ValidationRequestEvent
@@ -35,6 +38,7 @@ class HotPathProcessor:
         proximity_pubsub_channel: str,
         redis_client=None,
         telemetry: TelemetryPublisher = None,
+        decision_writer: Optional[DecisionTraceWriter] = None,
     ):
         self._state_cache = state_cache
         self._consumer = consumer
@@ -47,6 +51,7 @@ class HotPathProcessor:
 
         self._redis = redis_client
         self._telemetry = telemetry
+        self._decision_writer = decision_writer
 
         # Sprint 9.4: Dual-regime dampener with Redis + pubsub
         self._regime_dampener = RegimeDampener(redis_client=redis_client, pubsub=pubsub)
@@ -91,17 +96,67 @@ class HotPathProcessor:
                     await self._telemetry.emit("input_received", {"symbol": event.symbol, "price": str(event.price), "exchange": event.exchange}, source_agent="ingestion")
 
                 with timer("hot_path.tick_processing"):
+                    # Master trading gate — skip all order logic when trading is disabled
+                    if not settings.TRADING_ENABLED:
+                        continue
+
                     # For each profile caching
                     for profile_state in self._state_cache.itervalues():
                         if not profile_state.is_active:
                             continue
 
-                        # 1. Strategy Eval
-                        eval_result = StrategyEvaluator.evaluate(profile_state, tick)
-                        if eval_result is None:
-                            continue  # indicators still priming
-                        sig_res, inds = eval_result
+                        # 1. Strategy Eval (with trace when writer is available)
+                        strat_trace = None
+                        eval_dict = None
+                        if self._decision_writer:
+                            trace_result = StrategyEvaluator.evaluate_with_trace(profile_state, tick)
+                            if trace_result is None:
+                                continue  # indicators still priming
+                            sig_res, inds, strat_trace, eval_dict = trace_result
+                        else:
+                            eval_result = StrategyEvaluator.evaluate(profile_state, tick)
+                            if eval_result is None:
+                                continue
+                            sig_res, inds = eval_result
 
+                        # Build base trace dict (populated incrementally through gates)
+                        trace: Dict[str, Any] = {}
+                        if self._decision_writer:
+                            trace = {
+                                "event_id": uuid.uuid4(),
+                                "profile_id": str(profile_state.profile_id),
+                                "symbol": tick.symbol,
+                                "input_price": tick.price,
+                                "input_volume": tick.volume,
+                                "indicators": {
+                                    "rsi": round(inds.rsi, 4),
+                                    "macd_line": round(inds.macd_line, 4),
+                                    "signal_line": round(inds.signal_line, 4),
+                                    "histogram": round(inds.histogram, 4),
+                                    "atr": round(inds.atr, 4),
+                                    "adx": round(inds.adx, 4) if inds.adx is not None else None,
+                                    "bb_upper": round(inds.bb_upper, 4) if inds.bb_upper is not None else None,
+                                    "bb_lower": round(inds.bb_lower, 4) if inds.bb_lower is not None else None,
+                                    "bb_pct_b": round(inds.bb_pct_b, 4) if inds.bb_pct_b is not None else None,
+                                    "obv": round(inds.obv, 2) if inds.obv is not None else None,
+                                    "choppiness": round(inds.choppiness, 4) if inds.choppiness is not None else None,
+                                },
+                                "strategy": asdict(strat_trace) if strat_trace else {},
+                                "regime": None,
+                                "agents": None,
+                                "gates": {},
+                                "profile_rules": {
+                                    "logic": profile_state.compiled_rules.logic,
+                                    "direction": profile_state.compiled_rules.direction.value,
+                                    "base_confidence": profile_state.compiled_rules.base_confidence,
+                                    "conditions": profile_state.compiled_rules.conditions,
+                                    "risk_limits": {
+                                        "max_drawdown_pct": str(profile_state.risk_limits.max_drawdown_pct),
+                                        "stop_loss_pct": str(profile_state.risk_limits.stop_loss_pct),
+                                        "max_allocation_pct": str(profile_state.risk_limits.max_allocation_pct),
+                                    },
+                                },
+                            }
 
                         # 1b. Proximity check for pre-fetching
                         if not sig_res:
@@ -120,14 +175,31 @@ class HotPathProcessor:
                             continue
 
                         # 2. Abstention
-                        if AbstentionChecker.check(profile_state, sig_res, tick, inds):
+                        abstain_blocked, abstain_reason = AbstentionChecker.check_with_reason(profile_state, sig_res, tick, inds)
+                        if abstain_blocked:
                             logger.info("gate_block", gate="abstention", symbol=tick.symbol)
+                            if self._decision_writer:
+                                trace["outcome"] = "BLOCKED_ABSTENTION"
+                                trace["gates"]["abstention"] = {"passed": False, "reason": abstain_reason}
+                                await self._decision_writer.write(trace)
                             continue
+                        if trace:
+                            trace["gates"]["abstention"] = {"passed": True}
 
                         # 3. Regime Dampener (now async with dual-regime support)
                         damp_res = await self._regime_dampener.check(profile_state, sig_res, tick, inds)
                         if not damp_res.proceed:
                             logger.info("gate_block", gate="regime", symbol=tick.symbol)
+                            if self._decision_writer:
+                                trace["outcome"] = "BLOCKED_REGIME"
+                                trace["regime"] = {
+                                    "rule_based": getattr(damp_res, "rule_regime", None),
+                                    "hmm": getattr(damp_res, "hmm_regime", None),
+                                    "resolved": getattr(damp_res, "resolved_regime", None),
+                                    "confidence_multiplier": damp_res.confidence_multiplier,
+                                }
+                                trace["gates"]["regime"] = {"passed": False}
+                                await self._decision_writer.write(trace)
                             continue
 
                         # Apply confidence multiplier
@@ -136,10 +208,27 @@ class HotPathProcessor:
                             confidence=sig_res.confidence * damp_res.confidence_multiplier,
                             rule_matched=sig_res.rule_matched
                         )
+                        if trace:
+                            trace["regime"] = {
+                                "rule_based": getattr(damp_res, "rule_regime", None),
+                                "hmm": getattr(damp_res, "hmm_regime", None),
+                                "resolved": getattr(damp_res, "resolved_regime", None),
+                                "confidence_multiplier": damp_res.confidence_multiplier,
+                            }
+                            trace["gates"]["regime"] = {"passed": True}
 
                         # 3b. Agent Modifier (TA + sentiment scores)
                         if self._agent_modifier:
-                            sig_res = await self._agent_modifier.apply(tick.symbol, sig_res)
+                            if self._decision_writer:
+                                agent_trace = await self._agent_modifier.apply_traced(tick.symbol, sig_res)
+                                sig_res = agent_trace.signal
+                                trace["agents"] = {
+                                    **agent_trace.agents,
+                                    "confidence_before": round(agent_trace.confidence_before, 6),
+                                    "confidence_after": round(agent_trace.confidence_after, 6),
+                                }
+                            else:
+                                sig_res = await self._agent_modifier.apply(tick.symbol, sig_res)
 
                         # Telemetry: decision trace after signal evaluation
                         if self._telemetry:
@@ -159,18 +248,50 @@ class HotPathProcessor:
                         # 4. Circuit Breaker
                         if CircuitBreaker.check(profile_state):
                             logger.info("gate_block", gate="circuit_breaker", symbol=tick.symbol)
+                            if self._decision_writer:
+                                trace["outcome"] = "BLOCKED_CIRCUIT_BREAKER"
+                                trace["gates"]["circuit_breaker"] = {
+                                    "passed": False,
+                                    "daily_pnl_pct": str(getattr(profile_state, "daily_realized_pnl_pct", 0)),
+                                    "threshold": str(profile_state.risk_limits.circuit_breaker_daily_loss_pct),
+                                }
+                                await self._decision_writer.write(trace)
                             continue
+                        if trace:
+                            trace["gates"]["circuit_breaker"] = {"passed": True}
 
                         # 5. Blacklist
                         if BlacklistChecker.check(profile_state, tick.symbol):
                             logger.info("gate_block", gate="blacklist", symbol=tick.symbol)
+                            if self._decision_writer:
+                                trace["outcome"] = "BLOCKED_BLACKLIST"
+                                trace["gates"]["blacklist"] = {"passed": False}
+                                await self._decision_writer.write(trace)
                             continue
+                        if trace:
+                            trace["gates"]["blacklist"] = {"passed": True}
 
                         # 6. Risk Gate (now returns RiskGateResult with dynamic sizing)
                         risk_result = RiskGate.check(profile_state, sig_res, tick)
                         if risk_result.blocked:
                             logger.info("gate_block", gate="risk_gate", symbol=tick.symbol, reason=risk_result.reason if hasattr(risk_result, 'reason') else "unknown")
+                            if self._decision_writer:
+                                trace["outcome"] = "BLOCKED_RISK"
+                                trace["gates"]["risk_gate"] = {
+                                    "passed": False,
+                                    "reason": risk_result.reason,
+                                    "allocation_pct": str(profile_state.current_allocation_pct),
+                                    "drawdown_pct": str(profile_state.current_drawdown_pct),
+                                }
+                                await self._decision_writer.write(trace)
                             continue
+                        if trace:
+                            trace["gates"]["risk_gate"] = {
+                                "passed": True,
+                                "suggested_qty": str(risk_result.suggested_quantity),
+                                "allocation_pct": str(profile_state.current_allocation_pct),
+                                "drawdown_pct": str(profile_state.current_drawdown_pct),
+                            }
 
                         # 6b. HITL Gate (between risk_gate and validation)
                         if self._hitl_gate:
@@ -179,7 +300,13 @@ class HotPathProcessor:
                             )
                             if hitl_result.blocked:
                                 logger.info(f"HITL blocked trade for {profile_state.profile_id} - {hitl_result.reason}")
+                                if self._decision_writer:
+                                    trace["outcome"] = "BLOCKED_HITL"
+                                    trace["gates"]["hitl"] = {"passed": False, "reason": hitl_result.reason}
+                                    await self._decision_writer.write(trace)
                                 continue
+                            if trace:
+                                trace["gates"]["hitl"] = {"passed": True, "triggered": False}
 
                         # 7. Validation Fast Gate
                         val_req = ValidationRequestEvent(
@@ -196,7 +323,21 @@ class HotPathProcessor:
                         val_resp = await self._validation_client.fast_gate(val_req)
                         if val_resp and val_resp.verdict == ValidationVerdict.RED:
                             logger.info(f"Validation blocked trade for {profile_state.profile_id} - {val_resp.reason}")
+                            if self._decision_writer:
+                                trace["outcome"] = "BLOCKED_VALIDATION"
+                                trace["gates"]["validation"] = {
+                                    "passed": False,
+                                    "verdict": val_resp.verdict.value if val_resp.verdict else "RED",
+                                    "reason": val_resp.reason,
+                                }
+                                await self._decision_writer.write(trace)
                             continue
+                        if trace:
+                            trace["gates"]["validation"] = {
+                                "passed": True,
+                                "verdict": val_resp.verdict.value if val_resp and val_resp.verdict else "GREEN",
+                                "reason": val_resp.reason if val_resp else None,
+                            }
 
                         # 8. Emit Order Approved (using dynamic quantity from RiskGate)
                         qty = risk_result.suggested_quantity
@@ -211,6 +352,12 @@ class HotPathProcessor:
                         )
                         await self._publisher.publish(self._orders_channel, order_ev)
                         MetricsCollector.increment_counter("orders.approved")
+
+                        # Write approved decision trace
+                        if self._decision_writer:
+                            trace["outcome"] = "APPROVED"
+                            trace["order_id"] = str(order_ev.event_id)
+                            await self._decision_writer.write(trace)
 
                         # Telemetry: order approved emitted
                         if self._telemetry:

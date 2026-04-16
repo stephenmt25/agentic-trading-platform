@@ -8,10 +8,11 @@
 import { z } from "zod";
 import { useConnectionStore } from "../stores/connectionStore";
 
-// REST calls use same-origin Vercel rewrite (no CORS needed).
-// In local dev, falls back to direct localhost.
+// REST calls: on Vercel, use the same-origin rewrite proxy (/api/backend) to
+// avoid CORS.  In local dev, hit the backend directly on localhost.
+const IS_VERCEL = process.env.VERCEL === "1";
 const API_BASE_URL =
-  typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL
+  typeof window !== "undefined" && IS_VERCEL
     ? "/api/backend"
     : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -63,9 +64,14 @@ async function apiRequest<T>(
     body: body ? JSON.stringify(body) : undefined,
   };
 
+  // FastAPI expects trailing slashes — without them it returns a 307 redirect
+  // whose response lacks CORS headers, causing browser fetch to fail.
+  const normalizedEndpoint =
+    endpoint.endsWith("/") || endpoint.includes("?") ? endpoint : `${endpoint}/`;
+
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}${endpoint}`, config);
+    response = await fetch(`${API_BASE_URL}${normalizedEndpoint}`, config);
   } catch {
     // Network error — backend unreachable (no response at all)
     useConnectionStore.getState().recordFailure();
@@ -122,7 +128,7 @@ const ProfileResponseSchema = z.object({
   name: z.string(),
   is_active: z.boolean(),
   rules_json: z.record(z.string(), z.unknown()),
-  allocation_pct: z.number(),
+  allocation_pct: z.coerce.number(),
   created_at: z.string(),
   deleted_at: z.string().nullable(),
 });
@@ -164,6 +170,29 @@ export interface ProfileResponse {
   deleted_at: string | null;
 }
 
+export interface KillSwitchStatus {
+  active: boolean;
+  recent_log: Array<{
+    action: string;
+    reason: string;
+    by: string;
+    timestamp: string;
+  }>;
+}
+
+export interface KillSwitchToggleResponse {
+  status: string;
+  reason: string | null;
+}
+
+export interface TradingModeStatus {
+  trading_enabled: boolean;
+  paper_trading_mode: boolean;
+  binance_testnet: boolean;
+  coinbase_sandbox: boolean;
+  effective_mode: "PAPER" | "TESTNET" | "LIVE";
+}
+
 export interface PaperTradingStatus {
   days_elapsed: number;
   target_days: number;
@@ -186,6 +215,38 @@ export interface PaperTradingStatus {
     max_drawdown: number;
     sharpe_ratio: number;
   }>;
+}
+
+export interface TradeDecision {
+  event_id: string;
+  profile_id: string;
+  symbol: string;
+  outcome: string;
+  input_price: number;
+  input_volume: number | null;
+  indicators: {
+    rsi: number; macd_line: number; signal_line: number; histogram: number;
+    atr: number; adx: number | null; bb_upper: number | null; bb_lower: number | null;
+    bb_pct_b: number | null; obv: number | null; choppiness: number | null;
+  };
+  strategy: {
+    direction: string; logic: string; base_confidence: number; matched: boolean;
+    conditions: Array<{ indicator: string; operator: string; threshold: number; actual_value: number; passed: boolean }>;
+  };
+  regime: {
+    rule_based: string | null; hmm: string | null; resolved: string | null;
+    confidence_multiplier: number;
+  } | null;
+  agents: {
+    ta: { score: number | null; weight: number; adjustment: number } | null;
+    sentiment: { score: number | null; weight: number; adjustment: number } | null;
+    debate: { score: number | null; weight: number; adjustment: number } | null;
+    confidence_before: number; confidence_after: number;
+  } | null;
+  gates: Record<string, { passed: boolean; reason?: string; [key: string]: unknown }>;
+  profile_rules: Record<string, unknown>;
+  order_id: string | null;
+  created_at: string;
 }
 
 // ---- Typed API Methods ----
@@ -230,6 +291,34 @@ export const api = {
   paperTrading: {
     status: () =>
       apiRequest<PaperTradingStatus>("/paper-trading/status"),
+
+    mode: () =>
+      apiRequest<TradingModeStatus>("/paper-trading/mode"),
+
+    decisions: (params?: { profile_id?: string; symbol?: string; outcome?: string; limit?: number; offset?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.profile_id) qs.set("profile_id", params.profile_id);
+      if (params?.symbol) qs.set("symbol", params.symbol);
+      if (params?.outcome) qs.set("outcome", params.outcome);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.offset) qs.set("offset", String(params.offset));
+      const query = qs.toString();
+      return apiRequest<TradeDecision[]>(`/paper-trading/decisions${query ? `?${query}` : ""}`);
+    },
+
+    decision: (eventId: string) =>
+      apiRequest<TradeDecision>(`/paper-trading/decisions/${eventId}`),
+  },
+
+  commands: {
+    killSwitchStatus: () =>
+      apiRequest<KillSwitchStatus>("/commands/kill-switch"),
+
+    killSwitchToggle: (active: boolean, reason?: string) =>
+      apiRequest<KillSwitchToggleResponse>("/commands/kill-switch", {
+        method: "POST",
+        body: { active, reason },
+      }),
   },
 
   exchangeKeys: {

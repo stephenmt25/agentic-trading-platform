@@ -65,7 +65,7 @@ class DataRouter:
 
     async def _flush_candle(self, symbol: str, timeframe: str, candle: Dict[str, Any]):
         try:
-            await self._repo.write_candle(symbol, timeframe, candle, candle['bucket'].isoformat())
+            await self._repo.write_candle(symbol, timeframe, candle, candle['bucket'])
         except Exception as e:
             logger.error(
                 "Failed to flush candle to timescale",

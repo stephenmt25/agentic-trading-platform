@@ -2,7 +2,7 @@
  * Constants for the Agent View telemetry dashboard.
  */
 
-import type { AgentType, AgentCategory, AgentInfo } from '../types/telemetry';
+import type { AgentType, AgentCategory, AgentInfo, DataSourceType } from '../types/telemetry';
 
 // ---------------------------------------------------------------------------
 // Color Palettes (dark-theme optimized)
@@ -26,6 +26,15 @@ export const HEALTH_COLORS: Record<string, string> = {
   error: '#ef4444',
   offline: '#6b7280',
 } as const;
+
+export const DATA_SOURCE_COLORS: Record<DataSourceType, string> = {
+  exchange_ws:  '#38bdf8',  // sky-400
+  database:     '#a3e635',  // lime-400
+  redis_stream: '#fb923c',  // orange-400
+  redis_pubsub: '#f472b6',  // pink-400
+  external_api: '#c084fc',  // purple-400
+  internal:     '#94a3b8',  // slate-400
+};
 
 // ---------------------------------------------------------------------------
 // Agent Categories (ordered for display)
@@ -56,6 +65,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8082,
+    data_sources: [{ type: 'redis_stream', label: 'Redis Stream (market_data)' }],
   },
   {
     agent_id: 'ingestion',
@@ -67,6 +77,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8080,
+    data_sources: [{ type: 'exchange_ws', label: 'Binance WebSocket' }],
   },
   {
     agent_id: 'ta_agent',
@@ -78,6 +89,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8090,
+    data_sources: [{ type: 'database', label: 'TimescaleDB (OHLC)' }],
   },
   {
     agent_id: 'sentiment',
@@ -89,6 +101,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8092,
+    data_sources: [{ type: 'external_api', label: 'News APIs' }],
   },
   {
     agent_id: 'debate',
@@ -100,6 +113,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8096,
+    data_sources: [{ type: 'internal', label: 'Agent Scores (Redis)' }],
   },
   {
     agent_id: 'regime_hmm',
@@ -111,6 +125,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8091,
+    data_sources: [{ type: 'database', label: 'TimescaleDB (1h candles)' }],
   },
   {
     agent_id: 'analyst',
@@ -122,6 +137,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8087,
+    data_sources: [{ type: 'internal', label: 'Position Outcomes' }],
   },
   {
     agent_id: 'risk',
@@ -133,6 +149,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8093,
+    data_sources: [{ type: 'internal', label: 'PnL State + Limits' }],
   },
   {
     agent_id: 'validation',
@@ -144,6 +161,7 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8081,
+    data_sources: [{ type: 'redis_stream', label: 'Redis Stream (validation)' }],
   },
   {
     agent_id: 'execution',
@@ -155,6 +173,10 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8083,
+    data_sources: [
+      { type: 'exchange_ws', label: 'Exchange API' },
+      { type: 'internal', label: 'Agent Scores' },
+    ],
   },
   {
     agent_id: 'pnl',
@@ -166,6 +188,10 @@ export const AGENT_REGISTRY: AgentInfo[] = [
     messages_processed: 0,
     uptime_s: 0,
     port: 8084,
+    data_sources: [
+      { type: 'redis_pubsub', label: 'Redis Pub/Sub (ticks)' },
+      { type: 'database', label: 'TimescaleDB' },
+    ],
   },
 ];
 

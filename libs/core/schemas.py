@@ -465,6 +465,8 @@ class RiskLimitsPayload(BaseModel):
     """Validated risk limits JSON from profile."""
     max_allocation_pct: Optional[float] = None
     stop_loss_pct: Optional[float] = 0.05
+    take_profit_pct: Optional[float] = 0.015
+    max_holding_hours: Optional[float] = 48.0
     max_drawdown_pct: Optional[float] = None
     circuit_breaker_daily_loss_pct: Optional[float] = None
     model_config = ConfigDict(extra="allow")

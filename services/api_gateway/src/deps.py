@@ -4,6 +4,7 @@ from libs.storage import RedisClient, TimescaleClient
 from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.order_repo import OrderRepository
 from libs.storage.repositories.pnl_repo import PnlRepository
+from libs.storage.repositories.decision_repo import DecisionRepository
 from fastapi.security import HTTPBearer
 from .middleware.auth import verify_jwt
 
@@ -35,6 +36,11 @@ async def get_order_repo(request: Request) -> OrderRepository:
 async def get_pnl_repo(request: Request) -> PnlRepository:
     client = await get_timescale(request)
     return PnlRepository(client)
+
+
+async def get_decision_repo(request: Request) -> DecisionRepository:
+    client = await get_timescale(request)
+    return DecisionRepository(client)
 
 
 def get_current_user(request: Request) -> str:
