@@ -6,8 +6,11 @@ from fastapi import FastAPI
 import uvicorn
 
 from libs.config import settings
+from decimal import Decimal
+
 from libs.storage import RedisClient
 from libs.storage.repositories.market_data_repo import MarketDataRepository
+from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage._timescale_client import TimescaleClient
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
@@ -28,7 +31,7 @@ HMM_PREDICT_WINDOW = 1
 CONFIDENCE_THRESHOLD = 0.70
 
 
-async def classification_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher):
+async def classification_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
     """Periodically classify market regime using HMM and write to Redis."""
     symbols = settings.TRADING_SYMBOLS
     models: dict[str, HMMRegimeModel] = {sym: HMMRegimeModel() for sym in symbols}
@@ -74,6 +77,17 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository, t
                                 json.dumps({"regime": regime.value, "state_index": state, "confidence": confidence}),
                                 ex=SCORE_TTL_S,
                             )
+                            # Persist to TimescaleDB for charting overlays
+                            if score_repo:
+                                try:
+                                    await score_repo.write_score(
+                                        symbol, "regime_hmm",
+                                        Decimal(str(state)),
+                                        confidence=Decimal(str(confidence)),
+                                        metadata={"regime": regime.value, "state_index": state},
+                                    )
+                                except Exception as pe:
+                                    logger.warning("Failed to persist regime score", error=str(pe))
                             logger.info(
                                 "HMM regime updated",
                                 symbol=symbol,
@@ -126,7 +140,8 @@ async def lifespan(app: FastAPI):
     telemetry = TelemetryPublisher(redis_instance, "regime_hmm", "regime")
     await telemetry.start_health_loop()
 
-    task = asyncio.create_task(classification_loop(redis_instance, market_repo, telemetry))
+    score_repo = AgentScoreRepository(timescale)
+    task = asyncio.create_task(classification_loop(redis_instance, market_repo, telemetry, score_repo))
     logger.info("Regime HMM Agent started")
     yield
     task.cancel()

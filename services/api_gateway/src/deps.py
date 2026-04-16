@@ -5,6 +5,8 @@ from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.order_repo import OrderRepository
 from libs.storage.repositories.pnl_repo import PnlRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
+from libs.storage.repositories.market_data_repo import MarketDataRepository
+from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from fastapi.security import HTTPBearer
 from .middleware.auth import verify_jwt
 
@@ -41,6 +43,16 @@ async def get_pnl_repo(request: Request) -> PnlRepository:
 async def get_decision_repo(request: Request) -> DecisionRepository:
     client = await get_timescale(request)
     return DecisionRepository(client)
+
+
+async def get_market_data_repo(request: Request) -> MarketDataRepository:
+    client = await get_timescale(request)
+    return MarketDataRepository(client)
+
+
+async def get_agent_score_repo(request: Request) -> AgentScoreRepository:
+    client = await get_timescale(request)
+    return AgentScoreRepository(client)
 
 
 def get_current_user(request: Request) -> str:
