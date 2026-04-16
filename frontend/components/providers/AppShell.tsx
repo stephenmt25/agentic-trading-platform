@@ -19,6 +19,8 @@ const NAV_ITEMS = [
   { href: "/", label: "Dashboard" },
   { href: "/agent-view", label: "Agent View" },
   { href: "/analysis", label: "Analysis" },
+  { href: "/performance", label: "Performance" },
+  { href: "/pipeline", label: "Pipeline" },
   { href: "/profiles", label: "Profiles" },
   { href: "/backtest", label: "Backtest" },
   { href: "/paper-trading", label: "Paper Trading" },

@@ -91,6 +91,14 @@ class ProfileRepository(BaseRepository):
         record = await self._fetchrow(query, UUID(profile_id), UUID(user_id))
         return dict(record) if record else {}
 
+    async def update_pipeline_config(self, profile_id: str, config) -> None:
+        query = """
+        UPDATE trading_profiles SET pipeline_config = $1, updated_at = NOW()
+        WHERE profile_id = $2
+        """
+        config_json = json.dumps(config) if config is not None else None
+        await self._execute(query, config_json, UUID(profile_id))
+
     async def get_profiles_for_symbol(self, symbol: str) -> list:
         query = "SELECT * FROM trading_profiles WHERE is_active = true AND deleted_at IS NULL"
         records = await self._fetch(query)

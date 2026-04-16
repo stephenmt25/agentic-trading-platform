@@ -7,6 +7,7 @@ from libs.storage.repositories.pnl_repo import PnlRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
+from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
 from fastapi.security import HTTPBearer
 from .middleware.auth import verify_jwt
 
@@ -53,6 +54,11 @@ async def get_market_data_repo(request: Request) -> MarketDataRepository:
 async def get_agent_score_repo(request: Request) -> AgentScoreRepository:
     client = await get_timescale(request)
     return AgentScoreRepository(client)
+
+
+async def get_weight_history_repo(request: Request) -> WeightHistoryRepository:
+    client = await get_timescale(request)
+    return WeightHistoryRepository(client)
 
 
 def get_current_user(request: Request) -> str:

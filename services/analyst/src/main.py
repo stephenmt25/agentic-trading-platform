@@ -5,9 +5,11 @@ from contextlib import asynccontextmanager
 
 from libs.config import settings
 from libs.storage import RedisClient
+from libs.storage._timescale_client import TimescaleClient
+from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
-from libs.core.agent_registry import AgentPerformanceTracker
+from libs.core.agent_registry import AgentPerformanceTracker, AGENT_DEFAULTS, TRACKER_KEY, WEIGHTS_KEY
 
 logger = get_logger("analyst")
 
@@ -17,6 +19,9 @@ WEIGHT_RECOMPUTE_INTERVAL_S = 300  # 5 minutes
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     redis_conn = RedisClient.get_instance(settings.REDIS_URL).get_connection()
+    timescale = TimescaleClient(settings.DATABASE_URL)
+    await timescale.init_pool()
+    weight_repo = WeightHistoryRepository(timescale)
     tracker = AgentPerformanceTracker(redis_conn)
 
     telemetry = TelemetryPublisher(redis_conn, "analyst", "meta_learning")
@@ -29,6 +34,24 @@ async def lifespan(app: FastAPI):
                 for symbol in settings.TRADING_SYMBOLS:
                     await telemetry.emit("input_received", {"symbol": symbol, "message_type": "outcome_read"}, source_agent="pnl")
                     await tracker.recompute_weights(symbol)
+
+                    # Persist weight snapshot to TimescaleDB for evolution charts
+                    try:
+                        snapshot = {}
+                        for agent_name in AGENT_DEFAULTS:
+                            tk = TRACKER_KEY.format(symbol=symbol, agent=agent_name)
+                            tr = await redis_conn.hgetall(tk)
+                            wk = WEIGHTS_KEY.format(symbol=symbol)
+                            w_raw = await redis_conn.hget(wk, agent_name)
+                            snapshot[agent_name] = {
+                                "weight": float(w_raw) if w_raw else AGENT_DEFAULTS[agent_name],
+                                "ewma": float(tr.get("ewma_accuracy", 0)),
+                                "samples": int(tr.get("sample_count", 0)),
+                            }
+                        await weight_repo.write_weights(symbol, snapshot)
+                    except Exception as pe:
+                        logger.warning("Failed to persist weight history", error=str(pe))
+
                     await telemetry.emit(
                         "output_emitted",
                         {"symbol": symbol, "weights": {}},
@@ -50,6 +73,7 @@ async def lifespan(app: FastAPI):
     weight_task.cancel()
     await asyncio.gather(weight_task, return_exceptions=True)
     await telemetry.stop()
+    await timescale.close()
     logger.info("Analyst Agent shutdown")
 
 

@@ -11,7 +11,7 @@ router = APIRouter()
 @router.get("/candles/{symbol:path}")
 async def get_candles(
     symbol: str,
-    timeframe: str = Query(default="1h", regex="^(1m|5m|15m|1h|4h|1d)$"),
+    timeframe: str = Query(default="1h", regex="^(1m|5m|15m|1h)$"),
     limit: int = Query(default=500, ge=1, le=2000),
     repo: MarketDataRepository = Depends(get_market_data_repo),
 ):
@@ -19,6 +19,7 @@ async def get_candles(
 
     Returns candles in ascending time order (oldest first).
     """
+    symbol = symbol.rstrip("/")
     candles = await repo.get_candles(symbol, timeframe, limit)
     # Convert Decimal fields to float for JSON serialization
     result = []

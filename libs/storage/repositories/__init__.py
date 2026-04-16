@@ -8,6 +8,7 @@ from .pnl_repo import PnlRepository
 from .position_repo import PositionRepository
 from .profile_repo import ProfileRepository
 from .validation_repo import ValidationRepository
+from .weight_history_repo import WeightHistoryRepository
 
 __all__ = [
     "AgentScoreRepository",
@@ -20,4 +21,5 @@ __all__ = [
     "PositionRepository",
     "ProfileRepository",
     "ValidationRepository",
+    "WeightHistoryRepository",
 ]

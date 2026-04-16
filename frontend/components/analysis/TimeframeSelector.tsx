@@ -7,8 +7,6 @@ const TIMEFRAMES: { value: Timeframe; label: string }[] = [
   { value: "5m", label: "5m" },
   { value: "15m", label: "15m" },
   { value: "1h", label: "1H" },
-  { value: "4h", label: "4H" },
-  { value: "1d", label: "1D" },
 ];
 
 export function TimeframeSelector() {

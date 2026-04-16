@@ -463,6 +463,65 @@ export const api = {
         agents: Record<string, unknown> | null;
         created_at: string | null;
       }>>(`/agent-performance/attribution/${encodeURIComponent(symbol)}?limit=${limit}`),
+
+    weightHistory: (symbol: string, params?: { agents?: string; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.agents) qs.set("agents", params.agents);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return apiRequest<Array<{
+        symbol: string;
+        agent_name: string;
+        weight: number;
+        ewma_accuracy: number;
+        sample_count: number;
+        recorded_at: string;
+      }>>(`/agent-performance/weight-history/${encodeURIComponent(symbol)}${query ? `?${query}` : ""}`);
+    },
+
+    gateAnalytics: (symbol: string, limit: number = 500) =>
+      apiRequest<{
+        total_decisions: number;
+        outcome_counts: Record<string, number>;
+        gate_details: Record<string, { passed: number; blocked: number; reasons: Record<string, number> }>;
+      }>(`/agent-performance/gate-analytics/${encodeURIComponent(symbol)}?limit=${limit}`),
+  },
+
+  agentConfig: {
+    catalog: () =>
+      apiRequest<Record<string, {
+        label: string;
+        type: string;
+        params: Record<string, { type: string; default: unknown; description: string; [key: string]: unknown }>;
+      }>>("/agent-config/agents"),
+
+    getPipeline: (profileId: string) =>
+      apiRequest<{
+        nodes: Array<{ id: string; type: string; label: string; config?: Record<string, unknown>; position: { x: number; y: number } }>;
+        edges: Array<{ id: string; source: string; target: string; condition?: string }>;
+      }>(`/agent-config/${profileId}/pipeline`),
+
+    savePipeline: (profileId: string, config: { nodes: unknown[]; edges: unknown[] }) =>
+      apiRequest<{ status: string; profile_id: string }>(`/agent-config/${profileId}/pipeline`, {
+        method: "PUT",
+        body: config,
+      }),
+
+    resetPipeline: (profileId: string) =>
+      apiRequest<{ status: string; profile_id: string }>(`/agent-config/${profileId}/pipeline/reset`, {
+        method: "POST",
+      }),
+
+    overrideWeights: (profileId: string, weights: Record<string, number>) =>
+      apiRequest<{ status: string; weights: Record<string, number> }>(`/agent-config/${profileId}/weights`, {
+        method: "PUT",
+        body: weights,
+      }),
+
+    clearWeightOverride: (profileId: string) =>
+      apiRequest<{ status: string }>(`/agent-config/${profileId}/weights`, {
+        method: "DELETE",
+      }),
   },
 
   auth: {
