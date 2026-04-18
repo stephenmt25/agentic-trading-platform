@@ -52,22 +52,38 @@ class CoinbaseAdapter(ExchangeAdapter):
         callback: Callable[[NormalisedCandle], Coroutine[Any, Any, None]],
         timeframe: str = "1m",
     ):
-        """Mirror of BinanceAdapter.stream_candles using Coinbase's watch_ohlcv."""
+        """Mirror of BinanceAdapter.stream_candles: WS wake-up + REST fetch."""
         self.is_connected = True
-        _pending: Dict[str, List] = {s: None for s in symbols}
+        _last_bucket: Dict[str, int] = {s: 0 for s in symbols}
+
+        async def _fetch_final(symbol: str, bucket_ms: int):
+            for attempt in range(3):
+                try:
+                    bars = await self.exchange.fetch_ohlcv(
+                        symbol, timeframe, since=bucket_ms, limit=1
+                    )
+                except Exception as e:
+                    if attempt == 2:
+                        print(f"[{self.name}] fetch_ohlcv failed for {symbol}@{bucket_ms}: {e}")
+                        return
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                if bars and int(bars[0][0]) == bucket_ms:
+                    await callback(_to_candle(symbol, self.name, timeframe, bars[0], closed=True))
+                    return
 
         async def _watch_one(symbol: str):
             while self.is_connected:
                 try:
                     ohlcv = await self.exchange.watch_ohlcv(symbol, timeframe)
+                    latest_bucket = _last_bucket[symbol]
                     for bar in ohlcv:
                         ts_ms = int(bar[0])
-                        prev = _pending[symbol]
-                        if prev is None or ts_ms == prev[0]:
-                            _pending[symbol] = bar
-                        elif ts_ms > prev[0]:
-                            await callback(_to_candle(symbol, self.name, timeframe, prev, closed=True))
-                            _pending[symbol] = bar
+                        if ts_ms > latest_bucket:
+                            if latest_bucket > 0 and latest_bucket < ts_ms:
+                                await _fetch_final(symbol, latest_bucket)
+                            latest_bucket = ts_ms
+                    _last_bucket[symbol] = latest_bucket
                     self.reconnect_delay = 1.0
                 except ccxt.NetworkError as e:
                     print(f"[{self.name}] candle NetworkError ({symbol}): {e}")

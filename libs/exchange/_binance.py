@@ -82,35 +82,48 @@ class BinanceAdapter(ExchangeAdapter):
         callback: Callable[[NormalisedCandle], Coroutine[Any, Any, None]],
         timeframe: str = "1m",
     ):
-        """Stream authoritative OHLCV bars via watch_ohlcv.
+        """Stream authoritative OHLCV bars.
 
-        Fires `callback` exactly once per *finalized* bar, per symbol. The
-        still-forming current bar is held in `_pending` and flushed only when a
-        later-bucket bar arrives (which implies the previous has closed).
+        `watch_ohlcv` is used only as a wake-up signal: when a new bucket_ms
+        appears for a symbol, we REST-fetch the just-closed bucket via
+        `fetch_ohlcv` to get Binance's final, kline-authoritative values.
+        This avoids a race where CCXT's cached bar still carries partial
+        pre-close values at the moment we detect rollover.
         """
         self.is_connected = True
-        # Latest known form of the still-open bar per symbol.
-        # None entries mean "no bar seen yet for this symbol".
-        _pending: Dict[str, List] = {s: None for s in symbols}
+        # Most recent bucket_ms observed on the stream per symbol.
+        _last_bucket: Dict[str, int] = {s: 0 for s in symbols}
+
+        async def _fetch_final(symbol: str, bucket_ms: int):
+            """REST-fetch the closed bar for `bucket_ms` and emit it."""
+            for attempt in range(3):
+                try:
+                    bars = await self.exchange.fetch_ohlcv(
+                        symbol, timeframe, since=bucket_ms, limit=1
+                    )
+                except Exception as e:
+                    if attempt == 2:
+                        print(f"[{self.name}] fetch_ohlcv failed for {symbol}@{bucket_ms}: {e}")
+                        return
+                    await asyncio.sleep(0.5 * (attempt + 1))
+                    continue
+                if bars and int(bars[0][0]) == bucket_ms:
+                    await callback(_to_candle(symbol, self.name, timeframe, bars[0], closed=True))
+                    return
 
         async def _watch_one(symbol: str):
             while self.is_connected:
                 try:
                     ohlcv = await self.exchange.watch_ohlcv(symbol, timeframe)
-                    # CCXT returns a list of [ts_ms, o, h, l, c, v] bars,
-                    # usually containing just the current forming bar (may be 1-2 entries).
+                    latest_bucket = _last_bucket[symbol]
                     for bar in ohlcv:
                         ts_ms = int(bar[0])
-                        prev = _pending[symbol]
-
-                        if prev is None or ts_ms == prev[0]:
-                            # First bar, or an update to the still-forming bar.
-                            _pending[symbol] = bar
-                        elif ts_ms > prev[0]:
-                            # Bucket rolled forward — `prev` is now final. Emit it.
-                            await callback(_to_candle(symbol, self.name, timeframe, prev, closed=True))
-                            _pending[symbol] = bar
-                        # else: out-of-order / duplicate older bar — skip
+                        if ts_ms > latest_bucket:
+                            if latest_bucket > 0 and latest_bucket < ts_ms:
+                                # Bucket closed — fetch the authoritative final values.
+                                await _fetch_final(symbol, latest_bucket)
+                            latest_bucket = ts_ms
+                    _last_bucket[symbol] = latest_bucket
                     self.reconnect_delay = 1.0
                 except ccxt.NetworkError as e:
                     print(f"[{self.name}] candle NetworkError ({symbol}): {e}")
