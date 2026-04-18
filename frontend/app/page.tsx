@@ -9,6 +9,7 @@ import { usePortfolioStore } from '../lib/stores/portfolioStore';
 import { api, type ProfileResponse } from '../lib/api/client';
 
 import { Badge } from "@/components/ui/badge";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { AlertTriangle } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -67,8 +68,9 @@ export default function Dashboard() {
         <PortfolioSummaryCard />
 
         <section className="flex flex-col border-t border-border pt-4 lg:border-t-0 lg:pt-0">
-          <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider mb-4">
+          <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider mb-4 flex items-center gap-1.5">
             Active Agent Bounds
+            <InfoTooltip text="Trading profiles currently running with their status and P&L. Click a profile to view and edit its configuration." />
           </h2>
           <div className="flex-1">
             {isLoading ? (

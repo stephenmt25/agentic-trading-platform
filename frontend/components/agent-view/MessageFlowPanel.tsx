@@ -11,6 +11,7 @@ import {
   Search,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { AGENT_TYPE_COLORS, AGENT_REGISTRY } from "@/lib/constants/agent-view";
 import type {
@@ -209,8 +210,9 @@ export function MessageFlowPanel() {
           <div className="flex items-center justify-between border-b border-slate-800 px-3 py-2">
             <div className="flex items-center gap-2">
               <MessageSquare className="h-3.5 w-3.5 text-teal-400" />
-              <span className="text-xs font-semibold text-slate-200">
+              <span className="text-xs font-semibold text-slate-200 flex items-center gap-1">
                 Message Flow
+                <InfoTooltip text="Real-time inter-agent messages showing data flowing through the pipeline. Filter by agent or event type to focus on specific signals." />
               </span>
               <Badge
                 variant="secondary"

@@ -1,5 +1,7 @@
 "use client";
 
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
+
 interface AgentDetail {
   score: number | null;
   weight: number;
@@ -43,7 +45,10 @@ export function TradeAttributionPanel({ data }: Props) {
   return (
     <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 overflow-hidden">
       <div className="px-4 py-3 border-b border-zinc-800">
-        <h3 className="text-sm font-medium text-zinc-300">Trade Attribution</h3>
+        <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-1.5">
+          Trade Attribution
+          <InfoTooltip text="Per-trade breakdown of which agents pushed confidence up or down. Green adjustments helped, red adjustments hurt." />
+        </h3>
         <p className="text-xs text-zinc-500 mt-0.5">Which agents influenced each approved trade</p>
       </div>
       <div className="overflow-x-auto">

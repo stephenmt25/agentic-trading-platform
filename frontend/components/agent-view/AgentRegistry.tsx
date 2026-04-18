@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useCallback, type MouseEvent } from "react";
 import { ChevronDown, ChevronRight, PanelLeftClose, PanelLeft } from "lucide-react";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { useAgentSelection } from "@/lib/hooks/useAgentSelection";
 import { AGENT_CATEGORIES, HEALTH_COLORS } from "@/lib/constants/agent-view";
@@ -210,8 +211,9 @@ export function AgentRegistry() {
     >
       {/* Header with collapse toggle */}
       <div className="flex h-9 items-center justify-between border-b border-slate-800 px-3 md:px-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-500 flex items-center gap-1">
           Agents
+          <InfoTooltip text="All pipeline agents grouped by role. Click any agent to inspect its state, inputs, and outputs. Green = healthy, amber = degraded, red = error." />
         </span>
         <button
           type="button"

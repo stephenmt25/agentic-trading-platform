@@ -1,5 +1,7 @@
 "use client";
 
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
+
 const AGENT_DEFAULTS: Record<string, number> = {
   ta: 0.20,
   sentiment: 0.15,
@@ -33,7 +35,10 @@ export function AgentAccuracyTable({ weights }: Props) {
   return (
     <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 overflow-hidden">
       <div className="px-4 py-3 border-b border-zinc-800">
-        <h3 className="text-sm font-medium text-zinc-300">Agent Accuracy & Weights</h3>
+        <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-1.5">
+          Agent Accuracy & Weights
+          <InfoTooltip text="EWMA accuracy tracks how often each agent's direction aligned with winning trades. Weights are adjusted based on accuracy — higher accuracy = more influence." />
+        </h3>
       </div>
       <table className="w-full text-sm">
         <thead>

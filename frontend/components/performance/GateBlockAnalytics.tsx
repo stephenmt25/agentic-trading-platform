@@ -1,5 +1,6 @@
 "use client";
 
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import {
   ResponsiveContainer,
   BarChart,
@@ -50,7 +51,10 @@ export function GateBlockAnalytics({ data }: Props) {
   return (
     <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-medium text-zinc-300">Decision Outcomes</h3>
+        <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-1.5">
+          Decision Outcomes
+          <InfoTooltip text="How many signals were approved vs blocked by each gate. High abstention means strategy rules rarely trigger." />
+        </h3>
         <span className="text-xs text-zinc-500">{data.total_decisions} total</span>
       </div>
       <div className="h-[220px]">

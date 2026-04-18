@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api/client';
 import { RiskStatus } from '../../lib/types';
 import { Badge } from '@/components/ui/badge';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import {
   AlertTriangle,
   TrendingDown,
@@ -58,6 +59,7 @@ export const RiskMonitorCard: React.FC<RiskMonitorCardProps> = ({ profileIds }) 
       <div className="flex items-center justify-between mb-4">
         <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider flex items-center gap-2">
           Risk Monitor
+          <InfoTooltip text="Daily P&L vs circuit breaker limit, current drawdown from peak, and portfolio allocation used per profile." />
         </h2>
         <button
           onClick={fetchRisk}

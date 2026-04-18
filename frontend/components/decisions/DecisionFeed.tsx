@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { api, type TradeDecision } from "@/lib/api/client";
 import { DecisionDetail } from "./DecisionDetail";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 
 const POLL_INTERVAL = 15_000;
 
@@ -45,8 +46,9 @@ export function DecisionFeed() {
         <div>
             {/* Header */}
             <div className="flex items-center justify-between mb-3">
-                <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider flex items-center gap-1.5">
                     Decision Trace
+                    <InfoTooltip text="Every signal evaluation — approved or blocked — with full gate-by-gate trace. Shows why each trade decision was made." />
                 </h2>
                 <div className="flex items-center gap-1">
                     {(["all", "approved", "blocked"] as const).map((f) => (

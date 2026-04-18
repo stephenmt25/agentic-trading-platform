@@ -1,5 +1,6 @@
 "use client";
 
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { useMemo } from "react";
 import {
   ResponsiveContainer,
@@ -58,7 +59,10 @@ export function WeightEvolutionChart({ data }: Props) {
 
   return (
     <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
-      <h3 className="text-sm font-medium text-zinc-300 mb-3">Weight Evolution</h3>
+      <h3 className="text-sm font-medium text-zinc-300 mb-3 flex items-center gap-1.5">
+        Weight Evolution
+        <InfoTooltip text="How agent weights change over time as the Analyst learns from trade outcomes. Flat lines mean no new position outcomes to learn from." />
+      </h3>
       <div className="h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>

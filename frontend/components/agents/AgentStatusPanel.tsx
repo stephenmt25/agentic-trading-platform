@@ -4,6 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../../lib/api/client';
 import { AgentScore } from '../../lib/types';
 import { RegimeBadge } from '../profiles/RegimeBadge';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { Badge } from '@/components/ui/badge';
 import {
   RefreshCw,
@@ -46,6 +47,7 @@ export const AgentStatusPanel: React.FC = () => {
       <div className="flex items-center justify-between mb-4">
         <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider flex items-center gap-2">
           ML Agent Scores
+          <InfoTooltip text="Latest scores from TA, Sentiment, and Regime agents per symbol. TA score ranges -1 (bearish) to +1 (bullish). Sentiment uses LLM analysis of news headlines." />
         </h2>
         <div className="flex items-center gap-2">
           {lastUpdated && (

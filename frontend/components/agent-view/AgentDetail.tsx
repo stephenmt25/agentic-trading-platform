@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Box, ChevronDown, ChevronRight, Cpu } from "lucide-react";
+import { Box, ChevronDown, ChevronRight, Cpu, ArrowLeft, ArrowRight, ArrowDown } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAgentSelection } from "@/lib/hooks/useAgentSelection";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
@@ -63,11 +63,45 @@ export function AgentDetail() {
 
   if (!selectedId || !agent) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 bg-[#0d1117]">
-        <Box className="h-8 w-8 text-slate-600" />
-        <span className="text-sm text-slate-500">
-          Select an agent from the registry
-        </span>
+      <div className="flex h-full flex-col items-center justify-center bg-[#0d1117] px-6">
+        <div className="max-w-sm space-y-5">
+          <div className="text-center">
+            <Box className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+            <h3 className="text-sm font-semibold text-slate-300 mb-1">Agent Monitor</h3>
+            <p className="text-xs text-slate-500">Real-time view of all pipeline agents and their decisions.</p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-start gap-3 p-2.5 rounded-md border border-slate-800/50">
+              <ArrowLeft className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-xs font-medium text-slate-300">Agent Registry</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Browse all agents grouped by role. Green = healthy, amber = degraded, red = error.</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-2.5 rounded-md border border-primary/20 bg-primary/5">
+              <Cpu className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+              <div>
+                <div className="text-xs font-medium text-slate-300">Agent Detail</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Click any agent on the left to view its input stream, decision state, and output stream.</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-2.5 rounded-md border border-slate-800/50">
+              <ArrowRight className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-xs font-medium text-slate-300">Message Flow</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">Live message stream showing data flowing between agents in real-time.</div>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-2.5 rounded-md border border-slate-800/50">
+              <ArrowDown className="w-4 h-4 text-violet-500 shrink-0 mt-0.5" />
+              <div>
+                <div className="text-xs font-medium text-slate-300">Quick Stats</div>
+                <div className="text-[11px] text-slate-500 mt-0.5">System-wide metrics: orders, fills, win rate, drawdown, and active positions.</div>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }

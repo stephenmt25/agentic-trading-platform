@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { usePortfolioStore } from '../../lib/stores/portfolioStore';
+import { InfoTooltip } from '@/components/ui/InfoTooltip';
 
 export const PortfolioSummaryCard: React.FC = () => {
     const pnlData = usePortfolioStore(state => state.pnlData);
@@ -21,8 +22,9 @@ export const PortfolioSummaryCard: React.FC = () => {
 
     return (
         <section>
-            <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider mb-4">
+            <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider mb-4 flex items-center gap-1.5">
                 Total Portfolio P&L
+                <InfoTooltip text="Aggregate post-tax P&L across all active profiles. Updates in real-time as positions are marked to market." />
             </h2>
 
             <div className="space-y-6">
