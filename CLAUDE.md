@@ -73,6 +73,7 @@ The `edit-validator.sh` hook blocks new `float(` introductions in `services/exec
 | Rate limiter service always returns `allowed=True` | **RESOLVED** — Redis sliding-window rate limiting implemented |
 | Kill switch / emergency shutdown | **RESOLVED** — `KillSwitch` via Redis key + API endpoint |
 | Position-level stop-loss enforcement | **RESOLVED** — `StopLossMonitor` in PnL tick processor |
+| `market_data_ohlcv` volume inflation + OHL sampling error + no gap-fill | **RESOLVED** (2026-04-18) — ingestion uses `watch_ohlcv` (authoritative 1m klines), aggregates higher timeframes in `services/ingestion/src/candle_aggregator.py`, gap-fills via `libs/exchange/backfill.py` on startup/reconnect |
 
 **Remaining:** All MEDIUM code defects (D-14, D-15, D-17) resolved as of 2026-04-03. Open items are architecture doc discrepancies (A-2, A-3, A-4, A-6) and documentation gaps (G-1 through G-7, G-10, G-11). See `docs/DOCUMENTATION-GAPS.md`.
 
