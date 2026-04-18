@@ -11,7 +11,7 @@ import {
   ReferenceLine,
   CartesianGrid,
 } from "recharts";
-import type { AgentOverlay } from "@/lib/stores/analysisStore";
+import { useAnalysisStore, type AgentOverlay } from "@/lib/stores/analysisStore";
 
 interface ScoreDataPoint {
   symbol: string;
@@ -46,24 +46,34 @@ export function AgentScoreOverlay({
   visibleAgents,
   height = 150,
 }: AgentScoreOverlayProps) {
+  const visibleRange = useAnalysisStore((s) => s.visibleRange);
+  const hoveredTime = useAnalysisStore((s) => s.hoveredTime);
+  const setHoveredTime = useAnalysisStore((s) => s.setHoveredTime);
+
   const chartData = useMemo(() => {
-    // Group scores by timestamp, merge agents into rows
     const timeMap = new Map<string, Record<string, number>>();
 
     for (const point of data) {
       if (!visibleAgents.includes(point.agent_name as AgentOverlay)) continue;
       const key = point.recorded_at;
       if (!timeMap.has(key)) {
-        timeMap.set(key, { timestamp: new Date(key).getTime() / 1000 } as Record<string, number>);
+        timeMap.set(key, {
+          timestamp: new Date(key).getTime() / 1000,
+        } as Record<string, number>);
       }
       const row = timeMap.get(key)!;
       row[point.agent_name] = point.score;
     }
 
     return Array.from(timeMap.values()).sort(
-      (a, b) => (a.timestamp as number) - (b.timestamp as number)
+      (a, b) => (a.timestamp as number) - (b.timestamp as number),
     );
   }, [data, visibleAgents]);
+
+  const xDomain = useMemo<[number | string, number | string]>(() => {
+    if (visibleRange) return [visibleRange.from, visibleRange.to];
+    return ["dataMin", "dataMax"];
+  }, [visibleRange]);
 
   if (!chartData.length) {
     return (
@@ -79,7 +89,17 @@ export function AgentScoreOverlay({
   return (
     <div style={{ height }} className="w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
+        <LineChart
+          data={chartData}
+          margin={{ top: 4, right: 8, bottom: 4, left: 0 }}
+          onMouseMove={(state) => {
+            const ts = state?.activeLabel;
+            if (typeof ts === "number") {
+              setHoveredTime(ts, "score");
+            }
+          }}
+          onMouseLeave={() => setHoveredTime(null, null)}
+        >
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="rgba(255,255,255,0.04)"
@@ -87,7 +107,8 @@ export function AgentScoreOverlay({
           <XAxis
             dataKey="timestamp"
             type="number"
-            domain={["dataMin", "dataMax"]}
+            domain={xDomain}
+            allowDataOverflow
             tickFormatter={(ts: number) => {
               const d = new Date(ts * 1000);
               return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -110,13 +131,27 @@ export function AgentScoreOverlay({
               borderRadius: 8,
               fontSize: 11,
             }}
-            labelFormatter={(ts) => new Date(Number(ts) * 1000).toLocaleString()}
+            labelFormatter={(ts) =>
+              new Date(Number(ts) * 1000).toLocaleString()
+            }
             formatter={(value, name) => [
               Number(value).toFixed(3),
               AGENT_LABELS[String(name)] || String(name),
             ]}
           />
-          <ReferenceLine y={0} stroke="rgba(255,255,255,0.15)" strokeDasharray="4 4" />
+          <ReferenceLine
+            y={0}
+            stroke="rgba(255,255,255,0.15)"
+            strokeDasharray="4 4"
+          />
+          {hoveredTime != null && (
+            <ReferenceLine
+              x={hoveredTime}
+              stroke="rgba(255,255,255,0.35)"
+              strokeWidth={1}
+              ifOverflow="extendDomain"
+            />
+          )}
           {visibleAgents.map((agent) => (
             <Line
               key={agent}
