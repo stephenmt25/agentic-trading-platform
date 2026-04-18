@@ -5,7 +5,7 @@ from typing import Callable, Coroutine, List, Any
 from ._base import ExchangeAdapter, OrderResult
 from libs.core.types import ProfileId, SymbolPair, Quantity, Price
 from libs.core.enums import OrderSide, OrderStatus
-from libs.core.models import NormalisedTick
+from libs.core.models import NormalisedCandle, NormalisedTick
 from libs.observability import get_logger
 
 logger = get_logger("exchange.paper")
@@ -31,6 +31,15 @@ class PaperTradingAdapter(ExchangeAdapter):
         callback: Callable[[NormalisedTick], Coroutine[Any, Any, None]],
     ):
         # No-op: market data comes from the real ingestion service
+        pass
+
+    async def stream_candles(
+        self,
+        symbols: List[SymbolPair],
+        callback: Callable[[NormalisedCandle], Coroutine[Any, Any, None]],
+        timeframe: str = "1m",
+    ):
+        # No-op: paper adapter does not produce market data
         pass
 
     async def place_order(

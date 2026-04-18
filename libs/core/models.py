@@ -25,6 +25,19 @@ class NormalisedTick:
     bid: Optional[Price] = None
     ask: Optional[Price] = None
 
+@dataclass(frozen=True, slots=True)
+class NormalisedCandle:
+    symbol: SymbolPair
+    exchange: ExchangeName
+    timeframe: str            # e.g. "1m"
+    bucket_ms: int            # start-of-bar in UTC ms since epoch
+    open: Price
+    high: Price
+    low: Price
+    close: Price
+    volume: Quantity
+    closed: bool              # True only after the bar has rolled over
+
 @dataclass(frozen=True)
 class Order:
     order_id: UUID

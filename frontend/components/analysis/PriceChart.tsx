@@ -11,6 +11,7 @@ import {
   type Time,
   ColorType,
 } from "lightweight-charts";
+import { useAnalysisStore } from "@/lib/stores/analysisStore";
 
 interface CandleData {
   time: number;
@@ -24,23 +25,24 @@ interface CandleData {
 interface PriceChartProps {
   data: CandleData[];
   height?: number;
-  onTimeRangeChange?: (from: number, to: number) => void;
 }
 
-export function PriceChart({
-  data,
-  height = 400,
-  onTimeRangeChange,
-}: PriceChartProps) {
+export function PriceChart({ data, height = 400 }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const dataRef = useRef<CandleData[]>([]);
+  const mirroringRef = useRef(false);
+
+  const setHoveredTime = useAnalysisStore((s) => s.setHoveredTime);
+  const setVisibleRange = useAnalysisStore((s) => s.setVisibleRange);
+  const hoveredTime = useAnalysisStore((s) => s.hoveredTime);
+  const hoverSource = useAnalysisStore((s) => s.hoverSource);
 
   const initChart = useCallback(() => {
     if (!containerRef.current) return;
 
-    // Clean up existing chart
     if (chartRef.current) {
       chartRef.current.remove();
       chartRef.current = null;
@@ -96,34 +98,46 @@ export function PriceChart({
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
 
-    if (onTimeRangeChange) {
-      chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-        if (range) {
-          const barsInfo = candleSeries.barsInLogicalRange(range);
-          if (barsInfo) {
-            onTimeRangeChange(
-              barsInfo.from as number,
-              barsInfo.to as number
-            );
-          }
-        }
-      });
-    }
+    chart.subscribeCrosshairMove((param) => {
+      const { hoverSource: currentSource, hoveredTime: currentTime } =
+        useAnalysisStore.getState();
 
-    // Handle resize
+      if (param.time == null) {
+        // Only clear when we were the driver; don't clobber "score" as the
+        // source after a clearCrosshairPosition echo.
+        if (currentSource === "price") setHoveredTime(null, null);
+        return;
+      }
+
+      const time = param.time as number;
+      // Echo from our own setCrosshairPosition call — skip so the source
+      // stays "score" and we don't ping-pong.
+      if (currentSource === "score" && currentTime === time) return;
+
+      setHoveredTime(time, "price");
+    });
+
+    chart.timeScale().subscribeVisibleTimeRangeChange((range) => {
+      if (range) {
+        setVisibleRange({
+          from: range.from as number,
+          to: range.to as number,
+        });
+      } else {
+        setVisibleRange(null);
+      }
+    });
+
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        chart.applyOptions({
-          width: entry.contentRect.width,
-        });
+        chart.applyOptions({ width: entry.contentRect.width });
       }
     });
     observer.observe(containerRef.current);
 
     return () => observer.disconnect();
-  }, [onTimeRangeChange]);
+  }, [setHoveredTime, setVisibleRange]);
 
-  // Initialize chart once
   useEffect(() => {
     const cleanup = initChart();
     return () => {
@@ -135,10 +149,11 @@ export function PriceChart({
     };
   }, [initChart]);
 
-  // Update data
   useEffect(() => {
     if (!candleSeriesRef.current || !volumeSeriesRef.current || !data.length)
       return;
+
+    dataRef.current = data;
 
     const candleData: CandlestickData<Time>[] = data.map((d) => ({
       time: d.time as Time,
@@ -160,6 +175,37 @@ export function PriceChart({
     candleSeriesRef.current.setData(candleData);
     volumeSeriesRef.current.setData(volumeData);
   }, [data]);
+
+  // Mirror external hover (from score chart) onto the price chart's crosshair
+  useEffect(() => {
+    if (!chartRef.current || !candleSeriesRef.current) return;
+
+    if (hoverSource === "score" && hoveredTime != null) {
+      const candles = dataRef.current;
+      if (!candles.length) return;
+
+      let nearest = candles[0];
+      let bestDiff = Math.abs(nearest.time - hoveredTime);
+      for (const c of candles) {
+        const diff = Math.abs(c.time - hoveredTime);
+        if (diff < bestDiff) {
+          nearest = c;
+          bestDiff = diff;
+        }
+      }
+
+      chartRef.current.setCrosshairPosition(
+        nearest.close,
+        hoveredTime as Time,
+        candleSeriesRef.current,
+      );
+      mirroringRef.current = true;
+    } else if (mirroringRef.current) {
+      // Score chart released hover — clear the mirrored crosshair.
+      chartRef.current.clearCrosshairPosition();
+      mirroringRef.current = false;
+    }
+  }, [hoveredTime, hoverSource]);
 
   return (
     <div

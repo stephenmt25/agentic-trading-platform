@@ -3,6 +3,11 @@ import { create } from "zustand";
 export type Timeframe = "1m" | "5m" | "15m" | "1h";
 export type AgentOverlay = "ta" | "sentiment" | "debate" | "regime_hmm";
 
+export interface VisibleRange {
+  from: number;
+  to: number;
+}
+
 interface AnalysisState {
   symbol: string;
   timeframe: Timeframe;
@@ -10,12 +15,17 @@ interface AnalysisState {
   showIndicators: boolean;
   showTradeMarkers: boolean;
   showRegimeBands: boolean;
+  hoveredTime: number | null;
+  hoverSource: "price" | "score" | null;
+  visibleRange: VisibleRange | null;
   setSymbol: (s: string) => void;
   setTimeframe: (tf: Timeframe) => void;
   toggleOverlay: (agent: AgentOverlay) => void;
   setShowIndicators: (v: boolean) => void;
   setShowTradeMarkers: (v: boolean) => void;
   setShowRegimeBands: (v: boolean) => void;
+  setHoveredTime: (t: number | null, source: "price" | "score" | null) => void;
+  setVisibleRange: (r: VisibleRange | null) => void;
 }
 
 export const useAnalysisStore = create<AnalysisState>((set) => ({
@@ -25,6 +35,9 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   showIndicators: true,
   showTradeMarkers: true,
   showRegimeBands: true,
+  hoveredTime: null,
+  hoverSource: null,
+  visibleRange: null,
 
   setSymbol: (symbol) => set({ symbol }),
   setTimeframe: (timeframe) => set({ timeframe }),
@@ -37,4 +50,6 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   setShowIndicators: (v) => set({ showIndicators: v }),
   setShowTradeMarkers: (v) => set({ showTradeMarkers: v }),
   setShowRegimeBands: (v) => set({ showRegimeBands: v }),
+  setHoveredTime: (hoveredTime, hoverSource) => set({ hoveredTime, hoverSource }),
+  setVisibleRange: (visibleRange) => set({ visibleRange }),
 }));

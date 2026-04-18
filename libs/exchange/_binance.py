@@ -1,12 +1,37 @@
 import asyncio
-from typing import Callable, Coroutine, List, Any
+from decimal import Decimal
+from typing import Callable, Coroutine, Dict, List, Any
 import ccxt.pro as ccxt
 import time
 from ._base import ExchangeAdapter, OrderResult
 from ._normaliser import normalise_binance_tick
 from libs.core.types import ProfileId, SymbolPair, Quantity, Price
 from libs.core.enums import OrderSide, OrderStatus
-from libs.core.models import NormalisedTick
+from libs.core.models import NormalisedCandle, NormalisedTick
+
+
+def _to_candle(
+    symbol: str,
+    exchange: str,
+    timeframe: str,
+    bar: List,
+    closed: bool,
+) -> NormalisedCandle:
+    """Convert a CCXT OHLCV row [ts_ms, o, h, l, c, v] to NormalisedCandle."""
+    ts_ms, o, h, l, c, v = bar
+    return NormalisedCandle(
+        symbol=symbol,
+        exchange=exchange,
+        timeframe=timeframe,
+        bucket_ms=int(ts_ms),
+        open=Decimal(str(o)),
+        high=Decimal(str(h)),
+        low=Decimal(str(l)),
+        close=Decimal(str(c)),
+        volume=Decimal(str(v)),
+        closed=closed,
+    )
+
 
 class BinanceAdapter(ExchangeAdapter):
     def __init__(self, api_key: str = "", secret: str = "", testnet: bool = True):
@@ -47,9 +72,56 @@ class BinanceAdapter(ExchangeAdapter):
         await asyncio.sleep(self.reconnect_delay)
         # exponential backoff, max 30s
         self.reconnect_delay = min(self.reconnect_delay * 2, 30.0)
-        
+
         # In a full design, we'd trigger a SYSTEM_ALERT if retries exceed limit
         # And trigger an order book snapshot recovery immediately after reconnecting
+
+    async def stream_candles(
+        self,
+        symbols: List[SymbolPair],
+        callback: Callable[[NormalisedCandle], Coroutine[Any, Any, None]],
+        timeframe: str = "1m",
+    ):
+        """Stream authoritative OHLCV bars via watch_ohlcv.
+
+        Fires `callback` exactly once per *finalized* bar, per symbol. The
+        still-forming current bar is held in `_pending` and flushed only when a
+        later-bucket bar arrives (which implies the previous has closed).
+        """
+        self.is_connected = True
+        # Latest known form of the still-open bar per symbol.
+        # None entries mean "no bar seen yet for this symbol".
+        _pending: Dict[str, List] = {s: None for s in symbols}
+
+        async def _watch_one(symbol: str):
+            while self.is_connected:
+                try:
+                    ohlcv = await self.exchange.watch_ohlcv(symbol, timeframe)
+                    # CCXT returns a list of [ts_ms, o, h, l, c, v] bars,
+                    # usually containing just the current forming bar (may be 1-2 entries).
+                    for bar in ohlcv:
+                        ts_ms = int(bar[0])
+                        prev = _pending[symbol]
+
+                        if prev is None or ts_ms == prev[0]:
+                            # First bar, or an update to the still-forming bar.
+                            _pending[symbol] = bar
+                        elif ts_ms > prev[0]:
+                            # Bucket rolled forward — `prev` is now final. Emit it.
+                            await callback(_to_candle(symbol, self.name, timeframe, prev, closed=True))
+                            _pending[symbol] = bar
+                        # else: out-of-order / duplicate older bar — skip
+                    self.reconnect_delay = 1.0
+                except ccxt.NetworkError as e:
+                    print(f"[{self.name}] candle NetworkError ({symbol}): {e}")
+                    await self._handle_reconnect()
+                except ccxt.ExchangeClosedByUser:
+                    break
+                except Exception as e:
+                    print(f"[{self.name}] candle unexpected error ({symbol}): {e}")
+                    await self._handle_reconnect()
+
+        await asyncio.gather(*(_watch_one(s) for s in symbols))
 
     async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price) -> OrderResult:
         # CCXT requires float — convert at the exchange boundary only

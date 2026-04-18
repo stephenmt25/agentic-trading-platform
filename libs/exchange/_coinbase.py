@@ -1,12 +1,14 @@
 import asyncio
-from typing import Callable, Coroutine, List, Any
+from decimal import Decimal
+from typing import Callable, Coroutine, Dict, List, Any
 import ccxt.pro as ccxt
 import time
 from ._base import ExchangeAdapter, OrderResult
+from ._binance import _to_candle
 from ._normaliser import normalise_coinbase_tick
 from libs.core.types import ProfileId, SymbolPair, Quantity, Price
 from libs.core.enums import OrderSide, OrderStatus
-from libs.core.models import NormalisedTick
+from libs.core.models import NormalisedCandle, NormalisedTick
 
 class CoinbaseAdapter(ExchangeAdapter):
     def __init__(self, api_key: str = "", secret: str = "", testnet: bool = True):
@@ -43,6 +45,40 @@ class CoinbaseAdapter(ExchangeAdapter):
         print(f"Reconnecting {self.name} in {self.reconnect_delay}s...")
         await asyncio.sleep(self.reconnect_delay)
         self.reconnect_delay = min(self.reconnect_delay * 2, 30.0)
+
+    async def stream_candles(
+        self,
+        symbols: List[SymbolPair],
+        callback: Callable[[NormalisedCandle], Coroutine[Any, Any, None]],
+        timeframe: str = "1m",
+    ):
+        """Mirror of BinanceAdapter.stream_candles using Coinbase's watch_ohlcv."""
+        self.is_connected = True
+        _pending: Dict[str, List] = {s: None for s in symbols}
+
+        async def _watch_one(symbol: str):
+            while self.is_connected:
+                try:
+                    ohlcv = await self.exchange.watch_ohlcv(symbol, timeframe)
+                    for bar in ohlcv:
+                        ts_ms = int(bar[0])
+                        prev = _pending[symbol]
+                        if prev is None or ts_ms == prev[0]:
+                            _pending[symbol] = bar
+                        elif ts_ms > prev[0]:
+                            await callback(_to_candle(symbol, self.name, timeframe, prev, closed=True))
+                            _pending[symbol] = bar
+                    self.reconnect_delay = 1.0
+                except ccxt.NetworkError as e:
+                    print(f"[{self.name}] candle NetworkError ({symbol}): {e}")
+                    await self._handle_reconnect()
+                except ccxt.ExchangeClosedByUser:
+                    break
+                except Exception as e:
+                    print(f"[{self.name}] candle unexpected error ({symbol}): {e}")
+                    await self._handle_reconnect()
+
+        await asyncio.gather(*(_watch_one(s) for s in symbols))
 
     async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price) -> OrderResult:
         # CCXT requires float — convert at the exchange boundary only
