@@ -1,8 +1,8 @@
 """Unit tests for the ingestion pipeline.
 
 Covers:
-- CandleAggregator: 1m → 5m/15m/1h derivation, rollover flush, multi-symbol,
-  non-closed candle rejection, force_flush.
+- CandleAggregator: 1m persistence, higher-TF rollover triggers REST fetch,
+  non-closed / non-1m candles short-circuit, exceptions don't kill the stream.
 - libs.exchange.backfill.fill_gap: cold start, warm start (since cursor),
   REST-fetch failure handling.
 """
@@ -10,34 +10,13 @@ Covers:
 from dataclasses import replace
 from datetime import datetime, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from libs.core.models import NormalisedCandle
 from libs.exchange.backfill import COLD_START_LIMIT, fill_gap
-from services.ingestion.src.candle_aggregator import (
-    CandleAggregator,
-    _bucket_start_ms,
-)
-
-
-# ---------------------------------------------------------------------------
-# _bucket_start_ms
-# ---------------------------------------------------------------------------
-
-class TestBucketStartMs:
-    def test_floors_to_5m(self):
-        ts_ms = 1704067630_000  # 2024-01-01 00:07:10 UTC
-        assert _bucket_start_ms(ts_ms, 300) == 1704067500_000  # 00:05:00
-
-    def test_floors_to_1h(self):
-        ts_ms = 1704070800_000  # 2024-01-01 01:00:00 UTC (boundary)
-        assert _bucket_start_ms(ts_ms, 3600) == 1704070800_000  # unchanged
-
-    def test_on_boundary_unchanged(self):
-        ts_ms = 1704067500_000  # 00:05:00
-        assert _bucket_start_ms(ts_ms, 300) == 1704067500_000
+from services.ingestion.src.candle_aggregator import CandleAggregator
 
 
 # ---------------------------------------------------------------------------
@@ -52,30 +31,30 @@ def _make_1m(
     close: str = "50000",
     volume: str = "1.0",
     symbol: str = "BTC/USDT",
+    timeframe: str = "1m",
+    closed: bool = True,
 ) -> NormalisedCandle:
-    # Minute N since 2024-01-01 00:00 UTC
     bucket_ms = 1704067200_000 + bucket_minute * 60 * 1000
     return NormalisedCandle(
         symbol=symbol,
         exchange="BINANCE",
-        timeframe="1m",
+        timeframe=timeframe,
         bucket_ms=bucket_ms,
         open=Decimal(open_),
         high=Decimal(high),
         low=Decimal(low),
         close=Decimal(close),
         volume=Decimal(volume),
-        closed=True,
+        closed=closed,
     )
 
 
 @pytest.mark.asyncio
-async def test_1m_written_immediately():
+async def test_closed_1m_is_written():
     repo = AsyncMock()
-    agg = CandleAggregator(repo)
+    agg = CandleAggregator(repo, rest=MagicMock())
     await agg.handle_candle(_make_1m(0))
-    # First call should be the 1m write with timeframe="1m".
-    args, _ = repo.write_candle.call_args_list[0]
+    args = repo.write_candle.call_args_list[0].args
     symbol, tf, ohlcv, bucket = args
     assert symbol == "BTC/USDT"
     assert tf == "1m"
@@ -85,87 +64,96 @@ async def test_1m_written_immediately():
 @pytest.mark.asyncio
 async def test_non_closed_candle_ignored():
     repo = AsyncMock()
-    agg = CandleAggregator(repo)
-    c_open = replace(_make_1m(0), closed=False)
-    await agg.handle_candle(c_open)
+    agg = CandleAggregator(repo, rest=MagicMock())
+    await agg.handle_candle(replace(_make_1m(0), closed=False))
     repo.write_candle.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_5m_rollover_flushes_correct_aggregate():
-    """Five 1m bars fold into one 5m bar. On the 6th (start of next 5m
-    window) the aggregator must flush a 5m candle with correct OHLCV."""
+async def test_non_1m_closed_candle_persists_as_is():
+    """If a source ever emits a higher-TF bar with closed=True, write it directly."""
     repo = AsyncMock()
-    agg = CandleAggregator(repo)
-
-    # 5 bars in the 00:00-00:05 window with known OHLCV.
-    bars = [
-        _make_1m(0, open_="100", high="110", low="95", close="108", volume="1"),
-        _make_1m(1, open_="108", high="120", low="105", close="115", volume="2"),
-        _make_1m(2, open_="115", high="125", low="90", close="100", volume="3"),  # new low
-        _make_1m(3, open_="100", high="130", low="99", close="128", volume="4"),  # new high
-        _make_1m(4, open_="128", high="130", low="120", close="122", volume="5"),
-    ]
-    for b in bars:
-        await agg.handle_candle(b)
-
-    # At this point: 5 × 1m writes, no higher-TF flush yet.
-    written_tfs = [call.args[1] for call in repo.write_candle.call_args_list]
-    assert written_tfs.count("1m") == 5
-    assert "5m" not in written_tfs
-
-    # 6th bar crosses into the 00:05-00:10 window — triggers 5m flush.
-    await agg.handle_candle(_make_1m(5, open_="122", close="122"))
-
-    flushes_5m = [c for c in repo.write_candle.call_args_list if c.args[1] == "5m"]
-    assert len(flushes_5m) == 1
-    symbol, tf, ohlcv, bucket = flushes_5m[0].args
-    assert ohlcv["open"] == Decimal("100")    # first bar's open
-    assert ohlcv["high"] == Decimal("130")    # bar 4's high
-    assert ohlcv["low"] == Decimal("90")      # bar 3's low
-    assert ohlcv["close"] == Decimal("122")   # bar 5's close (last folded)
-    assert ohlcv["volume"] == Decimal("15")   # 1+2+3+4+5
-    assert bucket == datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+    agg = CandleAggregator(repo, rest=MagicMock())
+    c = _make_1m(0, timeframe="5m")
+    await agg.handle_candle(c)
+    # Only 1 call, the direct write — no rollover fetches.
+    assert repo.write_candle.await_count == 1
+    tf = repo.write_candle.call_args.args[1]
+    assert tf == "5m"
 
 
 @pytest.mark.asyncio
-async def test_multi_symbol_isolation():
+async def test_5m_boundary_1m_triggers_fill_gap():
+    """A 1m bar at :04 (the last minute of a 5m window) rolls the 5m bucket
+    when the next minute starts a new 5m bucket."""
     repo = AsyncMock()
-    agg = CandleAggregator(repo)
-    await agg.handle_candle(_make_1m(0, symbol="BTC/USDT", volume="1"))
-    await agg.handle_candle(_make_1m(0, symbol="ETH/USDT", volume="10"))
-    # Both symbols have their own 5m bucket, not mixed.
-    assert agg._current["BTC/USDT"]["5m"]["volume"] == Decimal("1")
-    assert agg._current["ETH/USDT"]["5m"]["volume"] == Decimal("10")
+    rest = MagicMock()
+    agg = CandleAggregator(repo, rest=rest)
+
+    # Bar at minute 4 -> next minute is 5, crosses 5m boundary.
+    # Does NOT cross 15m (15 boundary) or 1h (60 boundary).
+    with patch(
+        "services.ingestion.src.candle_aggregator.fill_gap",
+        new=AsyncMock(return_value=1),
+    ) as mock_fill:
+        await agg.handle_candle(_make_1m(4))
+
+    # fill_gap called exactly once for 5m.
+    assert mock_fill.await_count == 1
+    (_repo, _rest, symbol, tf), _kw = mock_fill.call_args
+    assert symbol == "BTC/USDT"
+    assert tf == "5m"
 
 
 @pytest.mark.asyncio
-async def test_force_flush_emits_all_open_buckets():
+async def test_hour_boundary_triggers_all_higher_tf_fetches():
+    """A 1m bar at :59 rolls 5m, 15m, AND 1h simultaneously."""
     repo = AsyncMock()
-    agg = CandleAggregator(repo)
-    await agg.handle_candle(_make_1m(0))
-    repo.write_candle.reset_mock()
+    agg = CandleAggregator(repo, rest=MagicMock())
 
-    await agg.force_flush()
-    written_tfs = sorted({call.args[1] for call in repo.write_candle.call_args_list})
-    assert written_tfs == ["15m", "1h", "5m"]
+    with patch(
+        "services.ingestion.src.candle_aggregator.fill_gap",
+        new=AsyncMock(return_value=1),
+    ) as mock_fill:
+        await agg.handle_candle(_make_1m(59))
+
+    fetched_tfs = sorted({call.args[3] for call in mock_fill.call_args_list})
+    assert fetched_tfs == ["15m", "1h", "5m"]
 
 
 @pytest.mark.asyncio
-async def test_older_bucket_bar_does_not_corrupt_current():
-    """If a stray older-bucket 1m bar arrives after we've advanced, it must
-    not fold into the wrong higher-TF bucket."""
+async def test_mid_bucket_1m_does_not_trigger_higher_tf_fetch():
+    """A 1m bar in the middle of a 5m window (e.g. minute 2) must not roll
+    any higher-TF bucket."""
     repo = AsyncMock()
-    agg = CandleAggregator(repo)
+    agg = CandleAggregator(repo, rest=MagicMock())
 
-    await agg.handle_candle(_make_1m(5, open_="200", high="210", low="200", close="205", volume="1"))
-    # Now a late bar from the *previous* 5m window shows up — must be ignored.
-    await agg.handle_candle(_make_1m(2, open_="100", high="110", low="90", close="100", volume="99"))
+    with patch(
+        "services.ingestion.src.candle_aggregator.fill_gap",
+        new=AsyncMock(return_value=0),
+    ) as mock_fill:
+        await agg.handle_candle(_make_1m(2))
 
-    # The current 5m bucket still reflects bar at minute 5 only, not the late bar.
-    b5 = agg._current["BTC/USDT"]["5m"]
-    assert b5["volume"] == Decimal("1")
-    assert b5["high"] == Decimal("210")
+    mock_fill.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_fill_gap_failure_does_not_propagate():
+    """If fill_gap raises, the handler must log and continue — the live
+    1m bar has already been written and a single failed rollover shouldn't
+    kill the WS stream."""
+    repo = AsyncMock()
+    agg = CandleAggregator(repo, rest=MagicMock())
+
+    with patch(
+        "services.ingestion.src.candle_aggregator.fill_gap",
+        new=AsyncMock(side_effect=RuntimeError("boom")),
+    ):
+        # Must not raise.
+        await agg.handle_candle(_make_1m(4))
+
+    # The 1m bar was still persisted.
+    assert repo.write_candle.await_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -179,7 +167,6 @@ async def test_fill_gap_cold_start_fetches_bounded_history():
     repo.write_candle = AsyncMock()
 
     rest = MagicMock()
-    # Return two fake bars.
     rest.fetch_ohlcv = MagicMock(return_value=[
         [1704067200_000, 100.0, 110.0, 95.0, 105.0, 1.5],
         [1704067260_000, 105.0, 115.0, 100.0, 110.0, 2.0],
@@ -188,7 +175,6 @@ async def test_fill_gap_cold_start_fetches_bounded_history():
     n = await fill_gap(repo, rest, "BTC/USDT", "1m")
     assert n == 2
 
-    # Cold start → since=None, limit=COLD_START_LIMIT.
     call = rest.fetch_ohlcv.call_args
     assert call.kwargs["since"] is None
     assert call.kwargs["limit"] == COLD_START_LIMIT
@@ -196,7 +182,6 @@ async def test_fill_gap_cold_start_fetches_bounded_history():
 
 @pytest.mark.asyncio
 async def test_fill_gap_warm_start_uses_cursor():
-    """With prior data, 'since' must be last_bucket + one interval (ms)."""
     repo = AsyncMock()
     repo.get_candles = AsyncMock(
         return_value=[{"time": datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)}]
@@ -215,7 +200,6 @@ async def test_fill_gap_warm_start_uses_cursor():
 
 @pytest.mark.asyncio
 async def test_fill_gap_swallows_rest_errors():
-    """A REST fetch failure must not block startup — return 0, don't raise."""
     repo = AsyncMock()
     repo.get_candles = AsyncMock(return_value=[])
     rest = MagicMock()

@@ -8,6 +8,7 @@ UPDATE, so re-running a range is safe.
 
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Iterable, Optional, Protocol
@@ -101,9 +102,17 @@ async def fill_gap(
         )
         return 0
 
+    interval_ms = TIMEFRAME_SECONDS[timeframe] * 1000
+    now_ms = int(time.time() * 1000)
     written = 0
     for bar in ohlcv:
         ts_ms, o, h, l, c, v = bar
+        ts_ms = int(ts_ms)
+        # Skip any bar whose bucket hasn't finished yet — its OHLCV is in flux
+        # and writing it would contaminate the hypertable with partial values
+        # that only get overwritten on the NEXT rollover.
+        if ts_ms + interval_ms > now_ms:
+            continue
         bucket = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
         await repo.write_candle(
             symbol,

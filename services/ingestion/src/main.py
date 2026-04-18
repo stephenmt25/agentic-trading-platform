@@ -33,7 +33,14 @@ pubsub_broadcaster = PubSubBroadcaster(redis_client)
 telemetry = TelemetryPublisher(redis_client, "ingestion", "market_data")
 
 market_repo = MarketDataRepository(timescale_client)
-candle_aggregator = CandleAggregator(market_repo)
+
+# Shared sync ccxt REST client — used by both startup backfill and
+# CandleAggregator's rollover fetches. Binance public klines don't need auth.
+rest_client = ccxt.binance({"enableRateLimit": True})
+if settings.BINANCE_TESTNET:
+    rest_client.set_sandbox_mode(True)
+
+candle_aggregator = CandleAggregator(market_repo, rest_client)
 
 symbols_to_track = ["BTC/USDT", "ETH/USDT"]
 
@@ -86,10 +93,7 @@ async def _backfill_on_startup():
     against a fresh DB — `fill_gap` cold-starts with a bounded history.
     """
     try:
-        rest = ccxt.binance({"enableRateLimit": True})
-        if settings.BINANCE_TESTNET:
-            rest.set_sandbox_mode(True)
-        total = await fill_gaps(market_repo, rest, symbols_to_track)
+        total = await fill_gaps(market_repo, rest_client, symbols_to_track)
         logger.info("startup_backfill_complete", bars=total)
     except Exception as e:  # noqa: BLE001 — best effort; never block startup
         logger.warning("startup_backfill_failed", error=str(e))
