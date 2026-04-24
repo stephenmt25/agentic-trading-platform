@@ -174,12 +174,12 @@ class JobRunner:
         if self._backtest_repo:
             await self._backtest_repo.save_result(res_payload)
 
-        # Update status in Redis
+        # The result reaches consumers via save_result (Postgres) and the Redis
+        # status key (frontend polling). Do not re-add a StreamPublisher.publish
+        # here — it expects a BaseEvent Pydantic model, not the raw dict.
         if self._redis:
             await self._redis.set(
                 f"backtest:status:{job_id}",
                 json.dumps({"status": "completed", "user_id": user_id, **res_payload}),
                 ex=3600,
             )
-
-        await self._publisher.publish("backtest_completed", res_payload)
