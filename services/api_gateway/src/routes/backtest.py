@@ -41,7 +41,9 @@ async def create_backtest(
         "strategy_rules": req.strategy_rules,
         "start_date": req.start_date,
         "end_date": req.end_date,
-        "slippage_pct": req.slippage_pct,
+        # Stringify Decimal to preserve precision through JSON — the consumer
+        # (services/backtesting/src/job_runner.py) parses it back via Decimal(str(...)).
+        "slippage_pct": str(req.slippage_pct),
     }
 
     await redis.xadd("auto_backtest_queue", {"data": json.dumps(payload)})
