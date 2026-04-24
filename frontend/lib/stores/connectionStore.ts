@@ -19,11 +19,19 @@ interface ConnectionState {
 const FAILURE_THRESHOLD = 3;
 const HEALTH_POLL_INTERVAL = 30_000; // 30 seconds
 
+// Mirror the API_BASE_URL logic in lib/api/client.ts: same-origin rewrite on
+// Vercel (bypasses CORS), direct backend URL in local dev. Avoids importing
+// from client.ts to keep the module graph acyclic.
+const HEALTH_BASE_URL =
+  typeof window !== 'undefined' && process.env.VERCEL === '1'
+    ? '/api/backend'
+    : process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
 let healthPollTimer: ReturnType<typeof setInterval> | null = null;
 
 async function pollHealth() {
   try {
-    const res = await fetch('/api/backend/health', { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${HEALTH_BASE_URL}/health`, { signal: AbortSignal.timeout(5000) });
     if (res.ok) {
       useConnectionStore.getState().recordSuccess();
     } else {
