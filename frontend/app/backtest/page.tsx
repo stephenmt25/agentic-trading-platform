@@ -22,6 +22,21 @@ const DEFAULT_RULES = JSON.stringify(
   2
 );
 
+// The sequential simulator runs per-candle with Decimal math; multi-month
+// 1m-timeframe runs can take several minutes. The old 2-min cap timed out
+// constantly even when the backend was still churning successfully.
+const POLL_INTERVAL_MS = 2000;
+const POLL_TIMEOUT_MS = 10 * 60 * 1000;
+
+function formatElapsed(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
+
+type BackendJobStatus = 'queued' | 'running' | 'completed' | 'failed';
+
 export default function BacktestPage() {
   const [symbol, setSymbol] = useState('BTC/USDT');
   const [startDate, setStartDate] = useState('2025-01-01');
@@ -30,12 +45,24 @@ export default function BacktestPage() {
   const [rulesJson, setRulesJson] = useState(DEFAULT_RULES);
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<'idle' | 'queued' | 'polling' | 'completed' | 'error'>('idle');
+  const [jobStatus, setJobStatus] = useState<BackendJobStatus | null>(null);
   const [result, setResult] = useState<BacktestResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [runConfig, setRunConfig] = useState<{ symbol: string; start: string; end: string; slippage: string } | null>(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const startTimeRef = useRef<number>(0);
   const cancelledRef = useRef(false);
 
-  // Cleanup polling on unmount
+  const stopElapsedTimer = useCallback(() => {
+    if (elapsedTimerRef.current) {
+      clearInterval(elapsedTimerRef.current);
+      elapsedTimerRef.current = null;
+    }
+  }, []);
+
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
       cancelledRef.current = true;
@@ -43,15 +70,15 @@ export default function BacktestPage() {
         clearTimeout(pollTimerRef.current);
         pollTimerRef.current = null;
       }
+      stopElapsedTimer();
     };
-  }, []);
+  }, [stopElapsedTimer]);
 
   const pollResult = useCallback(
     async (id: string) => {
       setStatus('polling');
       cancelledRef.current = false;
-      let attempts = 0;
-      const maxAttempts = 60;
+      const deadline = Date.now() + POLL_TIMEOUT_MS;
 
       const poll = async () => {
         if (cancelledRef.current) return;
@@ -59,37 +86,54 @@ export default function BacktestPage() {
           const res = await api.backtest.result(id);
           if (cancelledRef.current) return;
 
-          if (res.status === 'completed') {
-            setResult(res as unknown as BacktestResult);
-            setStatus('completed');
+          if (res.status === 'queued' || res.status === 'running') {
+            setJobStatus(res.status);
+            if (Date.now() < deadline) {
+              pollTimerRef.current = setTimeout(poll, POLL_INTERVAL_MS);
+            } else {
+              setError(
+                'Backtest timed out after 10 min — the job may still be running in the backend. Check .praxis_logs/backtesting.log or query the job id directly.'
+              );
+              setStatus('error');
+              stopElapsedTimer();
+            }
             return;
           }
-          if (res.status === 'running' || res.status === 'queued') {
-            attempts++;
-            if (attempts < maxAttempts) {
-              pollTimerRef.current = setTimeout(poll, 2000);
-            } else {
-              setError('Backtest timed out');
-              setStatus('error');
-            }
+          if (res.status === 'completed') {
+            setJobStatus('completed');
+            setResult(res as unknown as BacktestResult);
+            setStatus('completed');
+            stopElapsedTimer();
+            return;
+          }
+          if (res.status === 'failed') {
+            setJobStatus('failed');
+            const detail = (res as { error?: string }).error;
+            setError(detail ? `Backtest failed: ${detail}` : 'Backtest failed');
+            setStatus('error');
+            stopElapsedTimer();
             return;
           }
           setError(`Unknown status: ${res.status}`);
           setStatus('error');
+          stopElapsedTimer();
         } catch (e: unknown) {
           if (cancelledRef.current) return;
           setError(e instanceof Error ? e.message : 'Failed to fetch result');
           setStatus('error');
+          stopElapsedTimer();
         }
       };
       poll();
     },
-    []
+    [stopElapsedTimer]
   );
 
   const handleSubmit = async () => {
     setError(null);
     setResult(null);
+    setJobStatus(null);
+    setElapsedMs(0);
 
     let parsed;
     try {
@@ -101,6 +145,14 @@ export default function BacktestPage() {
 
     try {
       setStatus('queued');
+      setJobStatus('queued');
+      setRunConfig({ symbol, start: startDate, end: endDate, slippage });
+      startTimeRef.current = Date.now();
+      stopElapsedTimer();
+      elapsedTimerRef.current = setInterval(() => {
+        setElapsedMs(Date.now() - startTimeRef.current);
+      }, 1000);
+
       const res = await api.backtest.submit({
         symbol,
         strategy_rules: parsed,
@@ -113,10 +165,13 @@ export default function BacktestPage() {
     } catch (e: any) {
       setError(e.message || 'Failed to submit backtest');
       setStatus('error');
+      stopElapsedTimer();
     }
   };
 
   const isRunning = status === 'queued' || status === 'polling';
+  const runningLabel =
+    jobStatus === 'queued' ? 'Queued' : jobStatus === 'running' ? 'Running' : 'Working';
 
   return (
     <motion.div variants={pageEnter} initial="initial" animate="animate" className="flex flex-col gap-6 h-full">
@@ -201,7 +256,7 @@ export default function BacktestPage() {
             {isRunning ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                {status === 'queued' ? 'Queued...' : 'Running...'}
+                {runningLabel} · {formatElapsed(elapsedMs)}
               </>
             ) : (
               <>
@@ -290,9 +345,26 @@ export default function BacktestPage() {
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
-              <p className="text-sm text-muted-foreground">
-                {isRunning ? 'Running simulation...' : 'Configure and run a backtest to see results'}
-              </p>
+              {isRunning && runConfig ? (
+                <div className="flex flex-col items-center gap-4 max-w-md w-full">
+                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                  <div className="text-center space-y-1">
+                    <p className="text-sm font-medium text-foreground">
+                      {runningLabel} · {formatElapsed(elapsedMs)}
+                    </p>
+                    <p className="text-xs text-muted-foreground font-mono tabular-nums">
+                      {runConfig.symbol} · {runConfig.start} → {runConfig.end} · slippage {runConfig.slippage}
+                    </p>
+                  </div>
+                  <p className="text-xs text-muted-foreground/70 text-center max-w-xs">
+                    Sequential simulator runs per-candle with Decimal math; multi-month runs at 1m timeframe may take several minutes.
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Configure and run a backtest to see results
+                </p>
+              )}
             </div>
           )}
         </div>
