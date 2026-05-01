@@ -14,6 +14,7 @@ class ProfileState:
         'blacklist',
         'indicators',
         'regime',
+        'preferred_regimes',
         'daily_realised_pnl_pct',
         'current_drawdown_pct',
         'current_allocation_pct',
@@ -30,6 +31,7 @@ class ProfileState:
         blacklist: frozenset,
         indicators: IndicatorSet,
         notional: Decimal = Decimal("100000"),
+        preferred_regimes: Optional[frozenset] = None,
     ):
         self.profile_id = profile_id
         self.compiled_rules = compiled_rules
@@ -37,6 +39,9 @@ class ProfileState:
         self.blacklist = blacklist
         self.indicators = indicators
         self.regime: Optional[Regime] = None
+        # C.4: empty set = profile is regime-agnostic. Stored as a frozenset
+        # of Regime enum values for O(1) membership checks each tick.
+        self.preferred_regimes: frozenset = preferred_regimes or frozenset()
         self.daily_realised_pnl_pct: Decimal = Decimal("0")
         self.current_drawdown_pct: Decimal = Decimal("0")
         self.current_allocation_pct: Decimal = Decimal("0")

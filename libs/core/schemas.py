@@ -437,6 +437,9 @@ class StrategySignal(BaseModel):
     threshold: float
 
 
+_REGIME_NAMES = Literal["TRENDING_UP", "TRENDING_DOWN", "RANGE_BOUND", "HIGH_VOLATILITY", "CRISIS"]
+
+
 class StrategyRulesInput(BaseModel):
     """User-facing strategy DSL. Validated, then transformed to the canonical
     RuleSchema shape consumed by hot_path."""
@@ -444,11 +447,15 @@ class StrategyRulesInput(BaseModel):
     match_mode: Literal["all", "any"]
     confidence: float = Field(ge=0.0, le=1.0)
     signals: List[StrategySignal] = Field(min_length=1)
+    # C.4: optional regime allowlist. Empty list = profile is regime-agnostic.
+    # When set, the hot-path short-circuits with BLOCKED_REGIME_MISMATCH (and
+    # shadow=true) whenever the resolved live regime is not in this list.
+    preferred_regimes: List[_REGIME_NAMES] = Field(default_factory=list)
 
 
 def strategy_rules_to_canonical(rules: StrategyRulesInput) -> Dict[str, Any]:
     """User-facing → canonical (what hot_path / RuleCompiler consume)."""
-    return {
+    canonical: Dict[str, Any] = {
         "direction": _DIRECTION_USER_TO_CANONICAL[rules.direction],
         "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode],
         "base_confidence": rules.confidence,
@@ -461,6 +468,9 @@ def strategy_rules_to_canonical(rules: StrategyRulesInput) -> Dict[str, Any]:
             for s in rules.signals
         ],
     }
+    if rules.preferred_regimes:
+        canonical["preferred_regimes"] = list(rules.preferred_regimes)
+    return canonical
 
 
 def strategy_rules_from_canonical(canonical: Dict[str, Any]) -> StrategyRulesInput:
@@ -477,6 +487,7 @@ def strategy_rules_from_canonical(canonical: Dict[str, Any]) -> StrategyRulesInp
             )
             for c in canonical["conditions"]
         ],
+        preferred_regimes=list(canonical.get("preferred_regimes", [])),
     )
 
 

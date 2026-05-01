@@ -104,7 +104,7 @@ async def lifespan(app: FastAPI):
 
     def _parse_static_config(prof):
         """Parse rules / risk / blacklist from a DB row.
-        Returns (compiled, risk_limits, bl, notional) or None."""
+        Returns (compiled, risk_limits, bl, notional, preferred_regimes) or None."""
         rules_raw = prof.get("strategy_rules", {})
         rules = json.loads(rules_raw) if isinstance(rules_raw, str) else rules_raw
         required_keys = {"logic", "direction", "base_confidence", "conditions"}
@@ -131,7 +131,24 @@ async def lifespan(app: FastAPI):
         alloc_pct = Decimal(str(prof.get("allocation_pct", "1.0")))
         notional = alloc_pct * Decimal("10000")
 
-        return compiled, risk_limits, frozenset(bl), notional
+        # C.4: preferred_regimes lives inside strategy_rules JSONB. Coerce each
+        # entry to the Regime enum; silently drop unknown values rather than
+        # crashing the loader (a typo in a profile shouldn't take hot_path down).
+        from libs.core.enums import Regime as _Regime
+        pr_raw = rules.get("preferred_regimes", []) or []
+        pr_set: set = set()
+        for name in pr_raw:
+            try:
+                pr_set.add(_Regime(name))
+            except ValueError:
+                logger.warning(
+                    "Unknown regime in profile preferred_regimes; ignoring",
+                    profile_id=str(prof.get("profile_id")),
+                    regime=name,
+                )
+        preferred_regimes = frozenset(pr_set)
+
+        return compiled, risk_limits, frozenset(bl), notional, preferred_regimes
 
     profiles = await profile_repo.get_active_profiles()
     for prof in profiles:
@@ -139,7 +156,7 @@ async def lifespan(app: FastAPI):
         if parsed is None:
             logger.warning("Profile %s has incomplete strategy_rules, skipping", prof.get("profile_id"))
             continue
-        compiled, risk_limits, bl, notional = parsed
+        compiled, risk_limits, bl, notional, preferred_regimes = parsed
         state = ProfileState(
             profile_id=str(prof["profile_id"]),
             compiled_rules=compiled,
@@ -147,6 +164,7 @@ async def lifespan(app: FastAPI):
             blacklist=bl,
             indicators=create_indicator_set(),
             notional=notional,
+            preferred_regimes=preferred_regimes,
         )
         state_cache.add(state)
 
@@ -168,13 +186,14 @@ async def lifespan(app: FastAPI):
                         parsed = _parse_static_config(prof)
                         if parsed is None:
                             continue
-                        compiled, risk_limits, bl, notional = parsed
+                        compiled, risk_limits, bl, notional, preferred_regimes = parsed
                         existing = state_cache.get(pid)
                         if existing:
                             existing.compiled_rules = compiled
                             existing.risk_limits = risk_limits
                             existing.blacklist = bl
                             existing.notional = notional
+                            existing.preferred_regimes = preferred_regimes
                         else:
                             new_state = ProfileState(
                                 profile_id=pid,
@@ -183,6 +202,7 @@ async def lifespan(app: FastAPI):
                                 blacklist=bl,
                                 indicators=create_indicator_set(),
                                 notional=notional,
+                                preferred_regimes=preferred_regimes,
                             )
                             state_cache.add(new_state)
                             logger.info("Profile %s added to state cache via refresh", pid)

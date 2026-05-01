@@ -217,6 +217,36 @@ class HotPathProcessor:
                             }
                             trace["gates"]["regime"] = {"passed": True}
 
+                        # 3a. Profile-level regime preference (C.4). If the
+                        # profile declared preferred_regimes and the resolved
+                        # live regime is not among them, short-circuit with a
+                        # SHADOW decision so PR3 can compare would-be vs live
+                        # performance. Skip when preferred_regimes is empty
+                        # (regime-agnostic profile) or when the regime is
+                        # unknown (don't shadow on missing data — that just
+                        # means the dampener had nothing to resolve).
+                        if profile_state.preferred_regimes and profile_state.regime is not None:
+                            if profile_state.regime not in profile_state.preferred_regimes:
+                                logger.info(
+                                    "gate_block",
+                                    gate="regime_mismatch",
+                                    symbol=tick.symbol,
+                                    profile_regimes=[r.value for r in profile_state.preferred_regimes],
+                                    live_regime=profile_state.regime.value,
+                                )
+                                if self._decision_writer:
+                                    trace["outcome"] = "BLOCKED_REGIME_MISMATCH"
+                                    trace["shadow"] = True
+                                    trace["gates"]["regime_mismatch"] = {
+                                        "passed": False,
+                                        "preferred": [r.value for r in profile_state.preferred_regimes],
+                                        "actual": profile_state.regime.value,
+                                    }
+                                    await self._decision_writer.write(trace)
+                                continue
+                            if trace:
+                                trace["gates"]["regime_mismatch"] = {"passed": True}
+
                         # 3b. Agent Modifier (TA + sentiment scores)
                         if self._agent_modifier:
                             if self._decision_writer:
