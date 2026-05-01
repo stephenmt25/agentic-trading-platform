@@ -31,6 +31,7 @@ class DecisionTraceWriter:
                 gates=trace.get("gates", {}),
                 profile_rules=trace.get("profile_rules", {}),
                 order_id=uuid.UUID(trace["order_id"]) if trace.get("order_id") else None,
+                shadow=bool(trace.get("shadow", False)),
             )
         except Exception:
             logger.exception("Failed to write decision trace", symbol=trace.get("symbol"))

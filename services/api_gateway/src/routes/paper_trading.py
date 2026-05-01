@@ -116,10 +116,16 @@ async def list_decisions(
     outcome: Optional[str] = None,
     limit: int = 50,
     offset: int = 0,
+    shadow: Optional[bool] = False,
     user_id: str = Depends(get_current_user),
     repo: DecisionRepository = Depends(get_decision_repo),
 ):
-    """Return a paginated list of trade decisions (approved + blocked)."""
+    """Return a paginated list of trade decisions (approved + blocked).
+
+    `shadow` defaults to False so the live Decision Feed never surfaces
+    profile-filtered (e.g. regime-mismatched) decisions. Pass shadow=true to
+    see the shadow set, or shadow=null to include both.
+    """
     capped_limit = min(limit, 200)
     rows = await repo.get_decisions(
         profile_id=profile_id,
@@ -127,6 +133,7 @@ async def list_decisions(
         outcome=outcome,
         limit=capped_limit,
         offset=offset,
+        shadow=shadow,
     )
     return [_serialize_decision(r) for r in rows]
 

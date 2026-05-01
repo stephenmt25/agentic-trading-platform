@@ -40,12 +40,13 @@ class DecisionRepository(BaseRepository):
         profile_rules: dict,
         order_id: Optional[UUID] = None,
         created_at=None,
+        shadow: bool = False,
     ) -> None:
         query = """
         INSERT INTO trade_decisions
             (event_id, profile_id, symbol, outcome, input_price, input_volume,
-             indicators, strategy, regime, agents, gates, profile_rules, order_id, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, COALESCE($14, NOW()))
+             indicators, strategy, regime, agents, gates, profile_rules, order_id, shadow, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, COALESCE($15, NOW()))
         """
         await self._execute(
             query,
@@ -62,6 +63,7 @@ class DecisionRepository(BaseRepository):
             _dumps(gates),
             _dumps(profile_rules),
             order_id,
+            shadow,
             created_at,
         )
 
@@ -72,6 +74,7 @@ class DecisionRepository(BaseRepository):
         outcome: Optional[str] = None,
         limit: int = 50,
         offset: int = 0,
+        shadow: Optional[bool] = False,
     ) -> List[Dict[str, Any]]:
         conditions = []
         params: list = []
@@ -88,6 +91,12 @@ class DecisionRepository(BaseRepository):
         if outcome:
             conditions.append(f"outcome = ${idx}")
             params.append(outcome)
+            idx += 1
+        # shadow filter: explicit None means "include everything", default False
+        # excludes shadow rows so the live Decision Feed stays clean.
+        if shadow is not None:
+            conditions.append(f"shadow = ${idx}")
+            params.append(shadow)
             idx += 1
 
         where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
