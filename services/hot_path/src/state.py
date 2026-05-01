@@ -29,7 +29,7 @@ class ProfileState:
         risk_limits: RiskLimits,
         blacklist: frozenset,
         indicators: IndicatorSet,
-        notional: Decimal = Decimal("10000"),
+        notional: Decimal = Decimal("100000"),
     ):
         self.profile_id = profile_id
         self.compiled_rules = compiled_rules
@@ -40,8 +40,13 @@ class ProfileState:
         self.daily_realised_pnl_pct: Decimal = Decimal("0")
         self.current_drawdown_pct: Decimal = Decimal("0")
         self.current_allocation_pct: Decimal = Decimal("0")
-        # Profile's nominal trading capital (allocation_pct × $10,000).
-        # Mirrors services/risk/__init__.py:60 — keep in sync.
+        # Profile's nominal trading capital (allocation_pct × $100,000).
+        # Session-bridge bump from $10k → $100k on 2026-05-01: with the demo
+        # profile's 7 open positions consuming the full $10k allocation, the
+        # risk gate's exposure_at_notional check froze all new decisions and
+        # the autonomous execution session had no flow to learn from. Revert
+        # alongside services/risk/src/__init__.py:60 once the session ends
+        # and either positions close or notional becomes profile-scaled.
         self.notional: Decimal = notional
         # Sum of cost_basis over currently-open positions for this profile.
         # Updated by PnlSync poll loop from the positions table. Drives the

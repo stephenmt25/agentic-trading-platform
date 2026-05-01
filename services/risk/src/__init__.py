@@ -57,7 +57,7 @@ class RiskService:
                 if profile:
                     raw = profile.get("risk_limits", "{}")
                     risk_limits = json.loads(raw) if isinstance(raw, str) else (raw or {})
-                    portfolio_value = Decimal(str(profile.get("allocation_pct", 1.0))) * Decimal("10000")
+                    portfolio_value = Decimal(str(profile.get("allocation_pct", 1.0))) * Decimal("100000")  # session-bridge — see services/hot_path/src/state.py:32
             except Exception as e:
                 logger.error("Failed to load profile for risk check", error=str(e))
 
