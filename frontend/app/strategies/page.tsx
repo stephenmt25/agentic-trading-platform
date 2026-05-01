@@ -7,6 +7,7 @@ import { motion } from "framer-motion";
 import { pageEnter } from "@/lib/motion";
 import dynamic from "next/dynamic";
 import { RawProfileView } from "@/components/strategies/RawProfileView";
+import { TemplateGallery } from "@/components/strategies/TemplateGallery";
 
 const BuilderContent = dynamic(() => import("../pipeline/page"), {
   ssr: false,
@@ -23,6 +24,7 @@ const ProfilesContent = dynamic(() => import("../profiles/page"), {
 
 const TABS = [
   { id: "profiles", label: "Profiles" },
+  { id: "templates", label: "Templates" },
   { id: "builder", label: "Builder" },
   { id: "verify", label: "Verify" },
   { id: "raw", label: "Raw" },
@@ -49,6 +51,7 @@ export default function StrategiesPage() {
           {(activeTab) => (
             <>
               {activeTab === "profiles" && <ProfilesContent />}
+              {activeTab === "templates" && <TemplateGallery />}
               {activeTab === "builder" && <BuilderContent />}
               {activeTab === "verify" && <VerifyContent />}
               {activeTab === "raw" && <RawProfileView />}

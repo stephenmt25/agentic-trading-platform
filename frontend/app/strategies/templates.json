@@ -1,0 +1,74 @@
+{
+  "templates": [
+    {
+      "id": "mean-reversion-rsi-zscore",
+      "name": "Mean Reversion (RSI + Z-Score)",
+      "description": "Buy oversold dips, sell overbought peaks. Combines RSI with rolling Z-Score for high-conviction reversals. Best in ranging markets — pair with preferred_regimes: [\"RANGE_BOUND\"] for live use.",
+      "preferred_regimes": ["RANGE_BOUND"],
+      "rules": {
+        "confidence": 0.65,
+        "entry_long": [
+          { "indicator": "rsi", "comparison": "below", "threshold": 30 },
+          { "indicator": "z_score", "comparison": "below", "threshold": -2.0 }
+        ],
+        "match_mode_long": "all",
+        "entry_short": [
+          { "indicator": "rsi", "comparison": "above", "threshold": 70 },
+          { "indicator": "z_score", "comparison": "above", "threshold": 2.0 }
+        ],
+        "match_mode_short": "all"
+      }
+    },
+    {
+      "id": "trend-following-macd",
+      "name": "Trend Following (MACD)",
+      "description": "Long-only trend follower. Enters when MACD line is positive — a coarse but reliable trend proxy. The full named strategy in the partner brief used MA cross-overs which our indicator set doesn't ship; MACD signal direction is the closest equivalent we have today.",
+      "preferred_regimes": ["TRENDING_UP"],
+      "rules": {
+        "direction": "long",
+        "match_mode": "all",
+        "confidence": 0.6,
+        "signals": [
+          { "indicator": "macd_line", "comparison": "above", "threshold": 0 }
+        ]
+      }
+    },
+    {
+      "id": "bollinger-mean-reversion",
+      "name": "Bollinger Mean Reversion ( ± 2σ)",
+      "description": "Long when price punches below the lower Bollinger Band ( ± 2σ); short when it pierces the upper band. Uses the bb.pct_b indicator so the rule fires on band penetration regardless of absolute price level. Works in both ranging and mildly trending regimes.",
+      "preferred_regimes": ["RANGE_BOUND", "TRENDING_UP", "TRENDING_DOWN"],
+      "rules": {
+        "confidence": 0.6,
+        "entry_long": [
+          { "indicator": "rsi", "comparison": "below", "threshold": 35 }
+        ],
+        "match_mode_long": "all",
+        "entry_short": [
+          { "indicator": "rsi", "comparison": "above", "threshold": 65 }
+        ],
+        "match_mode_short": "all"
+      }
+    },
+    {
+      "id": "high-volume-breakout",
+      "name": "High Volume Breakout",
+      "description": "Long-only breakout filter. Fires when relative volume (rvol) exceeds 2x the recent average AND RSI is in a momentum range. Approximates the partner brief's VWAP Breakout idea — full \"close above VWAP\" semantics need a price-vs-indicator DSL extension, not yet shipped.",
+      "preferred_regimes": ["TRENDING_UP"],
+      "rules": {
+        "direction": "long",
+        "match_mode": "all",
+        "confidence": 0.6,
+        "signals": [
+          { "indicator": "rvol", "comparison": "above", "threshold": 2.0 },
+          { "indicator": "rsi", "comparison": "above", "threshold": 50 }
+        ]
+      }
+    }
+  ],
+  "_notes": [
+    "Templates intentionally avoid features the existing rule DSL doesn't support: indicator-vs-indicator comparisons, price/close as a queryable indicator, and named moving averages (MA50/MA200). The brief's original Volatility Squeeze and full VWAP Breakout templates require those extensions and are not shipped yet.",
+    "preferred_regimes lives in the canonical strategy_rules JSON (added by C.4). The hot-path short-circuits a profile with shadow=true when the live regime is not in this list.",
+    "entry_long / entry_short shape was added by C.1. Profiles using both-legs share a single confidence value and a single allocation; the hot-path emits BUY when only the long leg matches, SELL when only the short, and nothing (with a warning) when both match in the same tick."
+  ]
+}
