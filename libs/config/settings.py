@@ -1,7 +1,7 @@
 from typing import List, Optional
 from decimal import Decimal
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 _INSECURE_DEFAULT_KEY = "praxis-dev-secret-key-change-in-production"
 
@@ -32,7 +32,15 @@ class Settings(BaseSettings):
     HOT_DATA_RETENTION_DAYS: int = Field(default=7)
     SENTIMENT_CACHE_TTL_S: int = Field(default=900)
 
-    LLM_API_KEY: str = Field(default="")
+    # LLM provider key. Accept either PRAXIS_LLM_API_KEY (project-namespaced)
+    # or the bare ANTHROPIC_API_KEY commonly set by Claude tooling. Without
+    # this alias the .env's ANTHROPIC_API_KEY would be invisible to the
+    # PRAXIS_-prefixed loader and debate/sentiment would silently fall back
+    # to placeholder responses.
+    LLM_API_KEY: str = Field(
+        default="",
+        validation_alias=AliasChoices("PRAXIS_LLM_API_KEY", "ANTHROPIC_API_KEY"),
+    )
     NEWS_API_KEY: str = Field(default="")
     PAGERDUTY_API_KEY: str = Field(default="")
     SLACK_WEBHOOK: str = Field(default="")
