@@ -1,6 +1,8 @@
 from .agent_score_repo import AgentScoreRepository
 from .audit_repo import AuditRepository
 from .backtest_repo import BacktestRepository
+from .closed_trade_repo import ClosedTradeRepository
+from .debate_repo import DebateRepository
 from .decision_repo import DecisionRepository
 from .market_data_repo import MarketDataRepository
 from .order_repo import OrderRepository
@@ -14,6 +16,8 @@ __all__ = [
     "AgentScoreRepository",
     "AuditRepository",
     "BacktestRepository",
+    "ClosedTradeRepository",
+    "DebateRepository",
     "DecisionRepository",
     "MarketDataRepository",
     "OrderRepository",

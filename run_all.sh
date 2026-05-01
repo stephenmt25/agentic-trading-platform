@@ -88,7 +88,22 @@ trap cleanup SIGINT SIGTERM
 # ---------- Prep ----------
 mkdir -p "$LOGDIR"
 
-# Guard against double-launch: if PID file exists with live processes, abort
+# Pre-launch sweep: nukes ALL python.exe on the machine. Heavy hammer, but
+# reliably clears Ctrl+C orphans that the pidfile missed. If you have unrelated
+# Python work running (notebooks, other projects), stop it before running this.
+if command -v taskkill >/dev/null 2>&1; then
+    echo "=== Sweeping stale python.exe processes ==="
+    if taskkill //F //IM python.exe >/dev/null 2>&1; then
+        echo "  Cleared stale python.exe"
+    else
+        echo "  No stale python.exe to clear"
+    fi
+    rm -f "$PIDFILE"
+    sleep 1
+fi
+
+# Guard against double-launch: if PID file still has live processes after the
+# sweep (e.g. non-Python holders, taskkill missing), abort.
 if [[ -f "$PIDFILE" ]]; then
     LIVE=0
     while read -r pid name; do

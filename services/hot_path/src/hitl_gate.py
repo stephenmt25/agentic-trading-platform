@@ -59,7 +59,7 @@ class HITLGate:
         if not settings.HITL_ENABLED:
             return HITLGateResult(blocked=False)
 
-        trigger_reason = self._should_trigger(state, signal, risk_result)
+        trigger_reason = self._should_trigger(state, signal, tick, risk_result)
         if trigger_reason is None:
             return HITLGateResult(blocked=False)
 
@@ -154,6 +154,7 @@ class HITLGate:
         self,
         state: ProfileState,
         signal: SignalResult,
+        tick: NormalisedTick,
         risk_result: RiskGateResult,
     ) -> Optional[str]:
         """Determine if HITL approval is needed. Returns trigger reason or None."""
@@ -165,14 +166,29 @@ class HITLGate:
         if state.regime == Regime.HIGH_VOLATILITY:
             return "high_volatility_regime"
 
-        # 3. Large trade size relative to allocation
-        max_alloc = state.risk_limits.max_allocation_pct
-        if max_alloc > 0:
-            qty = Decimal(str(risk_result.suggested_quantity))
-            alloc = Decimal(str(max_alloc))
-            size_pct = qty / alloc * 100
-            if float(size_pct) > settings.HITL_SIZE_THRESHOLD_PCT:  # float-ok: comparison with float setting
-                return f"large_trade_{size_pct:.1f}pct"
+        # 3. Large trade size relative to the profile's allocation cap.
+        #
+        # Units recap (the previous version mixed these and produced
+        # nonsense percentages like 285%):
+        #   suggested_quantity   asset units (e.g. ETH)
+        #   tick.price           dollars per asset unit
+        #   notional             dollars (profile capital)
+        #   max_allocation_pct   fraction of notional, 0..1
+        #
+        # The right question is "what fraction of the allocation cap does
+        # this single trade consume?" — i.e. trade_dollars / allocation_dollars.
+        max_alloc = Decimal(str(state.risk_limits.max_allocation_pct))
+        notional = Decimal(str(state.notional))
+        price = Decimal(str(tick.price))
+        qty = Decimal(str(risk_result.suggested_quantity))
+
+        if max_alloc > 0 and notional > 0 and price > 0:
+            trade_dollars = qty * price
+            allocation_dollars = notional * max_alloc
+            if allocation_dollars > 0:
+                size_pct = trade_dollars / allocation_dollars * Decimal("100")
+                if float(size_pct) > settings.HITL_SIZE_THRESHOLD_PCT:  # float-ok: comparison with float setting
+                    return f"large_trade_{size_pct:.1f}pct"
 
         return None
 

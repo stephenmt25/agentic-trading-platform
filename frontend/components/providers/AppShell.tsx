@@ -15,12 +15,11 @@ import { tapScale, tapTransition, navIndicatorTransition, easing, duration } fro
 const PUBLIC_PATHS = ["/login"];
 const IS_MOCK_DATA = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
 
+// Trade is the primary surface and default landing page.
+// Backtest lives inside Strategies → Verify. Analyze is absorbed into Trade.
 const NAV_ITEMS = [
-  { href: "/", label: "Dashboard" },
-  { href: "/monitor", label: "Monitor" },
-  { href: "/analytics", label: "Analytics" },
-  { href: "/configure", label: "Configure" },
-  { href: "/simulate", label: "Simulate" },
+  { href: "/trade", label: "Trade" },
+  { href: "/strategies", label: "Strategies" },
   { href: "/docs", label: "Docs" },
 ];
 

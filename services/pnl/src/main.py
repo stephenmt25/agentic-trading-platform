@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient, PositionRepository, PnlRepository
-from libs.storage.repositories import ProfileRepository
+from libs.storage.repositories import ClosedTradeRepository, ProfileRepository
 from libs.messaging import PubSubBroadcaster
 from libs.messaging._pubsub import PubSubSubscriber
 from libs.messaging.channels import PUBSUB_PRICE_TICKS
@@ -90,8 +90,14 @@ async def lifespan(app: FastAPI):
     position_repo = PositionRepository(timescale_client)
     pnl_repo = PnlRepository(timescale_client)
     profile_repo = ProfileRepository(timescale_client)
+    closed_trade_repo = ClosedTradeRepository(timescale_client)
     publisher = PnLPublisher(redis_instance, pubsub, pnl_repo)
-    closer = PositionCloser(position_repo, redis_instance)
+    closer = PositionCloser(
+        position_repo,
+        redis_instance,
+        closed_trade_repo=closed_trade_repo,
+        profile_repo=profile_repo,
+    )
     exit_monitor = ExitMonitor(closer, profile_repo)
 
     telemetry = TelemetryPublisher(redis_instance, "pnl", "portfolio")

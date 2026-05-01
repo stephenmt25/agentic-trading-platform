@@ -22,6 +22,15 @@ interface WeightData {
   trackers: Record<string, { ewma: number | null; samples: number; last_updated: string | null }>;
 }
 
+// An agent is "hydrated" if it has at least one recent score that's a real, non-zero
+// reading. TA produces values in (-1, +1); sentiment falls back to 0; HMM is null
+// when the model isn't loaded; debate publishes 0 on LLM failure. The truth signal
+// for "this agent is contributing" is therefore: any non-null, non-zero score
+// observed in the recent window.
+function isAgentHydrated(scores: ScoreDataPoint[], agent: string): boolean {
+  return scores.some(s => s.agent_name === agent && s.score !== null && s.score !== 0);
+}
+
 export default function AnalysisContent() {
   const symbol = useAnalysisStore((s) => s.symbol);
   const timeframe = useAnalysisStore((s) => s.timeframe);
@@ -83,7 +92,7 @@ export default function AnalysisContent() {
       ) : (
         <div className="space-y-1">
           <div className="border border-border rounded-md p-2">
-            <PriceChart data={candles} height={420} />
+            <PriceChart data={candles} height={300} />
           </div>
 
           {visibleOverlays.length > 0 && (
@@ -91,16 +100,29 @@ export default function AnalysisContent() {
               <div className="flex items-center justify-between mb-1 px-1">
                 <span className="flex items-center gap-1.5 text-xs text-muted-foreground font-medium">
                   Agent Scores
-                  <InfoTooltip text="Historical scores from each agent (-1 bearish to +1 bullish). TA updates every 60s, others every 5min." />
+                  <InfoTooltip text="Historical scores from each agent (-1 bearish to +1 bullish). TA updates every 60s, others every 5min. Dark agents are wired but not yet hydrated — see Phase 2 status." />
                 </span>
-                <div className="flex gap-3">
+                <div className="flex gap-3 flex-wrap">
                   {visibleOverlays.map((agent) => {
                     const colors: Record<string, string> = { ta: "text-blue-400", sentiment: "text-violet-400", debate: "text-amber-400", regime_hmm: "text-pink-400" };
-                    return <span key={agent} className={`text-xs ${colors[agent]}`}>{agent.toUpperCase()}</span>;
+                    const hydrated = isAgentHydrated(scores, agent);
+                    return (
+                      <span key={agent} className={`text-xs flex items-center gap-1 ${hydrated ? colors[agent] : "text-muted-foreground/60"}`}>
+                        {agent.toUpperCase()}
+                        {!hydrated && (
+                          <span
+                            className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-amber-500/10 text-amber-400/80 border border-amber-500/20"
+                            title="This agent is wired but not yet producing real signals — see Phase 2 status."
+                          >
+                            dark
+                          </span>
+                        )}
+                      </span>
+                    );
                   })}
                 </div>
               </div>
-              <AgentScoreOverlay data={scores} visibleAgents={visibleOverlays} height={160} />
+              <AgentScoreOverlay data={scores} visibleAgents={visibleOverlays} height={120} />
             </div>
           )}
         </div>
@@ -111,7 +133,7 @@ export default function AnalysisContent() {
         <div className="border border-border rounded-md p-4">
           <h3 className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-3">
             Current Agent Weights ({symbol})
-            <InfoTooltip text="Dynamic weights computed by the Analyst agent via EWMA accuracy. Higher weight = more influence on trade decisions." />
+            <InfoTooltip text="Dynamic weights computed by the Analyst agent via EWMA accuracy. Higher weight = more influence on trade decisions. Dark agents are wired but not yet contributing real signal — see Phase 2 status." />
           </h3>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             {Object.entries(weights.trackers).map(([agent, tracker]) => {
@@ -119,10 +141,21 @@ export default function AnalysisContent() {
               const defaults: Record<string, number> = { ta: 0.2, sentiment: 0.15, debate: 0.25 };
               const defaultWeight = defaults[agent] ?? 0;
               const delta = weight != null ? weight - defaultWeight : 0;
+              const hydrated = isAgentHydrated(scores, agent);
               return (
-                <div key={agent} className="space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-medium text-foreground uppercase">{agent}</span>
+                <div key={agent} className={`space-y-1 ${hydrated ? "" : "opacity-70"}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-foreground uppercase flex items-center gap-1.5">
+                      {agent}
+                      {!hydrated && (
+                        <span
+                          className="text-[9px] font-mono normal-case px-1 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20"
+                          title="Wired but not yet hydrated — score is fallback/null, not influencing decisions"
+                        >
+                          dark
+                        </span>
+                      )}
+                    </span>
                     <span className="text-xs text-muted-foreground">{tracker.samples} samples</span>
                   </div>
                   <div className="flex items-baseline gap-2">
@@ -141,6 +174,14 @@ export default function AnalysisContent() {
               );
             })}
           </div>
+          {Object.keys(weights.trackers).some(a => !isAgentHydrated(scores, a)) && (
+            <p className="mt-3 text-[11px] text-muted-foreground border-t border-border pt-3">
+              <span className="text-amber-400/80 font-mono uppercase tracking-wider text-[10px] mr-1.5">dark</span>
+              agents are wired into the audit chain but not yet producing real signal — they show up so you can see what
+              the system <em>would</em> say once the model, source, or LLM is hydrated. Decisions today are driven by
+              hydrated agents only.
+            </p>
+          )}
         </div>
       )}
     </div>

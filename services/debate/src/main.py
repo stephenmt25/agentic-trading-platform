@@ -17,6 +17,7 @@ from libs.config import settings
 from libs.storage import RedisClient
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
+from libs.storage.repositories.debate_repo import DebateRepository
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
 from services.sentiment.src.scorer import create_backend
@@ -83,8 +84,14 @@ async def _get_market_context(redis_client, symbol: str) -> MarketContext:
     )
 
 
-async def debate_loop(redis_client, engine: DebateEngine, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
-    """Periodically run debates for tracked symbols and write results to Redis."""
+async def debate_loop(
+    redis_client,
+    engine: DebateEngine,
+    telemetry: TelemetryPublisher,
+    score_repo: AgentScoreRepository = None,
+    debate_repo: DebateRepository = None,
+):
+    """Periodically run debates for tracked symbols and write results to Redis + TimescaleDB."""
     while True:
         try:
             for symbol in settings.TRADING_SYMBOLS:
@@ -101,6 +108,7 @@ async def debate_loop(redis_client, engine: DebateEngine, telemetry: TelemetryPu
                         "reasoning": result.reasoning,
                         "num_rounds": len(result.rounds),
                         "latency_ms": result.total_latency_ms,
+                        "cycle_id": str(result.cycle_id),
                     }),
                     ex=DEBATE_TTL_S,
                 )
@@ -111,10 +119,50 @@ async def debate_loop(redis_client, engine: DebateEngine, telemetry: TelemetryPu
                             symbol, "debate",
                             Decimal(str(result.score)),
                             confidence=Decimal(str(result.confidence)),
-                            metadata={"num_rounds": len(result.rounds), "latency_ms": result.total_latency_ms},
+                            metadata={
+                                "num_rounds": len(result.rounds),
+                                "latency_ms": result.total_latency_ms,
+                                "cycle_id": str(result.cycle_id),
+                            },
                         )
                     except Exception as pe:
                         logger.warning("Failed to persist debate score", error=str(pe))
+
+                # Persist full transcript (PR1 ledger) — never raises
+                if debate_repo:
+                    try:
+                        await debate_repo.write_cycle(
+                            cycle_id=result.cycle_id,
+                            symbol=symbol,
+                            final_score=Decimal(str(result.score)),
+                            final_confidence=Decimal(str(result.confidence)),
+                            judge_reasoning=result.reasoning,
+                            num_rounds=len(result.rounds),
+                            total_latency_ms=result.total_latency_ms,
+                            market_context={
+                                "price": ctx.price,
+                                "rsi": ctx.rsi,
+                                "macd_histogram": ctx.macd_histogram,
+                                "adx": ctx.adx,
+                                "bb_pct_b": ctx.bb_pct_b,
+                                "atr": ctx.atr,
+                                "regime": ctx.regime,
+                                "ta_score": ctx.ta_score,
+                                "sentiment_score": ctx.sentiment_score,
+                            },
+                            rounds=[
+                                {
+                                    "round_num": r.round_num,
+                                    "bull_argument": r.bull_argument,
+                                    "bull_conviction": r.bull_conviction,
+                                    "bear_argument": r.bear_argument,
+                                    "bear_conviction": r.bear_conviction,
+                                }
+                                for r in result.rounds
+                            ],
+                        )
+                    except Exception as pe:
+                        logger.warning("Failed to persist debate transcript", error=str(pe))
                 logger.info(
                     "Debate completed",
                     symbol=symbol,
@@ -145,6 +193,7 @@ async def lifespan(app: FastAPI):
     timescale = TimescaleClient(settings.DATABASE_URL)
     await timescale.init_pool()
     score_repo = AgentScoreRepository(timescale)
+    debate_repo = DebateRepository(timescale)
 
     # Reuse the same LLM backend as sentiment (local or cloud)
     backends = create_backend(llm_key=settings.LLM_API_KEY)
@@ -161,7 +210,7 @@ async def lifespan(app: FastAPI):
     telemetry = TelemetryPublisher(redis_conn, "debate", "scoring")
     await telemetry.start_health_loop()
 
-    task = asyncio.create_task(debate_loop(redis_conn, engine, telemetry, score_repo))
+    task = asyncio.create_task(debate_loop(redis_conn, engine, telemetry, score_repo, debate_repo))
     logger.info("Debate Agent started", backend_mode=settings.LLM_BACKEND)
     yield
     task.cancel()

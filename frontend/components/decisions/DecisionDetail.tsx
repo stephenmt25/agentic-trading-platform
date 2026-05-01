@@ -1,7 +1,18 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { TradeDecision } from "@/lib/api/client";
+import { api } from "@/lib/api/client";
 import { CheckCircle2, XCircle, Minus } from "lucide-react";
+import {
+  createChart,
+  createSeriesMarkers,
+  CandlestickSeries,
+  ColorType,
+  type IChartApi,
+  type ISeriesApi,
+  type Time,
+} from "lightweight-charts";
 
 // ── Helpers ──
 
@@ -68,6 +79,118 @@ function AgentRow({ name, data }: { name: string; data: { score: number | null; 
     );
 }
 
+// ── Inline mini-chart: ~20 candles of 1m context around the decision ──
+
+function DecisionContextChart({ decision }: { decision: TradeDecision }) {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const chartRef = useRef<IChartApi | null>(null);
+    const seriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [empty, setEmpty] = useState(false);
+
+    const decisionEpoch = Math.floor(new Date(decision.created_at).getTime() / 1000);
+
+    useEffect(() => {
+        if (!containerRef.current) return;
+        const chart = createChart(containerRef.current, {
+            height: 120,
+            layout: {
+                background: { type: ColorType.Solid, color: "transparent" },
+                textColor: "#9ca3af",
+                fontFamily: "'IBM Plex Mono', monospace",
+                fontSize: 10,
+            },
+            grid: {
+                vertLines: { color: "rgba(255,255,255,0.04)" },
+                horzLines: { color: "rgba(255,255,255,0.04)" },
+            },
+            rightPriceScale: { borderColor: "rgba(255,255,255,0.1)" },
+            timeScale: { borderColor: "rgba(255,255,255,0.1)", timeVisible: true, secondsVisible: false },
+            handleScroll: false,
+            handleScale: false,
+        });
+        const series = chart.addSeries(CandlestickSeries, {
+            upColor: "#22c55e", downColor: "#ef4444",
+            borderUpColor: "#22c55e", borderDownColor: "#ef4444",
+            wickUpColor: "#22c55e", wickDownColor: "#ef4444",
+        });
+        chartRef.current = chart;
+        seriesRef.current = series;
+
+        const observer = new ResizeObserver((entries) => {
+            for (const e of entries) chart.applyOptions({ width: e.contentRect.width });
+        });
+        observer.observe(containerRef.current);
+
+        return () => {
+            observer.disconnect();
+            chart.remove();
+            chartRef.current = null;
+            seriesRef.current = null;
+        };
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function load() {
+            if (!seriesRef.current || !chartRef.current) return;
+            setLoading(true);
+            const span = 60 * 15; // 15 minutes either side at 1m
+            try {
+                const candles = await api.marketData.candles(
+                    decision.symbol,
+                    "1m",
+                    500,
+                    { start: decisionEpoch - span, end: decisionEpoch + span },
+                );
+                if (cancelled || !seriesRef.current) return;
+                if (!candles.length) {
+                    setEmpty(true);
+                    return;
+                }
+                seriesRef.current.setData(
+                    candles.map((c) => ({
+                        time: c.time as Time,
+                        open: c.open, high: c.high, low: c.low, close: c.close,
+                    })),
+                );
+                const isApproved = decision.outcome === "APPROVED";
+                createSeriesMarkers(seriesRef.current, [{
+                    time: decisionEpoch as Time,
+                    position: decision.strategy.direction === "BUY" ? "belowBar" : "aboveBar",
+                    color: isApproved ? "#22c55e" : "#f59e0b",
+                    shape: decision.strategy.direction === "BUY" ? "arrowUp" : "arrowDown",
+                    text: isApproved ? "APPROVED" : "BLOCKED",
+                }]);
+                chartRef.current.timeScale().fitContent();
+                setEmpty(false);
+            } catch {
+                setEmpty(true);
+            } finally {
+                if (!cancelled) setLoading(false);
+            }
+        }
+        load();
+        return () => { cancelled = true; };
+    }, [decision.event_id, decision.symbol, decisionEpoch]);
+
+    return (
+        <div className="relative">
+            <div ref={containerRef} className="w-full" />
+            {loading && (
+                <div className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground font-mono">
+                    loading 1m context…
+                </div>
+            )}
+            {!loading && empty && (
+                <div className="absolute inset-0 flex items-center justify-center text-[10px] text-muted-foreground font-mono">
+                    no candles for this window
+                </div>
+            )}
+        </div>
+    );
+}
+
 // ── Main Component ──
 
 export function DecisionDetail({ decision }: { decision: TradeDecision }) {
@@ -76,6 +199,16 @@ export function DecisionDetail({ decision }: { decision: TradeDecision }) {
 
     return (
         <div className="space-y-4 text-xs animate-in fade-in slide-in-from-top-1 duration-150">
+            {/* Mini chart context */}
+            <div>
+                <h4 className="uppercase text-[10px] font-semibold text-muted-foreground tracking-wider mb-2">
+                    Market context — {d.symbol} · 1m
+                </h4>
+                <div className="border border-border rounded p-2">
+                    <DecisionContextChart decision={d} />
+                </div>
+            </div>
+
             {/* Indicators */}
             <div>
                 <h4 className="uppercase text-[10px] font-semibold text-muted-foreground tracking-wider mb-2">Indicators</h4>

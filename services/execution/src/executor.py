@@ -96,13 +96,19 @@ class OrderExecutor:
         return get_adapter(exchange_name, api_key=api_key, secret=api_secret, testnet=testnet), exchange_name
 
     async def _record_agent_scores(self, symbol: str, position_id: str, side: str):
-        """Snapshot current agent scores from Redis and record for weight feedback."""
+        """Snapshot current agent scores + regime from Redis and record for weight feedback.
+
+        Stored payload shape: {"agents": {...}, "regime": "..."}.
+        Older positions (pre-PR1) stored just the agents dict at the top level;
+        PositionCloser._get_position_snapshot handles both shapes.
+        """
         try:
             pipe = self._redis_client.pipeline(transaction=False)
             pipe.get(f"agent:ta_score:{symbol}")
             pipe.get(f"agent:sentiment:{symbol}")
             pipe.get(f"agent:debate:{symbol}")
-            ta_raw, sent_raw, debate_raw = await pipe.execute()
+            pipe.get(f"regime:{symbol}")
+            ta_raw, sent_raw, debate_raw, regime_raw = await pipe.execute()
 
             agents = {}
             direction = side if isinstance(side, str) else side.value
@@ -117,14 +123,18 @@ class OrderExecutor:
                 data = AgentScorePayload.model_validate_json(debate_raw)
                 agents["debate"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
 
+            regime = None
+            if regime_raw:
+                regime = regime_raw.decode() if isinstance(regime_raw, bytes) else str(regime_raw)
+
             if agents:
                 tracker = AgentPerformanceTracker(self._redis_client)
                 await tracker.record_agent_scores(symbol, agents)
 
-                # Also cache agent snapshot for this position (used on close)
+                # Cache snapshot for this position (used on close to populate closed_trades)
                 await self._redis_client.set(
                     f"agent:position_scores:{position_id}",
-                    json.dumps(agents),
+                    json.dumps({"agents": agents, "regime": regime}),
                     ex=86400 * 7,  # 7 day TTL
                 )
         except Exception as e:
@@ -171,7 +181,8 @@ class OrderExecutor:
                     price=ev.price,
                     status=OrderStatus.PENDING,
                     exchange=exchange_name,
-                    created_at=datetime.utcnow()
+                    created_at=datetime.utcnow(),
+                    decision_event_id=ev.decision_event_id,
                 )
 
                 await self._order_repo.create_order(order)
@@ -221,7 +232,9 @@ class OrderExecutor:
                             quantity=ev.quantity,
                             entry_fee=entry_fee,
                             opened_at=datetime.utcnow(),
-                            status=PositionStatus.OPEN
+                            status=PositionStatus.OPEN,
+                            order_id=order_id,
+                            decision_event_id=ev.decision_event_id,
                         )
                         await self._position_repo.create_position(pos)
 

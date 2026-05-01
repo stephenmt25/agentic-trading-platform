@@ -3,11 +3,14 @@ from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient
 from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.order_repo import OrderRepository
+from libs.storage.repositories.position_repo import PositionRepository
 from libs.storage.repositories.pnl_repo import PnlRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
+from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
+from libs.storage.repositories.debate_repo import DebateRepository
 from fastapi.security import HTTPBearer
 from .middleware.auth import verify_jwt
 
@@ -59,6 +62,21 @@ async def get_agent_score_repo(request: Request) -> AgentScoreRepository:
 async def get_weight_history_repo(request: Request) -> WeightHistoryRepository:
     client = await get_timescale(request)
     return WeightHistoryRepository(client)
+
+
+async def get_position_repo(request: Request) -> PositionRepository:
+    client = await get_timescale(request)
+    return PositionRepository(client)
+
+
+async def get_closed_trade_repo(request: Request) -> ClosedTradeRepository:
+    client = await get_timescale(request)
+    return ClosedTradeRepository(client)
+
+
+async def get_debate_repo(request: Request) -> DebateRepository:
+    client = await get_timescale(request)
+    return DebateRepository(client)
 
 
 def get_current_user(request: Request) -> str:

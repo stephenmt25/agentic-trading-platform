@@ -2,6 +2,7 @@
 
 import { usePipelineStore } from "@/lib/stores/pipelineStore";
 import { X } from "lucide-react";
+import { StrategyEvalForm } from "./StrategyEvalForm";
 
 interface AgentParam {
   type: string;
@@ -19,13 +20,15 @@ interface Props {
     type: string;
     params: Record<string, AgentParam>;
   }> | null;
+  // The canvas owns node state via ReactFlow. The drawer mutates that state through this
+  // callback so the change is visible to both the canvas and the save path.
+  onUpdateNodeConfig: (nodeId: string, key: string, value: unknown) => void;
 }
 
-export function NodeConfigDrawer({ catalog }: Props) {
+export function NodeConfigDrawer({ catalog, onUpdateNodeConfig }: Props) {
   const selectedNodeId = usePipelineStore((s) => s.selectedNodeId);
   const nodes = usePipelineStore((s) => s.nodes);
   const setSelectedNodeId = usePipelineStore((s) => s.setSelectedNodeId);
-  const onNodesChange = usePipelineStore((s) => s.onNodesChange);
 
   if (!selectedNodeId) return null;
 
@@ -41,12 +44,7 @@ export function NodeConfigDrawer({ catalog }: Props) {
     : null;
 
   const updateConfig = (key: string, value: unknown) => {
-    const updated = nodes.map((n) =>
-      n.id === selectedNodeId
-        ? { ...n, data: { ...n.data, config: { ...config, [key]: value } } }
-        : n
-    );
-    onNodesChange(updated);
+    onUpdateNodeConfig(selectedNodeId, key, value);
   };
 
   return (
@@ -62,7 +60,9 @@ export function NodeConfigDrawer({ catalog }: Props) {
       </div>
 
       <div className="p-4 space-y-4">
-        {catalogEntry ? (
+        {selectedNodeId === "strategy_eval" || node.id === "strategy_eval" ? (
+          <StrategyEvalForm config={config as any} onChange={updateConfig} />
+        ) : catalogEntry ? (
           Object.entries(catalogEntry.params).map(([key, param]) => (
             <div key={key}>
               <label className="block text-xs font-medium text-zinc-400 mb-1">

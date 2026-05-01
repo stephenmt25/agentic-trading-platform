@@ -99,6 +99,26 @@ class ProfileRepository(BaseRepository):
         config_json = json.dumps(config) if config is not None else None
         await self._execute(query, config_json, UUID(profile_id))
 
+    async def update_pipeline_and_rules(
+        self, profile_id: str, pipeline_config: dict, strategy_rules: dict
+    ) -> None:
+        """Atomic save of both canvas state and the rules compiled from it.
+
+        Used by the pipeline editor save path: pipeline_config is the canvas; strategy_rules
+        is the compile output that hot_path consumes.
+        """
+        query = """
+        UPDATE trading_profiles
+        SET pipeline_config = $1, strategy_rules = $2, updated_at = NOW()
+        WHERE profile_id = $3
+        """
+        await self._execute(
+            query,
+            json.dumps(pipeline_config),
+            json.dumps(strategy_rules),
+            UUID(profile_id),
+        )
+
     async def get_profiles_for_symbol(self, symbol: str) -> list:
         query = "SELECT * FROM trading_profiles WHERE is_active = true AND deleted_at IS NULL"
         records = await self._fetch(query)

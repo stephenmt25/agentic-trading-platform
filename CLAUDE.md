@@ -62,6 +62,7 @@ The `edit-validator.sh` hook blocks new `float(` introductions in `services/exec
 - **Architecture document is the contract**: The merged architecture doc (v2.0) defines the system boundary. Deviations require justification logged in `DECISIONS.md`.
 - **Startup ordering**: Services must follow the documented startup sequence. Changing startup order requires explicit human approval. Always use `bash run_all.sh` — never start/stop services individually.
 - **Database schemas first**: No dependent code may be written before the schema it depends on exists and is verified. Missing schema = blocking issue — stop and report.
+- **Profile config model**: `trading_profiles.pipeline_config` (the canvas) is authoritative for what a profile does. `trading_profiles.strategy_rules` is a build artifact compiled from the canvas's `strategy_eval` node config — see `libs/core/pipeline_compiler.py`. Saving the canvas via `PUT /agent-config/{profile_id}/pipeline` updates both atomically. Direct edits to `strategy_rules` (e.g., via `PUT /profiles/{id}`) still work for the user-facing creation flow but should be considered a write into a single computed field — the long-term path is canvas-only edits.
 
 ### 2D — Resolved Defects (2026-03-27) & Remaining Gaps
 

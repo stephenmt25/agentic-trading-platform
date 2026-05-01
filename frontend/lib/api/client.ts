@@ -128,6 +128,7 @@ const ProfileResponseSchema = z.object({
   name: z.string(),
   is_active: z.boolean(),
   rules_json: z.record(z.string(), z.unknown()),
+  rules_json_canonical: z.record(z.string(), z.unknown()).optional(),
   allocation_pct: z.coerce.number(),
   created_at: z.string(),
   deleted_at: z.string().nullable(),
@@ -165,6 +166,7 @@ export interface ProfileResponse {
   name: string;
   is_active: boolean;
   rules_json: Record<string, unknown>;
+  rules_json_canonical?: Record<string, unknown>;
   allocation_pct: number;
   created_at: string;
   deleted_at: string | null;
@@ -288,6 +290,32 @@ export const api = {
       }),
   },
 
+  positions: {
+    list: (opts?: { status?: "open" | "all"; profileId?: string }) => {
+      const params = new URLSearchParams();
+      params.set("status", opts?.status ?? "open");
+      if (opts?.profileId) params.set("profile_id", opts.profileId);
+      return apiRequest<Array<{
+        position_id: string;
+        profile_id: string;
+        symbol: string;
+        side: "BUY" | "SELL";
+        entry_price: string;
+        exit_price?: string | null;
+        quantity: string;
+        entry_fee?: string | null;
+        opened_at: string;
+        closed_at?: string | null;
+        status: string;
+        order_id?: string | null;
+        decision_event_id?: string | null;
+        unrealized_net_pnl?: number | null;
+        unrealized_gross_pnl?: number | null;
+        unrealized_pct_return?: number | null;
+      }>>(`/positions?${params.toString()}`);
+    },
+  },
+
   paperTrading: {
     status: () =>
       apiRequest<PaperTradingStatus>("/paper-trading/status"),
@@ -318,6 +346,38 @@ export const api = {
       apiRequest<KillSwitchToggleResponse>("/commands/kill-switch", {
         method: "POST",
         body: { active, reason },
+      }),
+  },
+
+  hitl: {
+    // Replays the live HITL queue from Redis so the Approvals panel is
+    // populated at first paint (the WebSocket subscription only sees events
+    // arriving after connect). Shape mirrors HITLRequest in stores/hitlStore.
+    pending: () =>
+      apiRequest<Array<{
+        event_id: string;
+        profile_id: string;
+        symbol: string;
+        side: string;
+        quantity: number;
+        price: number;
+        confidence: number;
+        trigger_reason: string;
+        agent_scores: Record<string, { score: number; confidence?: number }>;
+        risk_metrics: {
+          allocation_pct: number;
+          drawdown_pct: number;
+          regime: string;
+          rsi: number;
+          atr: number;
+        };
+        timestamp_us: number;
+      }>>("/hitl/pending"),
+
+    respond: (request_id: string, status: "APPROVED" | "REJECTED", reason?: string) =>
+      apiRequest<{ ok: boolean; request_id: string; status: string }>("/hitl/respond", {
+        method: "POST",
+        body: { request_id, status, reason },
       }),
   },
 
@@ -357,6 +417,7 @@ export const api = {
       strategy_rules: Record<string, unknown>;
       start_date: string;
       end_date: string;
+      timeframe: string;
       slippage_pct: number;
     }) =>
       apiRequest<{ job_id: string; status: string }>("/backtest", {
@@ -419,15 +480,29 @@ export const api = {
   },
 
   marketData: {
-    candles: (symbol: string, timeframe: string = "1h", limit: number = 500) =>
-      apiRequest<Array<{
+    candles: (
+      symbol: string,
+      timeframe: string = "1h",
+      limit: number = 500,
+      range?: { start: number; end: number },
+    ) => {
+      const qs = new URLSearchParams();
+      qs.set("timeframe", timeframe);
+      if (range) {
+        qs.set("start", String(range.start));
+        qs.set("end", String(range.end));
+      } else {
+        qs.set("limit", String(limit));
+      }
+      return apiRequest<Array<{
         time: number;
         open: number;
         high: number;
         low: number;
         close: number;
         volume: number;
-      }>>(`/market-data/candles/${encodeURIComponent(symbol)}?timeframe=${timeframe}&limit=${limit}`),
+      }>>(`/market-data/candles/${encodeURIComponent(symbol)}?${qs.toString()}`);
+    },
   },
 
   agentPerformance: {
@@ -479,12 +554,16 @@ export const api = {
       }>>(`/agent-performance/weight-history/${encodeURIComponent(symbol)}${query ? `?${query}` : ""}`);
     },
 
-    gateAnalytics: (symbol: string, limit: number = 500) =>
-      apiRequest<{
+    gateAnalytics: (symbol: string, opts?: { limit?: number; profileId?: string }) => {
+      const params = new URLSearchParams();
+      params.set("limit", String(opts?.limit ?? 500));
+      if (opts?.profileId) params.set("profile_id", opts.profileId);
+      return apiRequest<{
         total_decisions: number;
         outcome_counts: Record<string, number>;
         gate_details: Record<string, { passed: number; blocked: number; reasons: Record<string, number> }>;
-      }>(`/agent-performance/gate-analytics/${encodeURIComponent(symbol)}?limit=${limit}`),
+      }>(`/agent-performance/gate-analytics/${encodeURIComponent(symbol)}?${params.toString()}`);
+    },
   },
 
   agentConfig: {

@@ -1,49 +1,69 @@
 'use client';
 
-import React from 'react';
+import React, { memo, useMemo } from 'react';
 import {
-  AreaChart,
-  Area,
+  LineChart,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from 'recharts';
+import { lttb } from '@/lib/chart/downsample';
 
-interface EquityCurveChartProps {
+export interface EquitySeries {
+  id: string;
+  label: string;
+  color: string;
   data: number[];
 }
 
-export const EquityCurveChart: React.FC<EquityCurveChartProps> = ({ data }) => {
-  const chartData = data.map((value, index) => ({
-    index,
-    equity: parseFloat((value * 100).toFixed(2)),
-  }));
+interface EquityCurveChartProps {
+  series: EquitySeries[];
+  activeId?: string | null;
+}
 
-  const minEquity = Math.min(...chartData.map((d) => d.equity));
-  const maxEquity = Math.max(...chartData.map((d) => d.equity));
+const DISPLAY_POINTS = 500;
+
+const EquityCurveChartInner: React.FC<EquityCurveChartProps> = ({ series, activeId }) => {
+  // Downsample each series independently — LTTB preserves peaks/troughs while
+  // collapsing thousands of candles into ~500 display points. Chart renders in ms.
+  const displaySeries = useMemo(
+    () => series.map((s) => ({ ...s, data: lttb(s.data, DISPLAY_POINTS) })),
+    [series]
+  );
+
+  const chartData = useMemo(() => {
+    const maxLen = displaySeries.reduce((m, s) => Math.max(m, s.data.length), 0);
+    return Array.from({ length: maxLen }, (_, i) => {
+      const row: Record<string, number> = { index: i };
+      for (const s of displaySeries) {
+        const v = s.data[i];
+        if (v != null) row[s.id] = parseFloat((v * 100).toFixed(2));
+      }
+      return row;
+    });
+  }, [displaySeries]);
+
+  const { minEquity, maxEquity } = useMemo(() => {
+    const all = displaySeries.flatMap((s) => s.data.map((v) => v * 100));
+    return {
+      minEquity: all.length ? Math.min(...all) : 100,
+      maxEquity: all.length ? Math.max(...all) : 100,
+    };
+  }, [displaySeries]);
+
+  if (series.length === 0) return null;
+
   const padding = (maxEquity - minEquity) * 0.1 || 1;
-
-  const finalEquity = chartData[chartData.length - 1]?.equity ?? 100;
-  const isPositive = finalEquity >= 100;
-  const strokeColor = isPositive ? '#10b981' : '#ef4444';
-  const fillColor = isPositive ? 'url(#greenGradient)' : 'url(#redGradient)';
+  const hasActive = Boolean(activeId);
 
   return (
     <div className="h-64 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
-          <defs>
-            <linearGradient id="greenGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#10b981" stopOpacity={0.25} />
-              <stop offset="100%" stopColor="#10b981" stopOpacity={0.0} />
-            </linearGradient>
-            <linearGradient id="redGradient" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#ef4444" stopOpacity={0.25} />
-              <stop offset="100%" stopColor="#ef4444" stopOpacity={0.0} />
-            </linearGradient>
-          </defs>
+        <LineChart data={chartData} margin={{ top: 5, right: 5, left: 0, bottom: 5 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
           <XAxis
             dataKey="index"
@@ -67,18 +87,38 @@ export const EquityCurveChart: React.FC<EquityCurveChartProps> = ({ data }) => {
               fontFamily: 'monospace',
             }}
             labelFormatter={(idx) => `Candle #${idx}`}
-            formatter={(value: number | undefined) => [`${(value ?? 0).toFixed(2)}%`, 'Equity']}
+            formatter={(value: number | undefined, name: string) => {
+              const s = series.find((x) => x.id === name);
+              return [`${(value ?? 0).toFixed(2)}%`, s?.label ?? name];
+            }}
           />
-          <Area
-            type="monotone"
-            dataKey="equity"
-            stroke={strokeColor}
-            strokeWidth={2}
-            fill={fillColor}
-            dot={false}
-          />
-        </AreaChart>
+          {series.length > 1 && (
+            <Legend
+              wrapperStyle={{ fontSize: '11px', fontFamily: 'monospace' }}
+              formatter={(value) => series.find((s) => s.id === value)?.label ?? value}
+            />
+          )}
+          {series.map((s) => {
+            const isActive = hasActive && s.id === activeId;
+            return (
+              <Line
+                key={s.id}
+                type="monotone"
+                dataKey={s.id}
+                name={s.id}
+                stroke={s.color}
+                strokeWidth={isActive ? 3 : hasActive ? 1.5 : 2}
+                strokeOpacity={hasActive && !isActive ? 0.35 : 1}
+                dot={false}
+                connectNulls
+                isAnimationActive={false}
+              />
+            );
+          })}
+        </LineChart>
       </ResponsiveContainer>
     </div>
   );
 };
+
+export const EquityCurveChart = memo(EquityCurveChartInner);

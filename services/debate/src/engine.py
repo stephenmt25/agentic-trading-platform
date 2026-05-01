@@ -7,8 +7,10 @@ The Judge produces a final score and confidence.
 
 import json
 import os
+import uuid
 from dataclasses import dataclass, field
 from typing import Optional, Protocol, runtime_checkable, Dict, Any
+from uuid import UUID
 
 from libs.observability import get_logger
 
@@ -38,6 +40,7 @@ class DebateResult:
     score: float        # -1.0 (strong bear) to 1.0 (strong bull)
     confidence: float   # 0.0 to 1.0
     reasoning: str
+    cycle_id: UUID = field(default_factory=uuid.uuid4)
     rounds: list[DebateRound] = field(default_factory=list)
     total_latency_ms: float = 0.0
 

@@ -23,7 +23,8 @@ import { GateNode } from "@/components/pipeline/GateNode";
 import { AgentInputNode } from "@/components/pipeline/AgentInputNode";
 import { InputNode, OutputNode } from "@/components/pipeline/IONode";
 import { NodeConfigDrawer } from "@/components/pipeline/NodeConfigDrawer";
-import { Loader2, Workflow, Save, RotateCcw } from "lucide-react";
+import { NewProfileModal } from "@/components/strategies/NewProfileModal";
+import { Loader2, Workflow, Save, RotateCcw, Plus } from "lucide-react";
 import { motion } from "framer-motion";
 import { pageEnter } from "@/lib/motion";
 import { toast } from "sonner";
@@ -67,6 +68,7 @@ export default function PipelinePage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [catalog, setCatalog] = useState<Record<string, unknown> | null>(null);
+  const [newProfileOpen, setNewProfileOpen] = useState(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -141,8 +143,29 @@ export default function PipelinePage() {
     setSelectedNodeId(null);
   }, [setSelectedNodeId]);
 
+  const handleUpdateNodeConfig = useCallback((nodeId: string, key: string, value: unknown) => {
+    setNodes((prev) =>
+      prev.map((n) =>
+        n.id === nodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                config: { ...((n.data as any).config || {}), [key]: value },
+              },
+            }
+          : n
+      )
+    );
+    markDirty();
+  }, [setNodes, markDirty]);
+
   const handleSave = async () => {
     if (!selectedProfile) return;
+    if (nodes.length === 0) {
+      toast.error("Canvas is empty — load a profile first");
+      return;
+    }
     setSaving(true);
     try {
       const config = {
@@ -213,6 +236,14 @@ export default function PipelinePage() {
           </select>
 
           <button
+            onClick={() => setNewProfileOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-medium bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25 hover:text-emerald-300 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New Profile
+          </button>
+
+          <button
             onClick={handleReset}
             className="flex items-center gap-1 px-2 py-1 rounded text-xs text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition-colors"
           >
@@ -269,10 +300,25 @@ export default function PipelinePage() {
             </ReactFlow>
 
             {/* Config drawer */}
-            <NodeConfigDrawer catalog={catalog as any} />
+            <NodeConfigDrawer catalog={catalog as any} onUpdateNodeConfig={handleUpdateNodeConfig} />
           </>
         )}
       </div>
+
+      <NewProfileModal
+        open={newProfileOpen}
+        onClose={() => setNewProfileOpen(false)}
+        onCreated={async (newId) => {
+          // Refresh profile list and select the new one
+          try {
+            const list = await api.profiles.list();
+            usePortfolioStore.getState().setProfiles(list as any);
+            setSelectedProfile(newId);
+          } catch {
+            toast.error("Profile created but failed to refresh list");
+          }
+        }}
+      />
     </motion.div>
   );
 }

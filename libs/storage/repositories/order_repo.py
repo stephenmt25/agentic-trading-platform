@@ -8,8 +8,11 @@ from ._repository_base import BaseRepository
 class OrderRepository(BaseRepository):
     async def create_order(self, order: Order):
         query = """
-        INSERT INTO orders (order_id, profile_id, symbol, side, quantity, price, status, exchange, created_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        INSERT INTO orders (
+            order_id, profile_id, symbol, side, quantity, price, status, exchange, created_at,
+            decision_event_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         """
         await self._execute(
             query,
@@ -21,7 +24,8 @@ class OrderRepository(BaseRepository):
             order.price,
             order.status.value,
             order.exchange,
-            order.created_at
+            order.created_at,
+            order.decision_event_id,
         )
 
     async def update_order_status(self, order_id: UUID, status: OrderStatus, fill_price=None, filled_at=None):
@@ -107,4 +111,15 @@ class OrderRepository(BaseRepository):
     async def get_order(self, order_id: UUID) -> Optional[dict]:
         query = "SELECT * FROM orders WHERE order_id = $1"
         record = await self._fetchrow(query, order_id)
+        return dict(record) if record else None
+
+    async def get_by_decision_event_id(self, decision_event_id: UUID) -> Optional[dict]:
+        """Find the order generated for a given trade_decisions.event_id (PR1 audit chain)."""
+        query = """
+        SELECT * FROM orders
+        WHERE decision_event_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+        record = await self._fetchrow(query, decision_event_id)
         return dict(record) if record else None

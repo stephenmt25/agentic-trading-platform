@@ -110,6 +110,7 @@ class JobRunner:
         strategy_rules = payload.get("strategy_rules", {})
         slippage_pct = Decimal(str(payload.get("slippage_pct", "0.001")))
         profile_id = payload.get("profile_id", "")
+        timeframe = payload.get("timeframe", "1m")
 
         start_str = payload.get("start_date")
         end_str = payload.get("end_date")
@@ -132,7 +133,12 @@ class JobRunner:
             )
 
         print(f"Loading data for backtest {job.job_id}...")
-        data = await self._data_loader.load(sym, start, end)
+        data = await self._data_loader.load(sym, start, end, timeframe=timeframe)
+
+        if not data:
+            raise ValueError(
+                f"No market data for {sym} {timeframe} between {start.isoformat()} and {end.isoformat()}"
+            )
 
         engine = payload.get("engine", "sequential")
         print(f"Running simulation for {job.job_id} (engine={engine})...")

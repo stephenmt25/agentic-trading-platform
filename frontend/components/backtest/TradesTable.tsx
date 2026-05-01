@@ -32,9 +32,9 @@ export const TradesTable: React.FC<TradesTableProps> = ({ trades }) => {
 
   return (
     <div>
-      <div className="overflow-x-auto">
+      <div className="overflow-auto max-h-[360px] border border-border rounded-md">
         <table className="w-full text-sm font-mono tabular-nums">
-          <thead>
+          <thead className="sticky top-0 bg-background z-10">
             <tr className="border-b border-border">
               <th className="text-left px-4 py-2.5 text-xs uppercase text-muted-foreground font-medium">
                 #

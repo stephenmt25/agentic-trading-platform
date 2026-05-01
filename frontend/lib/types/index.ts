@@ -94,3 +94,23 @@ export interface BacktestResult {
   equity_curve: number[];
   trades: SimulatedTrade[];
 }
+
+export interface RunConfig {
+  symbol: string;
+  start: string;
+  end: string;
+  timeframe: string;
+  slippage: string;
+  rulesJson: string;
+}
+
+export interface StoredRun {
+  id: string;
+  label: string;
+  pinned: boolean;
+  visible: boolean;
+  color: string;
+  completedAt: number;
+  config: RunConfig;
+  result: BacktestResult;
+}

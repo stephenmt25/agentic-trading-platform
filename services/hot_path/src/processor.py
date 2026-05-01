@@ -252,7 +252,7 @@ class HotPathProcessor:
                                 trace["outcome"] = "BLOCKED_CIRCUIT_BREAKER"
                                 trace["gates"]["circuit_breaker"] = {
                                     "passed": False,
-                                    "daily_pnl_pct": str(getattr(profile_state, "daily_realized_pnl_pct", 0)),
+                                    "daily_pnl_pct": str(getattr(profile_state, "daily_realised_pnl_pct", 0)),
                                     "threshold": str(profile_state.risk_limits.circuit_breaker_daily_loss_pct),
                                 }
                                 await self._decision_writer.write(trace)
@@ -347,16 +347,18 @@ class HotPathProcessor:
                             side=SignalDirection(sig_res.direction),
                             quantity=qty,
                             price=tick.price,
+                            decision_event_id=trace.get("event_id"),
                             timestamp_us=tick.timestamp,
                             source_service="hot-path"
                         )
                         await self._publisher.publish(self._orders_channel, order_ev)
                         MetricsCollector.increment_counter("orders.approved")
 
-                        # Write approved decision trace
+                        # Write approved decision trace.
+                        # Note: trade_decisions.order_id intentionally left NULL.
+                        # The reverse link is canonical: orders.decision_event_id = trade_decisions.event_id.
                         if self._decision_writer:
                             trace["outcome"] = "APPROVED"
-                            trace["order_id"] = str(order_ev.event_id)
                             await self._decision_writer.write(trace)
 
                         # Telemetry: order approved emitted

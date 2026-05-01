@@ -2,20 +2,21 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
-import { AgentAccuracyTable } from "@/components/performance/AgentAccuracyTable";
 import { GateBlockAnalytics } from "@/components/performance/GateBlockAnalytics";
 import { WeightEvolutionChart } from "@/components/performance/WeightEvolutionChart";
 import { TradeAttributionPanel } from "@/components/performance/TradeAttributionPanel";
-import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import { Loader2 } from "lucide-react";
 
 const SYMBOLS = ["BTC/USDT", "ETH/USDT"];
 
-export default function PerformanceContent() {
+interface PerformanceContentProps {
+  profileId?: string | null;
+}
+
+export default function PerformanceContent({ profileId }: PerformanceContentProps = {}) {
   const [symbol, setSymbol] = useState("BTC/USDT");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [weights, setWeights] = useState<any>(null);
   const [gateAnalytics, setGateAnalytics] = useState<any>(null);
   const [weightHistory, setWeightHistory] = useState<any[]>([]);
   const [attribution, setAttribution] = useState<any[]>([]);
@@ -24,13 +25,11 @@ export default function PerformanceContent() {
     setLoading(true);
     setError(null);
     try {
-      const [w, ga, wh, attr] = await Promise.all([
-        api.agentPerformance.weights(symbol),
-        api.agentPerformance.gateAnalytics(symbol),
+      const [ga, wh, attr] = await Promise.all([
+        api.agentPerformance.gateAnalytics(symbol, profileId ? { profileId } : undefined),
         api.agentPerformance.weightHistory(symbol, { agents: "ta,sentiment,debate", limit: 1000 }),
         api.agentPerformance.attribution(symbol, 100),
       ]);
-      setWeights(w);
       setGateAnalytics(ga);
       setWeightHistory(wh);
       setAttribution(attr);
@@ -39,7 +38,7 @@ export default function PerformanceContent() {
     } finally {
       setLoading(false);
     }
-  }, [symbol]);
+  }, [symbol, profileId]);
 
   useEffect(() => {
     fetchData();
@@ -75,7 +74,10 @@ export default function PerformanceContent() {
         </div>
       ) : (
         <>
-          <AgentAccuracyTable weights={weights} />
+          <p className="text-[11px] text-muted-foreground">
+            Current agent weights live in the Trade page · Analysis section. This drawer focuses on
+            gate efficacy, weight evolution over time, and per-trade attribution.
+          </p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <GateBlockAnalytics data={gateAnalytics} />
             <WeightEvolutionChart data={weightHistory} />

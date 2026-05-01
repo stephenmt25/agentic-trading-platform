@@ -1,4 +1,5 @@
 """API routes for pipeline configuration and agent tuning."""
+import copy
 import json
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,6 +7,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from ..deps import get_redis, get_current_user, get_profile_repo
 from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.core.agent_registry import AGENT_DEFAULTS
+from libs.core.pipeline_compiler import compile_pipeline_to_canonical_rules
+from libs.core.schemas import strategy_rules_from_canonical
 
 router = APIRouter()
 
@@ -13,7 +16,12 @@ router = APIRouter()
 DEFAULT_PIPELINE = {
     "nodes": [
         {"id": "market_tick", "type": "input", "label": "Market Tick", "position": {"x": 0, "y": 200}},
-        {"id": "strategy_eval", "type": "gate", "label": "Strategy Eval", "config": {}, "position": {"x": 200, "y": 200}},
+        {"id": "strategy_eval", "type": "gate", "label": "Strategy Eval", "config": {
+            "direction": "long",
+            "match_mode": "all",
+            "confidence": 0.6,
+            "signals": [{"indicator": "rsi", "comparison": "below", "threshold": 30}],
+        }, "position": {"x": 200, "y": 200}},
         {"id": "abstention", "type": "gate", "label": "Abstention", "config": {"min_confidence": 0.2}, "position": {"x": 400, "y": 200}},
         {"id": "regime_dampener", "type": "gate", "label": "Regime Dampener", "config": {}, "position": {"x": 600, "y": 200}},
         {"id": "ta_agent", "type": "agent_input", "label": "TA Agent", "config": {"timeframe_weights": [0.1, 0.2, 0.3, 0.4], "candle_limit": 150, "score_ttl_s": 120}, "position": {"x": 600, "y": 0}},
@@ -118,7 +126,11 @@ async def get_pipeline_config(
     user_id: str = Depends(get_current_user),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
 ):
-    """Get pipeline config for a profile. Returns default if none saved."""
+    """Get pipeline config for a profile.
+
+    If the profile has a saved pipeline_config, return it. Otherwise return DEFAULT_PIPELINE
+    with the strategy_eval node pre-populated from the profile's existing strategy_rules
+    (so opening the canvas + saving doesn't clobber a profile created via the older API path)."""
     profile = await profile_repo.get_profile_for_user(profile_id, user_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -128,7 +140,26 @@ async def get_pipeline_config(
         if isinstance(config, str):
             config = json.loads(config)
         return config
-    return DEFAULT_PIPELINE
+
+    # Hydrate DEFAULT_PIPELINE's strategy_eval with the profile's current rules.
+    pipeline = copy.deepcopy(DEFAULT_PIPELINE)
+    raw_rules = profile.get("strategy_rules") or {}
+    if isinstance(raw_rules, str):
+        try:
+            raw_rules = json.loads(raw_rules)
+        except (ValueError, TypeError):
+            raw_rules = {}
+    if raw_rules:
+        try:
+            user_rules = strategy_rules_from_canonical(raw_rules)
+            for n in pipeline["nodes"]:
+                if n.get("id") == "strategy_eval":
+                    n["config"] = user_rules.model_dump()
+                    break
+        except Exception:
+            # If decompilation fails, fall through to the default rules in DEFAULT_PIPELINE.
+            pass
+    return pipeline
 
 
 @router.put("/{profile_id}/pipeline")
@@ -138,7 +169,10 @@ async def save_pipeline_config(
     user_id: str = Depends(get_current_user),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
 ):
-    """Save a custom pipeline DAG config for a profile."""
+    """Save the canvas state. The strategy_eval node's config compiles into
+    strategy_rules — the canvas is the single source of truth for what the engine
+    evaluates. If strategy_eval has no usable config, the existing strategy_rules
+    is left in place (safety fallback)."""
     profile = await profile_repo.get_profile_for_user(profile_id, user_id)
     if not profile:
         raise HTTPException(status_code=404, detail="Profile not found")
@@ -146,9 +180,16 @@ async def save_pipeline_config(
     # Validate basic structure
     if "nodes" not in body or "edges" not in body:
         raise HTTPException(status_code=422, detail="Pipeline config must have 'nodes' and 'edges'")
+    if not isinstance(body["nodes"], list) or len(body["nodes"]) == 0:
+        raise HTTPException(status_code=422, detail="Pipeline config must contain at least one node")
+
+    canonical_rules = compile_pipeline_to_canonical_rules(body)
+    if canonical_rules is not None:
+        await profile_repo.update_pipeline_and_rules(profile_id, body, canonical_rules)
+        return {"status": "saved", "profile_id": profile_id, "rules_compiled": True}
 
     await profile_repo.update_pipeline_config(profile_id, body)
-    return {"status": "saved", "profile_id": profile_id}
+    return {"status": "saved", "profile_id": profile_id, "rules_compiled": False}
 
 
 @router.post("/{profile_id}/pipeline/reset")

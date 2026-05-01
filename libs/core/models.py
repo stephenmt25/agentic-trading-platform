@@ -51,6 +51,7 @@ class Order:
     created_at: datetime
     filled_at: Optional[datetime] = None
     fill_price: Optional[Price] = None
+    decision_event_id: Optional[UUID] = None
 
 @dataclass(frozen=True)
 class RiskLimits:
@@ -85,3 +86,5 @@ class Position:
     status: PositionStatus = PositionStatus.OPEN
     closed_at: Optional[datetime] = None
     exit_price: Optional[Price] = None
+    order_id: Optional[UUID] = None
+    decision_event_id: Optional[UUID] = None

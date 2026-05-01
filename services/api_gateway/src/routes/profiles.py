@@ -1,9 +1,17 @@
+import json as _json
 from decimal import Decimal
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List
 from ..deps import get_profile_repo, get_current_user
-from libs.core.schemas import ProfileCreate, ProfileUpdate, ProfileToggle, ProfileResponse
+from libs.core.schemas import (
+    ProfileCreate,
+    ProfileUpdate,
+    ProfileToggle,
+    ProfileResponse,
+    strategy_rules_to_canonical,
+    strategy_rules_from_canonical,
+)
 from libs.storage.repositories.profile_repo import ProfileRepository
 
 router = APIRouter(tags=["profiles"])
@@ -14,22 +22,29 @@ async def get_profiles(
     user_id: str = Depends(get_current_user),
     repo: ProfileRepository = Depends(get_profile_repo),
 ):
-    """Return all trading profiles for the current user."""
+    """Return all trading profiles for the current user (rules in user-facing shape)."""
     profiles = await repo.get_all_profiles_for_user(user_id)
     results = []
     for p in profiles:
         raw_rules = p.get("strategy_rules", {})
         if isinstance(raw_rules, str):
-            import json as _json
             try:
                 raw_rules = _json.loads(raw_rules)
             except (ValueError, TypeError):
                 raw_rules = {}
+        # Stored shape is canonical; transform back to user-facing for the response.
+        try:
+            user_rules = strategy_rules_from_canonical(raw_rules)
+        except (KeyError, ValueError, TypeError):
+            # Defensive: skip rows whose stored rules can't round-trip. Migration 017
+            # is the long-term cleanup; this guard keeps GET safe in the meantime.
+            continue
         results.append(ProfileResponse(
             profile_id=str(p.get("profile_id", "")),
             name=p.get("name", ""),
             is_active=p.get("is_active", False),
-            rules_json=raw_rules,
+            rules_json=user_rules,
+            rules_json_canonical=raw_rules,
             allocation_pct=Decimal(str(p.get("allocation_pct", 0))),
             created_at=str(p.get("created_at", "")),
             deleted_at=str(p.get("deleted_at", "")) if p.get("deleted_at") else None,
@@ -43,17 +58,18 @@ async def create_profile(
     user_id: str = Depends(get_current_user),
     repo: ProfileRepository = Depends(get_profile_repo),
 ):
-    """Create a new trading profile with strategy rules."""
+    """Create a new trading profile. Validates user-facing input, stores canonical."""
+    canonical_rules = strategy_rules_to_canonical(profile_data.rules_json)
     try:
         created = await repo.create_profile(
             user_id=user_id,
             name=profile_data.name,
-            strategy_rules=profile_data.rules_json,
+            strategy_rules=canonical_rules,
             risk_limits=profile_data.risk_limits,
             allocation_pct=profile_data.allocation_pct,
         )
         return {"status": "created", "id": str(created.get("profile_id", "")), "profile": created}
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=500, detail="Failed to create profile")
 
 
@@ -64,8 +80,9 @@ async def update_profile(
     user_id: str = Depends(get_current_user),
     repo: ProfileRepository = Depends(get_profile_repo),
 ):
-    """Update strategy rules for an existing profile (owned by current user)."""
-    updated = await repo.update_profile(str(profile_id), user_id, profile_data.rules_json, profile_data.is_active)
+    """Update strategy rules. Validates user-facing input, stores canonical."""
+    canonical_rules = strategy_rules_to_canonical(profile_data.rules_json)
+    updated = await repo.update_profile(str(profile_id), user_id, canonical_rules, profile_data.is_active)
     if not updated:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"status": "updated", "profile": updated}

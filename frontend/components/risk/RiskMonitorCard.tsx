@@ -20,9 +20,10 @@ const DEFAULT_ALLOC_LIMIT = 0.25; // 25% default allocation limit
 
 interface RiskMonitorCardProps {
   profileIds?: string[];
+  profileNamesById?: Record<string, string>;
 }
 
-export const RiskMonitorCard: React.FC<RiskMonitorCardProps> = ({ profileIds }) => {
+export const RiskMonitorCard: React.FC<RiskMonitorCardProps> = ({ profileIds, profileNamesById }) => {
   const [riskData, setRiskData] = useState<RiskStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -104,9 +105,9 @@ export const RiskMonitorCard: React.FC<RiskMonitorCardProps> = ({ profileIds }) 
                       : 'border-border'
                   }`}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono tabular-nums text-muted-foreground truncate max-w-[180px]">
-                      {risk.profile_id.slice(0, 12)}...
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-foreground truncate" title={risk.profile_id}>
+                      {profileNamesById?.[risk.profile_id] ?? `${risk.profile_id.slice(0, 8)}…`}
                     </span>
                     {cbTripped && (
                       <Badge variant="outline" className="text-red-500 border-red-500/30 text-xs font-medium">

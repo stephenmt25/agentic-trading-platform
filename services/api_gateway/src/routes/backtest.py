@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 
-from libs.core.schemas import BacktestRequest, BacktestResponse
+from libs.core.schemas import BacktestRequest, BacktestResponse, strategy_rules_to_canonical
 from libs.config import settings
 from libs.storage import RedisClient
 from ..deps import get_redis, get_current_user
@@ -34,13 +34,15 @@ async def create_backtest(
         )
 
     job_id = str(uuid.uuid4())
+    canonical_rules = strategy_rules_to_canonical(req.strategy_rules)
     payload = {
         "job_id": job_id,
         "user_id": user_id,
         "symbol": req.symbol,
-        "strategy_rules": req.strategy_rules,
+        "strategy_rules": canonical_rules,
         "start_date": req.start_date,
         "end_date": req.end_date,
+        "timeframe": req.timeframe,
         # Stringify Decimal to preserve precision through JSON — the consumer
         # (services/backtesting/src/job_runner.py) parses it back via Decimal(str(...)).
         "slippage_pct": str(req.slippage_pct),

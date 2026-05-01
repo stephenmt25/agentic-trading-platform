@@ -312,3 +312,99 @@ class TestHITLGate:
         )
         assert result.blocked  # Timeout → reject
         assert result.hitl_triggered
+
+    @pytest.mark.asyncio
+    @patch('services.hot_path.src.hitl_gate.settings')
+    async def test_size_check_uses_dollar_math(self, mock_settings):
+        """A trade well under the dollar threshold must not trigger.
+
+        Regression for the unit-mixing bug: the old `qty / max_alloc * 100`
+        formula would have read this as 100% (10.0 ETH / 0.1 max_alloc) and
+        triggered. The corrected dollar-based formula evaluates this trade
+        at $5 / $1000 = 0.5% of allocation — well below the 5% threshold.
+        """
+        mock_settings.HITL_ENABLED = True
+        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.3
+        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
+        mock_settings.HITL_TIMEOUT_S = 1
+
+        redis = FakeRedis()
+        pubsub = FakePubSub()
+        gate = HITLGate(redis, pubsub)
+
+        # State: $10k notional, 10% max allocation cap → $1000 allocation cap.
+        rules = CompiledRuleSet(
+            logic="AND", direction=SignalDirection.BUY,
+            base_confidence=0.85, conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
+        )
+        limits = RiskLimits(
+            max_drawdown_pct=Decimal("0.05"), stop_loss_pct=Decimal("0.02"),
+            circuit_breaker_daily_loss_pct=Decimal("0.02"),
+            max_allocation_pct=Decimal("0.10"),
+        )
+        state = ProfileState(
+            profile_id="test-profile", compiled_rules=rules,
+            risk_limits=limits, blacklist=frozenset(), indicators=create_indicator_set(),
+        )
+        state.regime = Regime.TRENDING_UP
+
+        # Tick at $0.50/asset, qty=10 → $5 trade. 0.5% of $1000 cap.
+        tick = NormalisedTick(
+            symbol="BTC/USDT", exchange="BINANCE", timestamp=1000000,
+            price=Decimal("0.5"), volume=Decimal("1.0"),
+        )
+        result = await gate.check(
+            state, _make_signal(confidence=0.9), tick,
+            _make_indicators(), _make_risk_result(quantity=Decimal("10.0")),
+        )
+        assert not result.blocked
+        assert not result.hitl_triggered
+
+    @pytest.mark.asyncio
+    @patch('services.hot_path.src.hitl_gate.settings')
+    async def test_size_check_triggers_on_real_dollar_excess(self, mock_settings):
+        """A trade above the dollar threshold should trigger.
+
+        Mirrors a realistic profile (10% max allocation, $10k notional →
+        $1000 allocation cap). Risk gate sized this trade at $700 — that's
+        70% of the cap, well above the 5% threshold, so HITL must trigger.
+        """
+        mock_settings.HITL_ENABLED = True
+        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.3
+        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
+        mock_settings.HITL_TIMEOUT_S = 1
+
+        redis = FakeRedis()
+        pubsub = FakePubSub()
+        gate = HITLGate(redis, pubsub)
+
+        rules = CompiledRuleSet(
+            logic="AND", direction=SignalDirection.BUY,
+            base_confidence=0.85, conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
+        )
+        limits = RiskLimits(
+            max_drawdown_pct=Decimal("0.05"), stop_loss_pct=Decimal("0.02"),
+            circuit_breaker_daily_loss_pct=Decimal("0.02"),
+            max_allocation_pct=Decimal("0.10"),
+        )
+        state = ProfileState(
+            profile_id="test-profile", compiled_rules=rules,
+            risk_limits=limits, blacklist=frozenset(), indicators=create_indicator_set(),
+        )
+        state.regime = Regime.TRENDING_UP
+
+        tick = NormalisedTick(
+            symbol="ETH/USDT", exchange="BINANCE", timestamp=1000000,
+            price=Decimal("3500"), volume=Decimal("1.0"),
+        )
+        result = await gate.check(
+            state, _make_signal(confidence=0.9), tick,
+            _make_indicators(), _make_risk_result(quantity=Decimal("0.2")),  # $700 trade
+        )
+        assert result.blocked  # Timeout → reject
+        assert result.hitl_triggered
+        # The post-timeout result.reason is "hitl_timeout_*", but the published
+        # event carries the upstream trigger reason — assert against that.
+        assert len(pubsub.published) == 1
+        _, published = pubsub.published[0]
+        assert "large_trade" in published.trigger_reason

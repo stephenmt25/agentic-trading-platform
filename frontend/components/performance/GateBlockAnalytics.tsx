@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
 import {
   ResponsiveContainer,
@@ -31,7 +32,7 @@ interface Props {
   } | null;
 }
 
-export function GateBlockAnalytics({ data }: Props) {
+function GateBlockAnalyticsInner({ data }: Props) {
   if (!data || data.total_decisions === 0) {
     return (
       <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-6 text-center text-sm text-zinc-500">
@@ -117,3 +118,5 @@ export function GateBlockAnalytics({ data }: Props) {
     </div>
   );
 }
+
+export const GateBlockAnalytics = memo(GateBlockAnalyticsInner);

@@ -171,14 +171,16 @@ async def get_weight_history(
 async def get_gate_analytics(
     symbol: str,
     limit: int = Query(default=500, ge=1, le=5000),
+    profile_id: Optional[str] = Query(default=None),
     repo: DecisionRepository = Depends(get_decision_repo),
 ):
     """Aggregate gate block analytics from trade_decisions table.
 
-    Returns per-outcome counts and per-gate block reasons.
+    Returns per-outcome counts and per-gate block reasons. Optionally filtered to
+    a single profile via the profile_id query param.
     """
     symbol = _clean_symbol(symbol)
-    decisions = await repo.get_decisions(symbol=symbol, limit=limit)
+    decisions = await repo.get_decisions(symbol=symbol, profile_id=profile_id, limit=limit)
 
     outcome_counts: dict = {}
     gate_details: dict = {}

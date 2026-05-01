@@ -1,24 +1,14 @@
 "use client";
 
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect } from 'react';
 import { CheckCircle2, XCircle, Clock, AlertTriangle, TrendingUp, TrendingDown } from 'lucide-react';
 import { useHITLStore, type HITLRequest } from '@/lib/stores/hitlStore';
+import { api } from '@/lib/api/client';
 import { motion } from "framer-motion";
 import { pageEnter } from "@/lib/motion";
 
-// Use same-origin rewrite in production, direct in local dev
-const API_BASE_URL =
-  typeof window !== "undefined" && process.env.NEXT_PUBLIC_API_URL
-    ? "/api/backend"
-    : process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 async function respondToHITL(eventId: string, status: 'APPROVED' | 'REJECTED', reason?: string) {
-    const res = await fetch(`${API_BASE_URL}/hitl/respond`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ request_id: eventId, status, reason }),
-    });
-    if (!res.ok) throw new Error('Failed to submit HITL response');
+    await api.hitl.respond(eventId, status, reason);
 }
 
 function AgentScoreBadge({ name, data }: { name: string; data: { score: number; confidence?: number } }) {
@@ -166,9 +156,25 @@ function RequestCard({ request }: { request: HITLRequest }) {
 }
 
 export default function ApprovalPage() {
-    const { pendingRequests } = useHITLStore();
+    const { pendingRequests, seedRequests } = useHITLStore();
     const pending = pendingRequests.filter(r => r.status === 'PENDING');
     const resolved = pendingRequests.filter(r => r.status !== 'PENDING');
+
+    // Replay the live queue on mount so the panel isn't empty at first paint.
+    // The WS subscription on top of this keeps it fresh as new events arrive;
+    // seedRequests dedupes against in-flight WS events.
+    useEffect(() => {
+        let cancelled = false;
+        api.hitl.pending()
+            .then((items) => {
+                if (cancelled) return;
+                seedRequests(items as HITLRequest[]);
+            })
+            .catch(() => {
+                // Best-effort — the WS will still populate as events arrive.
+            });
+        return () => { cancelled = true; };
+    }, [seedRequests]);
 
     return (
         <motion.div variants={pageEnter} initial="initial" animate="animate" className="max-w-3xl mx-auto p-6">

@@ -14,15 +14,17 @@ class PnlSync:
 
     Subscribes to pubsub:pnl_updates for near-real-time updates.
     Also polls Redis keys every 5 seconds as fallback reconciliation.
-    Updates: daily_realised_pnl_pct, current_drawdown_pct, current_allocation_pct
+    Updates: daily_realised_pnl_pct, current_drawdown_pct, current_allocation_pct,
+    open_exposure_dollars (from positions table when position_repo is wired).
     """
 
     POLL_INTERVAL_S = 5
 
-    def __init__(self, redis_client, pubsub_subscriber, state_cache):
+    def __init__(self, redis_client, pubsub_subscriber, state_cache, position_repo=None):
         self._redis = redis_client
         self._subscriber = pubsub_subscriber
         self._state_cache = state_cache
+        self._position_repo = position_repo
 
     async def run(self):
         """Start both the pubsub listener and the polling reconciliation."""
@@ -33,13 +35,20 @@ class PnlSync:
         )
 
     async def _pubsub_listener(self):
-        """Subscribe to PnL updates for near-real-time state hydration."""
-        logger.info("PnL sync pubsub listener started")
+        """Subscribe to PnL updates for live drawdown/allocation refresh.
+
+        PNL_UPDATE messages are per-position, per-tick *unrealized* snapshots —
+        treating them as deltas and accumulating into daily_realised_pnl_pct
+        produced runaway values (see TECH-DEBT 2026-04-29). Daily realised P&L
+        is now incremented only by services/pnl/src/closer.py on close. This
+        listener exists so we can react to live PnL events for non-accumulating
+        state (drawdown, allocation) — those are still hydrated by the poll
+        loop below."""
+        logger.info("PnL sync pubsub listener started (read-only; no accumulation)")
 
         async def on_message(data):
             try:
                 if isinstance(data, bytes):
-                    # PubSubBroadcaster serialises with msgpack — decode accordingly
                     raw = msgpack.unpackb(data, raw=False)
                     message = raw
                 elif isinstance(data, str):
@@ -49,29 +58,11 @@ class PnlSync:
                 profile_id = message.get("profile_id")
                 if not profile_id:
                     return
-
-                state = self._state_cache.get(profile_id)
-                if not state:
-                    return
-
-                pct_return = message.get("pct_return", message.get("roi_pct", 0.0))
-                if pct_return:
-                    pct_val = Decimal(str(pct_return))
-                    # Use HINCRBY for atomic increment in Redis (avoids race with poll overwrite)
-                    if self._redis:
-                        # Store as integer micro-percent for HINCRBY (Redis only does int incr)
-                        incr_micro = int(pct_val * 1_000_000)
-                        new_micro = await self._redis.hincrby(
-                            f"pnl:daily:{profile_id}", "total_pct_micro", incr_micro
-                        )
-                        state.daily_realised_pnl_pct = Decimal(new_micro) / Decimal("1000000")
-                    else:
-                        state.daily_realised_pnl_pct += pct_val
-                    logger.debug(
-                        "PnL sync updated from pubsub",
-                        profile_id=profile_id,
-                        daily_pnl=state.daily_realised_pnl_pct,
-                    )
+                logger.debug(
+                    "PnL update observed",
+                    profile_id=profile_id,
+                    pct_return=message.get("pct_return"),
+                )
             except Exception as e:
                 logger.error("PnL sync pubsub callback error", error=str(e))
 
@@ -93,9 +84,14 @@ class PnlSync:
 
                     pid = state.profile_id
 
-                    # Daily PnL - read from atomic hash, don't overwrite increments
+                    # Daily PnL - read from the hash maintained by closer.py
+                    # (single writer). Missing key means "no realised PnL today",
+                    # so reset state to 0 — otherwise stale in-memory values
+                    # would keep tripping CircuitBreaker after a manual reset.
                     daily_micro = await self._redis.hget(f"pnl:daily:{pid}", "total_pct_micro")
-                    if daily_micro is not None:
+                    if daily_micro is None:
+                        state.daily_realised_pnl_pct = Decimal("0")
+                    else:
                         state.daily_realised_pnl_pct = Decimal(int(daily_micro)) / Decimal("1000000")
 
                     # Drawdown
@@ -109,6 +105,24 @@ class PnlSync:
                     if alloc_raw:
                         parsed = AllocationPayload.model_validate_json(alloc_raw)
                         state.current_allocation_pct = parsed.allocation_pct_decimal()
+
+                    # Open exposure in dollars — drives the aggregate-exposure cap
+                    # in RiskGate. Sum of cost_basis (entry_price × quantity) across
+                    # currently open positions for this profile.
+                    if self._position_repo is not None:
+                        try:
+                            open_rows = await self._position_repo.get_open_positions(profile_id=pid)
+                            total = Decimal("0")
+                            for r in open_rows:
+                                ep = r.get("entry_price")
+                                qty = r.get("quantity")
+                                if ep is None or qty is None:
+                                    continue
+                                total += Decimal(str(ep)) * Decimal(str(qty))
+                            state.open_exposure_dollars = total
+                        except Exception as e:
+                            logger.warning("Failed to refresh open_exposure_dollars",
+                                           profile_id=pid, error=str(e))
 
             except asyncio.CancelledError:
                 break

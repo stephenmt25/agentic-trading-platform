@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
+import { ChevronDown, ChevronUp, Loader2, Pin } from "lucide-react";
 import { api, type TradeDecision } from "@/lib/api/client";
 import { DecisionDetail } from "./DecisionDetail";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
+import { useAnalysisStore } from "@/lib/stores/analysisStore";
 
 const POLL_INTERVAL = 15_000;
 
-export function DecisionFeed() {
+export function DecisionFeed({ profileId }: { profileId?: string | null } = {}) {
     const [decisions, setDecisions] = useState<TradeDecision[]>([]);
     const [loading, setLoading] = useState(true);
     const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -17,7 +18,11 @@ export function DecisionFeed() {
     const load = useCallback(async () => {
         try {
             const outcome = filter === "approved" ? "APPROVED" : filter === "blocked" ? undefined : undefined;
-            const data = await api.paperTrading.decisions({ limit: 50, outcome });
+            const data = await api.paperTrading.decisions({
+                limit: 50,
+                outcome,
+                profile_id: profileId ?? undefined,
+            });
             // If filtering blocked, filter client-side since there are multiple blocked outcomes
             if (filter === "blocked") {
                 setDecisions(data.filter(d => d.outcome !== "APPROVED"));
@@ -29,7 +34,7 @@ export function DecisionFeed() {
         } finally {
             setLoading(false);
         }
-    }, [filter]);
+    }, [filter, profileId]);
 
     useEffect(() => {
         setLoading(true);
@@ -38,14 +43,33 @@ export function DecisionFeed() {
         return () => clearInterval(interval);
     }, [load]);
 
+    const pinDecision = useAnalysisStore((s) => s.pinDecision);
+    const clearPinnedDecision = useAnalysisStore((s) => s.clearPinnedDecision);
+    const pinnedId = useAnalysisStore((s) => s.pinnedDecision?.eventId ?? null);
+
     const toggleExpand = (id: string) => {
         setExpandedId(expandedId === id ? null : id);
     };
 
+    const togglePin = (e: React.MouseEvent, d: TradeDecision) => {
+        e.stopPropagation();
+        if (pinnedId === d.event_id) {
+            clearPinnedDecision();
+            return;
+        }
+        pinDecision({
+            eventId: d.event_id,
+            time: Math.floor(new Date(d.created_at).getTime() / 1000),
+            symbol: d.symbol,
+            outcome: d.outcome,
+            direction: d.strategy.direction,
+        });
+    };
+
     return (
-        <div>
+        <div className="flex flex-col h-full min-h-0">
             {/* Header */}
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center justify-between mb-3 shrink-0">
                 <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider flex items-center gap-1.5">
                     Decision Trace
                     <InfoTooltip text="Every signal evaluation — approved or blocked — with full gate-by-gate trace. Shows why each trade decision was made." />
@@ -74,11 +98,18 @@ export function DecisionFeed() {
                     <span className="text-xs">Loading decisions...</span>
                 </div>
             ) : decisions.length === 0 ? (
-                <div className="py-6 text-center text-xs text-muted-foreground font-mono">
-                    No trade decisions recorded yet.
+                <div className="py-8 px-4 text-center space-y-2">
+                    <p className="text-xs text-muted-foreground">
+                        No decisions yet for this profile.
+                    </p>
+                    <p className="text-[11px] text-muted-foreground/70">
+                        The engine evaluates every candle continuously. A decision lands here the
+                        moment a signal matches the profile rules — approved or blocked, both with
+                        the full gate trace.
+                    </p>
                 </div>
             ) : (
-                <div className="space-y-1.5 max-h-[500px] overflow-y-auto pr-1">
+                <div className="space-y-1.5 flex-1 min-h-0 overflow-y-auto pr-1">
                     {decisions.map((d) => {
                         const isApproved = d.outcome === "APPROVED";
                         const isExpanded = expandedId === d.event_id;
@@ -101,11 +132,14 @@ export function DecisionFeed() {
                                 : d.outcome.replace("BLOCKED_", "");
                         }
 
+                        const isPinned = pinnedId === d.event_id;
                         return (
                             <div key={d.event_id}>
                                 <button
                                     onClick={() => toggleExpand(d.event_id)}
-                                    className="w-full text-left p-2.5 border border-border rounded-md hover:bg-accent transition-colors"
+                                    className={`w-full text-left p-2.5 border rounded-md transition-colors ${
+                                        isPinned ? "border-primary/60 bg-primary/5" : "border-border hover:bg-accent"
+                                    }`}
                                 >
                                     <div className="flex items-center gap-2 text-xs font-mono">
                                         {/* Status dot */}
@@ -126,6 +160,23 @@ export function DecisionFeed() {
                                         {/* Outcome */}
                                         <span className={`ml-auto text-[10px] font-semibold ${isApproved ? "text-emerald-500" : "text-amber-500"}`}>
                                             {isApproved ? "APPROVED" : "BLOCKED"}
+                                        </span>
+
+                                        {/* Pin to chart */}
+                                        <span
+                                            role="button"
+                                            tabIndex={0}
+                                            onClick={(e) => togglePin(e, d)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === "Enter" || e.key === " ") togglePin(e as unknown as React.MouseEvent, d);
+                                            }}
+                                            title={isPinned ? "Unpin from chart" : "Pin to chart"}
+                                            aria-label={isPinned ? "Unpin from chart" : "Pin to chart"}
+                                            className={`shrink-0 p-0.5 rounded transition-colors cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary ${
+                                                isPinned ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                                            }`}
+                                        >
+                                            <Pin size={11} className={isPinned ? "fill-primary" : ""} />
                                         </span>
 
                                         {/* Expand */}

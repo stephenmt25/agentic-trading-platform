@@ -154,6 +154,18 @@ class TestDebateEngine:
         assert result.reasoning != ""
 
     @pytest.mark.asyncio
+    async def test_result_has_unique_cycle_id_per_run(self):
+        """Every debate cycle should have a fresh UUID for transcript persistence."""
+        from uuid import UUID
+        backend = MockBackend()
+        engine = DebateEngine(backend, num_rounds=1)
+        r1 = await engine.run(_make_context())
+        r2 = await engine.run(_make_context())
+        assert isinstance(r1.cycle_id, UUID)
+        assert isinstance(r2.cycle_id, UUID)
+        assert r1.cycle_id != r2.cycle_id
+
+    @pytest.mark.asyncio
     async def test_rounds_have_arguments(self):
         backend = MockBackend()
         engine = DebateEngine(backend, num_rounds=2)

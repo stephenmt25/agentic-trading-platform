@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from libs.config import settings
 from libs.storage._redis_client import RedisClient
 from libs.storage import TimescaleClient, ProfileRepository
+from libs.storage.repositories.position_repo import PositionRepository
 from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
 from libs.messaging._pubsub import PubSubSubscriber
 from libs.messaging.channels import (
@@ -22,6 +23,7 @@ from libs.messaging.channels import (
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
 from libs.core.models import RiskLimits
+from libs.core.schemas import DEFAULT_RISK_LIMITS
 from libs.indicators import create_indicator_set
 from services.strategy.src.compiler import RuleCompiler
 
@@ -100,59 +102,116 @@ async def lifespan(app: FastAPI):
     await ts_client.init_pool()
     profile_repo = ProfileRepository(ts_client)
 
-    profiles = await profile_repo.get_active_profiles()
-    for prof in profiles:
-        # Parse strategy rules (JSONB comes as dict from asyncpg)
+    def _parse_static_config(prof):
+        """Parse rules / risk / blacklist from a DB row.
+        Returns (compiled, risk_limits, bl, notional) or None."""
         rules_raw = prof.get("strategy_rules", {})
-        if isinstance(rules_raw, str):
-            rules = json.loads(rules_raw)
-        else:
-            rules = rules_raw
+        rules = json.loads(rules_raw) if isinstance(rules_raw, str) else rules_raw
         required_keys = {"logic", "direction", "base_confidence", "conditions"}
         if not rules or not required_keys.issubset(rules.keys()):
-            logger.warning("Profile %s has incomplete strategy_rules, skipping", prof.get("profile_id"))
-            continue
+            return None
         compiled = RuleCompiler.compile(rules)
 
-        # Parse risk limits (JSONB comes as dict from asyncpg)
         limits_raw = prof.get("risk_limits", {})
-        if isinstance(limits_raw, str):
-            limits = json.loads(limits_raw)
-        else:
-            limits = limits_raw
+        limits = json.loads(limits_raw) if isinstance(limits_raw, str) else limits_raw
         risk_limits = RiskLimits(
-            max_drawdown_pct=Decimal(str(limits.get("max_drawdown_pct", "0.10"))),
-            stop_loss_pct=Decimal(str(limits.get("stop_loss_pct", "0.05"))),
-            circuit_breaker_daily_loss_pct=Decimal(str(limits.get("circuit_breaker_daily_loss_pct", "0.02"))),
-            max_allocation_pct=Decimal(str(limits.get("max_allocation_pct", "1.0"))),
+            max_drawdown_pct=Decimal(str(limits.get("max_drawdown_pct", DEFAULT_RISK_LIMITS["max_drawdown_pct"]))),
+            stop_loss_pct=Decimal(str(limits.get("stop_loss_pct", DEFAULT_RISK_LIMITS["stop_loss_pct"]))),
+            circuit_breaker_daily_loss_pct=Decimal(str(limits.get("circuit_breaker_daily_loss_pct", DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"]))),
+            max_allocation_pct=Decimal(str(limits.get("max_allocation_pct", DEFAULT_RISK_LIMITS["max_allocation_pct"]))),
         )
 
-        # Parse blacklist (TEXT[] comes as list from asyncpg)
         blacklist_raw = prof.get("blacklist", [])
         if isinstance(blacklist_raw, str):
             bl = json.loads(blacklist_raw)
         else:
             bl = blacklist_raw if isinstance(blacklist_raw, list) else []
 
-        indicators = create_indicator_set()
+        # Notional capital — same convention as services/risk/__init__.py:60
+        alloc_pct = Decimal(str(prof.get("allocation_pct", "1.0")))
+        notional = alloc_pct * Decimal("10000")
 
+        return compiled, risk_limits, frozenset(bl), notional
+
+    profiles = await profile_repo.get_active_profiles()
+    for prof in profiles:
+        parsed = _parse_static_config(prof)
+        if parsed is None:
+            logger.warning("Profile %s has incomplete strategy_rules, skipping", prof.get("profile_id"))
+            continue
+        compiled, risk_limits, bl, notional = parsed
         state = ProfileState(
             profile_id=str(prof["profile_id"]),
             compiled_rules=compiled,
             risk_limits=risk_limits,
-            blacklist=frozenset(bl),
-            indicators=indicators,
+            blacklist=bl,
+            indicators=create_indicator_set(),
+            notional=notional,
         )
         state_cache.add(state)
 
     logger.info(f"Loaded {len(profiles)} profiles into state cache")
 
+    async def _profile_refresh_loop():
+        """Refresh profile rules/risk/blacklist from DB every 30s without resetting indicators.
+        Adds new profiles, updates existing ones, removes deactivated/deleted ones."""
+        REFRESH_INTERVAL_S = 30
+        try:
+            while True:
+                await asyncio.sleep(REFRESH_INTERVAL_S)
+                try:
+                    fresh = await profile_repo.get_active_profiles()
+                    fresh_by_id = {str(p["profile_id"]): p for p in fresh}
+
+                    # Update or add
+                    for pid, prof in fresh_by_id.items():
+                        parsed = _parse_static_config(prof)
+                        if parsed is None:
+                            continue
+                        compiled, risk_limits, bl, notional = parsed
+                        existing = state_cache.get(pid)
+                        if existing:
+                            existing.compiled_rules = compiled
+                            existing.risk_limits = risk_limits
+                            existing.blacklist = bl
+                            existing.notional = notional
+                        else:
+                            new_state = ProfileState(
+                                profile_id=pid,
+                                compiled_rules=compiled,
+                                risk_limits=risk_limits,
+                                blacklist=bl,
+                                indicators=create_indicator_set(),
+                                notional=notional,
+                            )
+                            state_cache.add(new_state)
+                            logger.info("Profile %s added to state cache via refresh", pid)
+
+                    # Remove profiles no longer active
+                    cached_ids = [s.profile_id for s in list(state_cache.itervalues())]
+                    for pid in cached_ids:
+                        if pid not in fresh_by_id:
+                            state_cache.remove(pid)
+                            logger.info("Profile %s removed from state cache via refresh", pid)
+                except Exception as e:
+                    logger.error("Profile refresh loop error", error=str(e))
+        except asyncio.CancelledError:
+            pass
+
     # 1. Hydrate cache loop Wait
     await wait_for_hydration_complete(redis_instance, state_cache)
 
     # 2. Start PnL sync background task (Sprint 10.1)
-    pnl_sync = PnlSync(redis_instance, pubsub_subscriber, state_cache)
+    pnl_sync = PnlSync(
+        redis_instance,
+        pubsub_subscriber,
+        state_cache,
+        position_repo=PositionRepository(ts_client),
+    )
     pnl_sync_task = asyncio.create_task(pnl_sync.run())
+
+    # 2b. Start profile refresh loop — picks up canvas saves without service restart
+    profile_refresh_task = asyncio.create_task(_profile_refresh_loop())
 
     # Telemetry publisher
     telemetry = TelemetryPublisher(redis_instance, "hot_path", "orchestrator")
@@ -184,7 +243,8 @@ async def lifespan(app: FastAPI):
     # Teardown
     task.cancel()
     pnl_sync_task.cancel()
-    await asyncio.gather(task, pnl_sync_task, return_exceptions=True)
+    profile_refresh_task.cancel()
+    await asyncio.gather(task, pnl_sync_task, profile_refresh_task, return_exceptions=True)
     await telemetry.stop()
     await ts_client.close()
     logger.info("Hot-Path shutdown gracefully.")

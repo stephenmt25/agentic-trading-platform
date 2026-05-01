@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -12,6 +12,8 @@ import {
   CartesianGrid,
 } from "recharts";
 import { useAnalysisStore, type AgentOverlay } from "@/lib/stores/analysisStore";
+
+const MAX_DISPLAY_POINTS = 500;
 
 interface ScoreDataPoint {
   symbol: string;
@@ -41,7 +43,7 @@ const AGENT_LABELS: Record<string, string> = {
   regime_hmm: "Regime HMM",
 };
 
-export function AgentScoreOverlay({
+function AgentScoreOverlayInner({
   data,
   visibleAgents,
   height = 150,
@@ -65,9 +67,21 @@ export function AgentScoreOverlay({
       row[point.agent_name] = point.score;
     }
 
-    return Array.from(timeMap.values()).sort(
+    const merged = Array.from(timeMap.values()).sort(
       (a, b) => (a.timestamp as number) - (b.timestamp as number),
     );
+
+    // Stride-downsample when over cap — stride sampling works on composite
+    // rows where per-series LTTB would desync timestamps.
+    if (merged.length > MAX_DISPLAY_POINTS) {
+      const stride = Math.ceil(merged.length / MAX_DISPLAY_POINTS);
+      const out = merged.filter((_, i) => i % stride === 0);
+      if (out[out.length - 1] !== merged[merged.length - 1]) {
+        out.push(merged[merged.length - 1]);
+      }
+      return out;
+    }
+    return merged;
   }, [data, visibleAgents]);
 
   const xDomain = useMemo<[number | string, number | string]>(() => {
@@ -168,3 +182,5 @@ export function AgentScoreOverlay({
     </div>
   );
 }
+
+export const AgentScoreOverlay = memo(AgentScoreOverlayInner);

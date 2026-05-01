@@ -20,7 +20,7 @@ from libs.core.exceptions import (
 )
 
 from .middleware.rate_limit import RateLimiterMiddleware
-from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents, docs_chat, telemetry_stream, hitl, market_data, agent_performance, agent_config
+from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents, docs_chat, telemetry_stream, hitl, market_data, agent_performance, agent_config, audit, positions
 
 logger = get_logger("api-gateway")
 
@@ -133,19 +133,23 @@ def create_app() -> FastAPI:
     # Public routes (no auth) — all prefixes defined here at mount time
     # ------------------------------------------------------------------
     app.include_router(health.router)
-    app.include_router(auth.router, prefix="/auth")
     app.include_router(ws.router)
     app.include_router(docs_chat.router, prefix="/docs")
     app.include_router(telemetry_stream.router)
 
     # ------------------------------------------------------------------
-    # Protected routes — all behind JWT auth via verify_token_dep
+    # Protected routes — all behind JWT auth via verify_token_dep.
+    # auth.router is here too: verify_jwt's `excluded` list lets
+    # /auth/callback and /auth/refresh through, while /auth/me
+    # gets request.state.user_id populated by the middleware.
     # ------------------------------------------------------------------
     from .deps import verify_token_dep
 
     secure_routes = [
+        (auth.router, "/auth"),
         (profiles.router, "/profiles"),
         (orders.router, "/orders"),
+        (positions.router, "/positions"),
         (pnl.router, "/pnl"),
         (commands.router, "/commands"),
         (exchange_keys.router, "/exchange-keys"),
@@ -156,6 +160,7 @@ def create_app() -> FastAPI:
         (market_data.router, "/market-data"),
         (agent_performance.router, "/agent-performance"),
         (agent_config.router, "/agent-config"),
+        (audit.router, "/audit"),
     ]
 
     for router, prefix in secure_routes:

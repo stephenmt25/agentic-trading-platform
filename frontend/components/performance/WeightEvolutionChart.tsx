@@ -1,7 +1,7 @@
 "use client";
 
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart,
@@ -31,7 +31,7 @@ interface Props {
   data: WeightDataPoint[];
 }
 
-export function WeightEvolutionChart({ data }: Props) {
+function WeightEvolutionChartInner({ data }: Props) {
   const chartData = useMemo(() => {
     const timeMap = new Map<string, Record<string, number>>();
 
@@ -116,3 +116,5 @@ export function WeightEvolutionChart({ data }: Props) {
     </div>
   );
 }
+
+export const WeightEvolutionChart = memo(WeightEvolutionChartInner);

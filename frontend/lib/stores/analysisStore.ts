@@ -8,6 +8,14 @@ export interface VisibleRange {
   to: number;
 }
 
+export interface PinnedDecision {
+  eventId: string;
+  time: number; // epoch seconds — decision created_at
+  symbol: string;
+  outcome: string; // APPROVED | BLOCKED_*
+  direction: "BUY" | "SELL";
+}
+
 interface AnalysisState {
   symbol: string;
   timeframe: Timeframe;
@@ -18,6 +26,7 @@ interface AnalysisState {
   hoveredTime: number | null;
   hoverSource: "price" | "score" | null;
   visibleRange: VisibleRange | null;
+  pinnedDecision: PinnedDecision | null;
   setSymbol: (s: string) => void;
   setTimeframe: (tf: Timeframe) => void;
   toggleOverlay: (agent: AgentOverlay) => void;
@@ -26,6 +35,8 @@ interface AnalysisState {
   setShowRegimeBands: (v: boolean) => void;
   setHoveredTime: (t: number | null, source: "price" | "score" | null) => void;
   setVisibleRange: (r: VisibleRange | null) => void;
+  pinDecision: (p: PinnedDecision) => void;
+  clearPinnedDecision: () => void;
 }
 
 export const useAnalysisStore = create<AnalysisState>((set) => ({
@@ -38,6 +49,7 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   hoveredTime: null,
   hoverSource: null,
   visibleRange: null,
+  pinnedDecision: null,
 
   setSymbol: (symbol) => set({ symbol }),
   setTimeframe: (timeframe) => set({ timeframe }),
@@ -52,4 +64,9 @@ export const useAnalysisStore = create<AnalysisState>((set) => ({
   setShowRegimeBands: (v) => set({ showRegimeBands: v }),
   setHoveredTime: (hoveredTime, hoverSource) => set({ hoveredTime, hoverSource }),
   setVisibleRange: (visibleRange) => set({ visibleRange }),
+  // Pinning a decision auto-switches the chart to that decision's symbol on
+  // the 1m timeframe (which is what the strategy evaluates on, so the marker
+  // lands on the correct candle).
+  pinDecision: (p) => set({ pinnedDecision: p, symbol: p.symbol, timeframe: "1m" }),
+  clearPinnedDecision: () => set({ pinnedDecision: null }),
 }));

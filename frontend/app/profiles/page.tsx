@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,17 +12,12 @@ import { motion } from "framer-motion";
 import { pageEnter } from "@/lib/motion";
 
 const DEFAULT_RULES = {
-  strategy: "momentum",
-  symbols: ["BTC/USDT"],
-  timeframe: "1h",
-  entry_conditions: {
-    rsi_below: 30,
-    volume_spike: true,
-  },
-  exit_conditions: {
-    rsi_above: 70,
-    trailing_stop_pct: 2.0,
-  },
+  direction: "long",
+  match_mode: "all",
+  confidence: 0.6,
+  signals: [
+    { indicator: "rsi", comparison: "below", threshold: 30 },
+  ],
 };
 
 export default function ProfilesPage() {
@@ -44,6 +39,12 @@ export default function ProfilesPage() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   const searchParams = useSearchParams();
+  // When mounted as a tab inside /strategies, suppress this page's own title
+  // and description — the strategies shell already provides them, and stacked
+  // headers read as accidental redundancy. Mirrors the pattern in
+  // app/backtest/page.tsx for the Verify tab.
+  const pathname = usePathname();
+  const isEmbedded = pathname?.startsWith("/strategies") ?? false;
 
   useEffect(() => {
     loadProfiles();
@@ -176,11 +177,15 @@ export default function ProfilesPage() {
   return (
     <motion.div variants={pageEnter} initial="initial" animate="animate" className="flex flex-col h-full gap-6 max-w-[1600px] mx-auto">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-border pb-4 gap-3 shrink-0">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight text-foreground mb-1">Agent Profiles</h1>
-          <p className="text-muted-foreground text-sm">Manage trading agent boundaries, logic, and state.</p>
-        </div>
+      <div className={`flex flex-col sm:flex-row sm:items-center gap-3 shrink-0 ${
+        isEmbedded ? "justify-end" : "justify-between border-b border-border pb-4"
+      }`}>
+        {!isEmbedded && (
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-foreground mb-1">Agent Profiles</h1>
+            <p className="text-muted-foreground text-sm">Manage trading agent boundaries, logic, and state.</p>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <span className="text-xs text-emerald-500 font-mono tabular-nums">
             {activeCount} active

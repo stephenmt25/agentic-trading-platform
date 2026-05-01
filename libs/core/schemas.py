@@ -67,6 +67,7 @@ class OrderApprovedEvent(BaseEvent):
     side: OrderSide
     quantity: Quantity
     price: Price
+    decision_event_id: Optional[UUID] = None
 
 class OrderRejectedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_REJECTED] = EventType.ORDER_REJECTED
@@ -154,13 +155,13 @@ class HITLApprovalResponse(BaseEvent):
 
 class ProfileCreate(BaseModel):
     name: str = Field(default="Untitled Profile", min_length=1, max_length=200)
-    rules_json: Dict[str, Any] = Field(default_factory=dict)
+    rules_json: "StrategyRulesInput"
     risk_limits: Dict[str, Any] = Field(default_factory=dict)
     allocation_pct: float = Field(default=1.0, ge=0.0, le=100.0)
 
 
 class ProfileUpdate(BaseModel):
-    rules_json: Dict[str, Any]
+    rules_json: "StrategyRulesInput"
     is_active: bool = True
 
 
@@ -172,7 +173,8 @@ class ProfileResponse(BaseModel):
     profile_id: str
     name: str
     is_active: bool
-    rules_json: Dict[str, Any]
+    rules_json: "StrategyRulesInput"
+    rules_json_canonical: Dict[str, Any] = Field(default_factory=dict)
     allocation_pct: Percentage
     created_at: str
     deleted_at: Optional[str] = None
@@ -243,14 +245,10 @@ class UserProfile(BaseModel):
 
 class BacktestRequest(BaseModel):
     symbol: str = Field(..., example="BTC/USDT")
-    strategy_rules: dict = Field(..., example={
-        "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-        "logic": "AND",
-        "direction": "BUY",
-        "base_confidence": 0.85,
-    })
+    strategy_rules: "StrategyRulesInput"
     start_date: str = Field(..., example="2025-01-01T00:00:00")
     end_date: str = Field(..., example="2025-06-01T00:00:00")
+    timeframe: Literal["1m", "5m", "15m", "1h", "1d"] = Field(default="1m")
     slippage_pct: Percentage = Field(default=Decimal("0.001"), ge=0, le=Decimal("0.05"))
 
 
@@ -382,6 +380,94 @@ class RuleSchema(BaseModel):
         return values
 
 
+# ---------------------------------------------------------------------------
+# Strategy Rules — User-facing schema + canonical transformer
+# ---------------------------------------------------------------------------
+# The user-facing shape uses trading vocabulary. The canonical shape (RuleSchema
+# above) is what hot_path / RuleCompiler consume. The API gateway accepts
+# StrategyRulesInput, transforms to canonical at write time, and reverses on read.
+
+_INDICATOR_USER_TO_CANONICAL: Dict[str, str] = {
+    "rsi": "rsi",
+    "atr": "atr",
+    "macd_line": "macd.macd_line",
+    "macd_signal": "macd.signal_line",
+    "macd_histogram": "macd.histogram",
+}
+_INDICATOR_CANONICAL_TO_USER: Dict[str, str] = {v: k for k, v in _INDICATOR_USER_TO_CANONICAL.items()}
+
+_COMPARISON_TO_OPERATOR: Dict[str, str] = {
+    "above": "GT",
+    "below": "LT",
+    "at_or_above": "GTE",
+    "at_or_below": "LTE",
+    "equals": "EQ",
+}
+_OPERATOR_TO_COMPARISON: Dict[str, str] = {v: k for k, v in _COMPARISON_TO_OPERATOR.items()}
+
+_DIRECTION_USER_TO_CANONICAL: Dict[str, str] = {"long": "BUY", "short": "SELL"}
+_DIRECTION_CANONICAL_TO_USER: Dict[str, str] = {v: k for k, v in _DIRECTION_USER_TO_CANONICAL.items()}
+
+_MATCH_MODE_TO_LOGIC: Dict[str, str] = {"all": "AND", "any": "OR"}
+_LOGIC_TO_MATCH_MODE: Dict[str, str] = {v: k for k, v in _MATCH_MODE_TO_LOGIC.items()}
+
+
+class StrategySignal(BaseModel):
+    indicator: Literal["rsi", "atr", "macd_line", "macd_signal", "macd_histogram"]
+    comparison: Literal["above", "below", "at_or_above", "at_or_below", "equals"]
+    threshold: float
+
+
+class StrategyRulesInput(BaseModel):
+    """User-facing strategy DSL. Validated, then transformed to the canonical
+    RuleSchema shape consumed by hot_path."""
+    direction: Literal["long", "short"]
+    match_mode: Literal["all", "any"]
+    confidence: float = Field(ge=0.0, le=1.0)
+    signals: List[StrategySignal] = Field(min_length=1)
+
+
+def strategy_rules_to_canonical(rules: StrategyRulesInput) -> Dict[str, Any]:
+    """User-facing → canonical (what hot_path / RuleCompiler consume)."""
+    return {
+        "direction": _DIRECTION_USER_TO_CANONICAL[rules.direction],
+        "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode],
+        "base_confidence": rules.confidence,
+        "conditions": [
+            {
+                "indicator": _INDICATOR_USER_TO_CANONICAL[s.indicator],
+                "operator": _COMPARISON_TO_OPERATOR[s.comparison],
+                "value": s.threshold,
+            }
+            for s in rules.signals
+        ],
+    }
+
+
+def strategy_rules_from_canonical(canonical: Dict[str, Any]) -> StrategyRulesInput:
+    """Canonical → user-facing (for serializing back to the frontend)."""
+    return StrategyRulesInput(
+        direction=_DIRECTION_CANONICAL_TO_USER[canonical["direction"]],
+        match_mode=_LOGIC_TO_MATCH_MODE[canonical["logic"]],
+        confidence=float(canonical["base_confidence"]),
+        signals=[
+            StrategySignal(
+                indicator=_INDICATOR_CANONICAL_TO_USER[c["indicator"]],
+                comparison=_OPERATOR_TO_COMPARISON[c["operator"]],
+                threshold=float(c["value"]),
+            )
+            for c in canonical["conditions"]
+        ],
+    )
+
+
+# Resolve forward references on models declared above StrategyRulesInput.
+ProfileCreate.model_rebuild()
+ProfileUpdate.model_rebuild()
+ProfileResponse.model_rebuild()
+BacktestRequest.model_rebuild()
+
+
 class QuotaConfig(BaseModel):
     limit: int
     window_sec: int
@@ -461,12 +547,24 @@ class AllocationPayload(BaseModel):
         return Decimal(self.allocation_pct)
 
 
+# Single source of truth for risk-limits defaults. Stored as str so consumers
+# can lift directly into Decimal without losing precision.
+DEFAULT_RISK_LIMITS: Dict[str, str] = {
+    "max_drawdown_pct": "0.10",
+    "stop_loss_pct": "0.05",
+    "take_profit_pct": "0.015",
+    "max_holding_hours": "48.0",
+    "max_allocation_pct": "1.0",
+    "circuit_breaker_daily_loss_pct": "0.02",
+}
+
+
 class RiskLimitsPayload(BaseModel):
-    """Validated risk limits JSON from profile."""
-    max_allocation_pct: Optional[float] = None
-    stop_loss_pct: Optional[float] = 0.05
-    take_profit_pct: Optional[float] = 0.015
-    max_holding_hours: Optional[float] = 48.0
-    max_drawdown_pct: Optional[float] = None
-    circuit_breaker_daily_loss_pct: Optional[float] = None
+    """Validated risk limits JSON from profile. Defaults sourced from DEFAULT_RISK_LIMITS."""
+    max_drawdown_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["max_drawdown_pct"]))
+    stop_loss_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["stop_loss_pct"]))
+    take_profit_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["take_profit_pct"]))
+    max_holding_hours: float = Field(default=float(DEFAULT_RISK_LIMITS["max_holding_hours"]))
+    max_allocation_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["max_allocation_pct"]))
+    circuit_breaker_daily_loss_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"]))
     model_config = ConfigDict(extra="allow")

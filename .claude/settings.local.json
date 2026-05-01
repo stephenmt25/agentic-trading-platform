@@ -157,7 +157,26 @@
       "Bash(awk -F= '/^PRAXIS_NEXTAUTH_SECRET=/{v=substr\\($2,1,8\\)\"...\"substr\\($2,length\\($2\\)-3\\); print v}' .env)",
       "Bash(awk -F= '/^NEXTAUTH_SECRET=/{v=substr\\($2,1,8\\)\"...\"substr\\($2,length\\($2\\)-3\\); print v}' frontend/.env.local)",
       "Bash(awk -F= '/^NEXT_PUBLIC_API_URL=/{print $2}' frontend/.env.local)",
-      "Bash(\"/c/Program Files \\(x86\\)/cloudflared/cloudflared.exe\" --version)"
+      "Bash(\"/c/Program Files \\(x86\\)/cloudflared/cloudflared.exe\" --version)",
+      "Bash(PGPASSWORD=postgres psql -h localhost -U postgres -d praxis_trading -c \"SELECT COUNT\\(*\\) AS report_count, MIN\\(report_date\\) AS earliest, MAX\\(report_date\\) AS latest FROM paper_trading_reports;\")",
+      "PowerShell(docker exec deploy-redis-1 *)",
+      "PowerShell(\\(Get-Content .praxis_logs/hot_path.log | Measure-Object -Line\\).Lines; Get-Content .praxis_logs/hot_path.log -Tail 5)",
+      "PowerShell(docker exec deploy-timescaledb-1 *)",
+      "PowerShell(docker exec *)",
+      "Bash(command -v chrome)",
+      "Bash(command -v google-chrome)",
+      "Bash(command -v chromium)",
+      "Bash(command -v \"C:/Program Files/Google/Chrome/Application/chrome.exe\")",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Bash(mkdir -p /tmp/screenshots)",
+      "Bash(\"/c/Program Files/Google/Chrome/Application/chrome.exe\" --headless=new --disable-gpu --hide-scrollbars --window-size=1600,1000 --screenshot=/tmp/screenshots/trade.png http://localhost:3000/trade)",
+      "Bash(\"/c/Program Files/Google/Chrome/Application/chrome.exe\" --headless=new --disable-gpu --hide-scrollbars --window-size=1600,1000 --virtual-time-budget=8000 --screenshot=/tmp/screenshots/login.png http://localhost:3000/login)",
+      "Bash(redis-cli get *)",
+      "Bash(redis-cli --scan)",
+      "Bash(echo \"started pid $!\")",
+      "Bash(disown)",
+      "Bash(sed 's/=.*$/=<redacted>/')",
+      "Bash(echo \"restarting, pid=$!\")"
     ]
   },
   "enabledMcpjsonServers": [

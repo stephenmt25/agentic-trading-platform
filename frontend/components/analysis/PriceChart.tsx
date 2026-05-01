@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { memo, useEffect, useRef, useCallback } from "react";
 import {
   createChart,
+  createSeriesMarkers,
   CandlestickSeries,
   HistogramSeries,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
+  type SeriesMarker,
   type CandlestickData,
   type Time,
   ColorType,
@@ -27,11 +30,12 @@ interface PriceChartProps {
   height?: number;
 }
 
-export function PriceChart({ data, height = 400 }: PriceChartProps) {
+function PriceChartInner({ data, height = 400 }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
   const dataRef = useRef<CandleData[]>([]);
   const mirroringRef = useRef(false);
 
@@ -39,6 +43,7 @@ export function PriceChart({ data, height = 400 }: PriceChartProps) {
   const setVisibleRange = useAnalysisStore((s) => s.setVisibleRange);
   const hoveredTime = useAnalysisStore((s) => s.hoveredTime);
   const hoverSource = useAnalysisStore((s) => s.hoverSource);
+  const pinnedDecision = useAnalysisStore((s) => s.pinnedDecision);
 
   const initChart = useCallback(() => {
     if (!containerRef.current) return;
@@ -97,6 +102,7 @@ export function PriceChart({ data, height = 400 }: PriceChartProps) {
     chartRef.current = chart;
     candleSeriesRef.current = candleSeries;
     volumeSeriesRef.current = volumeSeries;
+    markersRef.current = createSeriesMarkers(candleSeries, []);
 
     chart.subscribeCrosshairMove((param) => {
       const { hoverSource: currentSource, hoveredTime: currentTime } =
@@ -176,6 +182,42 @@ export function PriceChart({ data, height = 400 }: PriceChartProps) {
     volumeSeriesRef.current.setData(volumeData);
   }, [data]);
 
+  // Pin marker + scroll-to-time when a decision is pinned from the feed.
+  // Marker color encodes outcome (green=approved, amber=blocked); shape
+  // encodes direction (arrowUp=BUY, arrowDown=SELL).
+  useEffect(() => {
+    if (!chartRef.current || !markersRef.current) return;
+
+    if (!pinnedDecision) {
+      markersRef.current.setMarkers([]);
+      return;
+    }
+
+    const isApproved = pinnedDecision.outcome === "APPROVED";
+    const marker: SeriesMarker<Time> = {
+      time: pinnedDecision.time as Time,
+      position: pinnedDecision.direction === "BUY" ? "belowBar" : "aboveBar",
+      color: isApproved ? "#22c55e" : "#f59e0b",
+      shape: pinnedDecision.direction === "BUY" ? "arrowUp" : "arrowDown",
+      text: isApproved ? "APPROVED" : pinnedDecision.outcome.replace("BLOCKED_", ""),
+    };
+    markersRef.current.setMarkers([marker]);
+
+    // Center the visible range around the decision time (~30 bars either side)
+    const candles = dataRef.current;
+    if (candles.length) {
+      const t = pinnedDecision.time;
+      const inRange = candles.some((c) => Math.abs(c.time - t) <= 60 * 60); // within 1h
+      if (inRange) {
+        const span = 60 * 30; // 30 minutes either side at 1m timeframe
+        chartRef.current.timeScale().setVisibleRange({
+          from: (t - span) as Time,
+          to: (t + span) as Time,
+        });
+      }
+    }
+  }, [pinnedDecision]);
+
   // Mirror external hover (from score chart) onto the price chart's crosshair
   useEffect(() => {
     if (!chartRef.current || !candleSeriesRef.current) return;
@@ -215,3 +257,5 @@ export function PriceChart({ data, height = 400 }: PriceChartProps) {
     />
   );
 }
+
+export const PriceChart = memo(PriceChartInner);

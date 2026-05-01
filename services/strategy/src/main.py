@@ -26,9 +26,28 @@ compiler = RuleCompiler()
 _profile_hashes: dict[str, str] = {}
 
 
+def _coerce_rules(profile: dict) -> dict | None:
+    """Return strategy_rules as a dict, decoding if asyncpg handed us a JSON string.
+
+    Why: trading_profiles.strategy_rules is JSONB but occasionally arrives as a
+    str under this driver path; **rules then explodes. Tracked in
+    docs/TECH-DEBT-REGISTRY.md (entry from 2026-04-18)."""
+    rules = profile.get("strategy_rules")
+    if not rules:
+        return None
+    if isinstance(rules, str):
+        try:
+            rules = json.loads(rules)
+        except (ValueError, TypeError):
+            return None
+    if not isinstance(rules, dict):
+        return None
+    return rules
+
+
 def _profile_hash(profile: dict) -> str:
     """Hash the fields that matter for rule compilation."""
-    rules = profile.get("strategy_rules") or {}
+    rules = _coerce_rules(profile) or {}
     updated = profile.get("updated_at", "")
     return f"{json.dumps(rules, sort_keys=True)}|{updated}"
 
@@ -36,7 +55,7 @@ def _profile_hash(profile: dict) -> str:
 async def _compile_and_cache_profile(profile: dict) -> bool:
     """Validate, compile, and cache a single profile's rules. Returns True if cached."""
     profile_id = profile["profile_id"]
-    rules = profile.get("strategy_rules")
+    rules = _coerce_rules(profile)
     if not rules:
         return False
 
