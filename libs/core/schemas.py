@@ -3,7 +3,7 @@ from typing import Any, Dict, List, Optional, Literal
 from uuid import UUID, uuid4
 import os
 import threading
-from pydantic import BaseModel, Field, ConfigDict, root_validator
+from pydantic import BaseModel, Field, ConfigDict, model_validator, root_validator
 
 from .enums import EventType, OrderSide, OrderStatus, SignalDirection, ValidationCheck, ValidationMode, ValidationVerdict, HITLStatus
 from .types import Percentage, Price, ProfileId, Quantity, SymbolPair, Timestamp
@@ -442,52 +442,154 @@ _REGIME_NAMES = Literal["TRENDING_UP", "TRENDING_DOWN", "RANGE_BOUND", "HIGH_VOL
 
 class StrategyRulesInput(BaseModel):
     """User-facing strategy DSL. Validated, then transformed to the canonical
-    RuleSchema shape consumed by hot_path."""
-    direction: Literal["long", "short"]
-    match_mode: Literal["all", "any"]
+    RuleSchema shape consumed by hot_path.
+
+    Two valid shapes:
+
+    1. Legacy single-direction:  direction + match_mode + signals
+    2. Both-legs (C.1):          entry_long and/or entry_short, with their own
+                                 match_mode_long / match_mode_short
+
+    `confidence` and `preferred_regimes` are shared. The shapes are mutually
+    exclusive at the field level but a profile that provides ONLY entry_long
+    (or ONLY entry_short) is still a valid both-legs profile — it just emits
+    one direction and never the other.
+    """
+    # Legacy single-direction shape — every field optional now that both-legs
+    # exists, but the validator below still requires *one* of the two shapes.
+    direction: Optional[Literal["long", "short"]] = None
+    match_mode: Optional[Literal["all", "any"]] = None
+    signals: List[StrategySignal] = Field(default_factory=list)
+
+    # Both-legs shape (C.1). Either or both may be set.
+    entry_long: Optional[List[StrategySignal]] = None
+    entry_short: Optional[List[StrategySignal]] = None
+    match_mode_long: Optional[Literal["all", "any"]] = None
+    match_mode_short: Optional[Literal["all", "any"]] = None
+
+    # Shared
     confidence: float = Field(ge=0.0, le=1.0)
-    signals: List[StrategySignal] = Field(min_length=1)
     # C.4: optional regime allowlist. Empty list = profile is regime-agnostic.
     # When set, the hot-path short-circuits with BLOCKED_REGIME_MISMATCH (and
     # shadow=true) whenever the resolved live regime is not in this list.
     preferred_regimes: List[_REGIME_NAMES] = Field(default_factory=list)
 
+    @model_validator(mode="after")
+    def _at_least_one_leg(self):
+        legacy_complete = bool(self.signals) and self.direction is not None and self.match_mode is not None
+        new_any_leg = bool(self.entry_long) or bool(self.entry_short)
+        if not legacy_complete and not new_any_leg:
+            raise ValueError(
+                "Strategy rules must declare either legacy direction+match_mode+signals "
+                "OR at least one of entry_long / entry_short."
+            )
+        # If both-legs shape is in use, each declared leg must have a match_mode.
+        if self.entry_long and not self.match_mode_long:
+            raise ValueError("entry_long requires match_mode_long")
+        if self.entry_short and not self.match_mode_short:
+            raise ValueError("entry_short requires match_mode_short")
+        return self
+
+
+def _signals_to_canonical_conditions(signals: List[StrategySignal]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "indicator": _INDICATOR_USER_TO_CANONICAL[s.indicator],
+            "operator": _COMPARISON_TO_OPERATOR[s.comparison],
+            "value": s.threshold,
+        }
+        for s in signals
+    ]
+
+
+def _canonical_conditions_to_signals(conditions: List[Dict[str, Any]]) -> List[StrategySignal]:
+    return [
+        StrategySignal(
+            indicator=_INDICATOR_CANONICAL_TO_USER[c["indicator"]],
+            comparison=_OPERATOR_TO_COMPARISON[c["operator"]],
+            threshold=float(c["value"]),
+        )
+        for c in conditions
+    ]
+
 
 def strategy_rules_to_canonical(rules: StrategyRulesInput) -> Dict[str, Any]:
-    """User-facing → canonical (what hot_path / RuleCompiler consume)."""
-    canonical: Dict[str, Any] = {
-        "direction": _DIRECTION_USER_TO_CANONICAL[rules.direction],
-        "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode],
-        "base_confidence": rules.confidence,
-        "conditions": [
-            {
-                "indicator": _INDICATOR_USER_TO_CANONICAL[s.indicator],
-                "operator": _COMPARISON_TO_OPERATOR[s.comparison],
-                "value": s.threshold,
+    """User-facing → canonical (what hot_path / RuleCompiler consume).
+
+    Always emits the legacy keys (logic / direction / conditions) because the
+    profile loader's required-keys check and the RuleCompiler both still rely
+    on them. When both-legs is in use, those legacy keys are populated from
+    the long leg if present, else the short leg — and a separate `entry_long`
+    / `entry_short` block is added so the evaluator can see both legs.
+    """
+    use_both_legs = rules.entry_long is not None or rules.entry_short is not None
+
+    if use_both_legs:
+        primary_signals = rules.entry_long if rules.entry_long else rules.entry_short
+        primary_mode = rules.match_mode_long if rules.entry_long else rules.match_mode_short
+        primary_direction = "long" if rules.entry_long else "short"
+        canonical: Dict[str, Any] = {
+            "direction": _DIRECTION_USER_TO_CANONICAL[primary_direction],
+            "logic": _MATCH_MODE_TO_LOGIC[primary_mode],
+            "base_confidence": rules.confidence,
+            "conditions": _signals_to_canonical_conditions(primary_signals),
+        }
+        if rules.entry_long:
+            canonical["entry_long"] = {
+                "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode_long],
+                "conditions": _signals_to_canonical_conditions(rules.entry_long),
             }
-            for s in rules.signals
-        ],
-    }
+        if rules.entry_short:
+            canonical["entry_short"] = {
+                "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode_short],
+                "conditions": _signals_to_canonical_conditions(rules.entry_short),
+            }
+    else:
+        canonical = {
+            "direction": _DIRECTION_USER_TO_CANONICAL[rules.direction],
+            "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode],
+            "base_confidence": rules.confidence,
+            "conditions": _signals_to_canonical_conditions(rules.signals),
+        }
+
     if rules.preferred_regimes:
         canonical["preferred_regimes"] = list(rules.preferred_regimes)
     return canonical
 
 
 def strategy_rules_from_canonical(canonical: Dict[str, Any]) -> StrategyRulesInput:
-    """Canonical → user-facing (for serializing back to the frontend)."""
+    """Canonical → user-facing (for serializing back to the frontend).
+
+    Detects the both-legs shape via the presence of `entry_long` or
+    `entry_short` keys; otherwise produces the legacy single-direction form.
+    """
+    has_long = "entry_long" in canonical
+    has_short = "entry_short" in canonical
+    confidence = float(canonical["base_confidence"])
+    preferred = list(canonical.get("preferred_regimes", []))
+
+    if has_long or has_short:
+        long_block = canonical.get("entry_long") or {}
+        short_block = canonical.get("entry_short") or {}
+        return StrategyRulesInput(
+            direction=None,
+            match_mode=None,
+            signals=[],
+            entry_long=_canonical_conditions_to_signals(long_block["conditions"]) if has_long else None,
+            match_mode_long=_LOGIC_TO_MATCH_MODE[long_block["logic"]] if has_long else None,
+            entry_short=_canonical_conditions_to_signals(short_block["conditions"]) if has_short else None,
+            match_mode_short=_LOGIC_TO_MATCH_MODE[short_block["logic"]] if has_short else None,
+            confidence=confidence,
+            preferred_regimes=preferred,
+        )
+
+    # Legacy single-direction shape.
     return StrategyRulesInput(
         direction=_DIRECTION_CANONICAL_TO_USER[canonical["direction"]],
         match_mode=_LOGIC_TO_MATCH_MODE[canonical["logic"]],
-        confidence=float(canonical["base_confidence"]),
-        signals=[
-            StrategySignal(
-                indicator=_INDICATOR_CANONICAL_TO_USER[c["indicator"]],
-                comparison=_OPERATOR_TO_COMPARISON[c["operator"]],
-                threshold=float(c["value"]),
-            )
-            for c in canonical["conditions"]
-        ],
-        preferred_regimes=list(canonical.get("preferred_regimes", [])),
+        confidence=confidence,
+        signals=_canonical_conditions_to_signals(canonical["conditions"]),
+        preferred_regimes=preferred,
     )
 
 
