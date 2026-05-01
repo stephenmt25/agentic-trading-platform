@@ -20,6 +20,19 @@ _REGIME_SEVERITY = {
     Regime.CRISIS: 4,
 }
 
+# Per-regime confidence multipliers. CRISIS short-circuits to no-trade
+# (handled below) so it isn't in this map. The previous behavior used a
+# single 0.7 fallback for HIGH_VOLATILITY and 1.0 for everything else,
+# which left TRENDING_DOWN sized identically to TRENDING_UP — A.3 of the
+# autonomous-execution brief calls for asymmetric per-regime sizing.
+_REGIME_CONFIDENCE_MULTIPLIER = {
+    Regime.TRENDING_UP: 1.0,
+    Regime.TRENDING_DOWN: 0.5,
+    Regime.RANGE_BOUND: 0.8,
+    Regime.HIGH_VOLATILITY: 0.6,
+}
+_DEFAULT_CONFIDENCE_MULTIPLIER = 0.7
+
 
 @dataclass(frozen=True, slots=True)
 class DampenerResult:
@@ -59,10 +72,8 @@ class RegimeDampener:
         if resolved == Regime.CRISIS:
             return DampenerResult(proceed=False, confidence_multiplier=0.0)
 
-        if resolved == Regime.HIGH_VOLATILITY:
-            return DampenerResult(proceed=True, confidence_multiplier=0.7)
-
-        return DampenerResult(proceed=True, confidence_multiplier=1.0)
+        multiplier = _REGIME_CONFIDENCE_MULTIPLIER.get(resolved, _DEFAULT_CONFIDENCE_MULTIPLIER)
+        return DampenerResult(proceed=True, confidence_multiplier=multiplier)
 
     async def _read_hmm_regime(self, symbol: str) -> Optional[Regime]:
         if not self._redis:

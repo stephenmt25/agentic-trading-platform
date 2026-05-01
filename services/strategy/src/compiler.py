@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, Any, Optional, List
 from libs.core.enums import SignalDirection
 from libs.observability import get_logger
