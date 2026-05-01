@@ -38,6 +38,11 @@ env/
 # Runtime data
 *.sqlite3
 .pytest_cache/
+
+# Rollback artifacts (DB dumps, env backups). These contain secrets and
+# multi-MB SQL data; never commit.
+backups/
+.env.*.backup
 .coverage
 htmlcov/
 .mypy_cache/
