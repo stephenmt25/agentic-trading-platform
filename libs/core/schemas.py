@@ -342,7 +342,12 @@ class SentimentResponse(BaseModel):
 # Validation & Configuration Models
 # ---------------------------------------------------------------------------
 
-SUPPORTED_INDICATORS = {'rsi', 'macd.macd_line', 'macd.signal_line', 'macd.histogram', 'atr'}
+SUPPORTED_INDICATORS = {
+    'rsi', 'macd.macd_line', 'macd.signal_line', 'macd.histogram', 'atr',
+    'adx', 'bb.pct_b', 'bb.bandwidth', 'bb.upper', 'bb.lower', 'obv', 'choppiness',
+    'vwap', 'keltner.upper', 'keltner.middle', 'keltner.lower',
+    'rvol', 'z_score', 'hurst',
+}
 SUPPORTED_OPERATORS = {'LT', 'GT', 'LTE', 'GTE', 'EQ'}
 
 
@@ -393,6 +398,14 @@ _INDICATOR_USER_TO_CANONICAL: Dict[str, str] = {
     "macd_line": "macd.macd_line",
     "macd_signal": "macd.signal_line",
     "macd_histogram": "macd.histogram",
+    # C.2 additions — user-facing names match canonical names (with dots).
+    "vwap": "vwap",
+    "keltner.upper": "keltner.upper",
+    "keltner.middle": "keltner.middle",
+    "keltner.lower": "keltner.lower",
+    "rvol": "rvol",
+    "z_score": "z_score",
+    "hurst": "hurst",
 }
 _INDICATOR_CANONICAL_TO_USER: Dict[str, str] = {v: k for k, v in _INDICATOR_USER_TO_CANONICAL.items()}
 
@@ -413,7 +426,13 @@ _LOGIC_TO_MATCH_MODE: Dict[str, str] = {v: k for k, v in _MATCH_MODE_TO_LOGIC.it
 
 
 class StrategySignal(BaseModel):
-    indicator: Literal["rsi", "atr", "macd_line", "macd_signal", "macd_histogram"]
+    indicator: Literal[
+        "rsi", "atr",
+        "macd_line", "macd_signal", "macd_histogram",
+        "vwap",
+        "keltner.upper", "keltner.middle", "keltner.lower",
+        "rvol", "z_score", "hurst",
+    ]
     comparison: Literal["above", "below", "at_or_above", "at_or_below", "equals"]
     threshold: float
 

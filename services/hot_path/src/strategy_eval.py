@@ -20,6 +20,14 @@ class EvaluatedIndicators:
     bb_bandwidth: Optional[float] = None
     obv: Optional[float] = None
     choppiness: Optional[float] = None
+    # C.2 additions — None until the indicator primes.
+    vwap: Optional[float] = None
+    keltner_upper: Optional[float] = None
+    keltner_middle: Optional[float] = None
+    keltner_lower: Optional[float] = None
+    rvol: Optional[float] = None
+    z_score: Optional[float] = None
+    hurst: Optional[float] = None
 
 @dataclass(frozen=True, slots=True)
 class SignalResult:
@@ -51,6 +59,12 @@ class StrategyEvaluator:
         bb_val = state.indicators.bollinger.update(price) if state.indicators.bollinger else None
         obv_val = state.indicators.obv.update(price, float(tick.volume)) if state.indicators.obv else None  # float-ok: indicator library requires float
         chop_val = state.indicators.choppiness.update(tick_high, tick_low, price) if state.indicators.choppiness else None
+        # C.2 additions
+        vwap_val = state.indicators.vwap.update(price, float(tick.volume)) if state.indicators.vwap else None  # float-ok
+        keltner_val = state.indicators.keltner.update(tick_high, tick_low, price) if state.indicators.keltner else None
+        rvol_val = state.indicators.rvol.update(float(tick.volume)) if state.indicators.rvol else None  # float-ok
+        zscore_val = state.indicators.zscore.update(price) if state.indicators.zscore else None
+        hurst_val = state.indicators.hurst.update(price) if state.indicators.hurst else None
 
         if rsi_val is None or macd_val is None or atr_val is None:
             return None # Core indicators still priming
@@ -75,6 +89,18 @@ class StrategyEvaluator:
             eval_dict['obv'] = obv_val
         if chop_val is not None:
             eval_dict['choppiness'] = chop_val
+        if vwap_val is not None:
+            eval_dict['vwap'] = vwap_val
+        if keltner_val is not None:
+            eval_dict['keltner.upper'] = keltner_val.upper
+            eval_dict['keltner.middle'] = keltner_val.middle
+            eval_dict['keltner.lower'] = keltner_val.lower
+        if rvol_val is not None:
+            eval_dict['rvol'] = rvol_val
+        if zscore_val is not None:
+            eval_dict['z_score'] = zscore_val
+        if hurst_val is not None:
+            eval_dict['hurst'] = hurst_val
 
         eval_inds = EvaluatedIndicators(
             rsi=rsi_val,
@@ -89,6 +115,13 @@ class StrategyEvaluator:
             bb_bandwidth=bb_val.bandwidth if bb_val else None,
             obv=obv_val,
             choppiness=chop_val,
+            vwap=vwap_val,
+            keltner_upper=keltner_val.upper if keltner_val else None,
+            keltner_middle=keltner_val.middle if keltner_val else None,
+            keltner_lower=keltner_val.lower if keltner_val else None,
+            rvol=rvol_val,
+            z_score=zscore_val,
+            hurst=hurst_val,
         )
 
         # 2. Compile Rules Evaluator O(1) ops
@@ -126,6 +159,12 @@ class StrategyEvaluator:
         bb_val = state.indicators.bollinger.update(price) if state.indicators.bollinger else None
         obv_val = state.indicators.obv.update(price, float(tick.volume)) if state.indicators.obv else None
         chop_val = state.indicators.choppiness.update(tick_high, tick_low, price) if state.indicators.choppiness else None
+        # C.2 additions
+        vwap_val = state.indicators.vwap.update(price, float(tick.volume)) if state.indicators.vwap else None
+        keltner_val = state.indicators.keltner.update(tick_high, tick_low, price) if state.indicators.keltner else None
+        rvol_val = state.indicators.rvol.update(float(tick.volume)) if state.indicators.rvol else None
+        zscore_val = state.indicators.zscore.update(price) if state.indicators.zscore else None
+        hurst_val = state.indicators.hurst.update(price) if state.indicators.hurst else None
 
         if rsi_val is None or macd_val is None or atr_val is None:
             return None
@@ -148,6 +187,18 @@ class StrategyEvaluator:
             eval_dict["obv"] = obv_val
         if chop_val is not None:
             eval_dict["choppiness"] = chop_val
+        if vwap_val is not None:
+            eval_dict["vwap"] = vwap_val
+        if keltner_val is not None:
+            eval_dict["keltner.upper"] = keltner_val.upper
+            eval_dict["keltner.middle"] = keltner_val.middle
+            eval_dict["keltner.lower"] = keltner_val.lower
+        if rvol_val is not None:
+            eval_dict["rvol"] = rvol_val
+        if zscore_val is not None:
+            eval_dict["z_score"] = zscore_val
+        if hurst_val is not None:
+            eval_dict["hurst"] = hurst_val
 
         eval_inds = EvaluatedIndicators(
             rsi=rsi_val,
@@ -162,6 +213,13 @@ class StrategyEvaluator:
             bb_bandwidth=bb_val.bandwidth if bb_val else None,
             obv=obv_val,
             choppiness=chop_val,
+            vwap=vwap_val,
+            keltner_upper=keltner_val.upper if keltner_val else None,
+            keltner_middle=keltner_val.middle if keltner_val else None,
+            keltner_lower=keltner_val.lower if keltner_val else None,
+            rvol=rvol_val,
+            z_score=zscore_val,
+            hurst=hurst_val,
         )
 
         res, strat_trace = state.compiled_rules.evaluate_with_trace(eval_dict)
