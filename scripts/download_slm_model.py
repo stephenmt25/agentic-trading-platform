@@ -44,19 +44,18 @@ def main() -> int:
         print(f'Set in .env:  PRAXIS_SLM_MODEL_PATH={target.relative_to(ROOT).as_posix()}')
         return 0
 
-    if shutil.which("huggingface-cli") is None:
-        print("huggingface-cli not on PATH. Install it once:\n    pip install huggingface_hub[cli]")
+    cli = shutil.which("hf") or shutil.which("huggingface-cli")
+    if cli is None:
+        print("Neither 'hf' nor 'huggingface-cli' on PATH. Install it once:\n    pip install huggingface_hub[cli]")
         return 2
 
     cmd = [
-        "huggingface-cli",
+        cli,
         "download",
         args.repo,
         args.file,
         "--local-dir",
         str(MODELS_DIR),
-        "--local-dir-use-symlinks",
-        "False",
     ]
     print("Running:", " ".join(cmd))
     rc = subprocess.call(cmd)

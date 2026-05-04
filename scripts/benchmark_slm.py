@@ -57,7 +57,7 @@ def main() -> int:
     samples: list[float] = []
     last_text = ""
     last_tokens = 0
-    with httpx.Client(timeout=30.0) as c:
+    with httpx.Client(timeout=120.0) as c:
         for i in range(args.n):
             start = time.monotonic()
             res = c.post(
