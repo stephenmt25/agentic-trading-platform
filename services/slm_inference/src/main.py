@@ -7,12 +7,41 @@ Hosts a quantized GGUF model via llama-cpp-python, exposing:
 """
 
 import json
+import os
+import sys
 import time
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 import uvicorn
+
+
+def _register_cuda_dll_dirs() -> None:
+    """On Windows, llama-cpp-python's CUDA wheel needs cudart/cublas DLLs to be
+    discoverable via os.add_dll_directory(). The NVIDIA pip packages
+    (`nvidia-cuda-runtime-cu12`, `nvidia-cublas-cu12`) drop the DLLs into
+    `site-packages/nvidia/<lib>/bin`. Silently no-op on non-Windows or when
+    the packages are absent (CPU build path).
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import nvidia  # type: ignore
+    except ImportError:
+        return
+    # nvidia is a PEP 420 namespace package — its __file__ is None.
+    # Walk its __path__ entries (one per installed nvidia-* package).
+    # Both PATH prepending and os.add_dll_directory() are needed:
+    # add_dll_directory affects DLLs Python loads directly; PATH affects
+    # the transitive chain (llama.dll -> ggml-cuda.dll -> cudart/cublas).
+    for nvidia_root in map(Path, nvidia.__path__):
+        for sub in ("cuda_runtime", "cublas"):
+            bin_dir = nvidia_root / sub / "bin"
+            if bin_dir.is_dir():
+                os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+                os.add_dll_directory(str(bin_dir))
 
 from libs.config import settings
 from libs.core.schemas import CompletionRequest, CompletionResponse, SentimentRequest, SentimentResponse
@@ -38,6 +67,7 @@ def _load_model():
         return
 
     try:
+        _register_cuda_dll_dirs()
         from llama_cpp import Llama
 
         start = time.monotonic()
@@ -59,19 +89,31 @@ def _load_model():
 
 
 def _generate(prompt: str, max_tokens: int = 256, temperature: float = 0.1,
-              stop: Optional[list[str]] = None) -> tuple[str, int]:
-    """Generate text from the loaded model. Returns (text, tokens_used)."""
+              stop: Optional[list[str]] = None, grammar: Optional[str] = None) -> tuple[str, int]:
+    """Generate text from the loaded model via its bundled chat template.
+
+    Uses ``create_chat_completion()`` so the model's own chat template
+    (e.g. Phi-3's ``<|user|>...<|assistant|>``) is applied — chat-tuned models
+    follow instructions far more reliably with their native template than with
+    raw completion. If grammar (GBNF) is provided, output is constrained to
+    match it.
+    """
     if _llm is None:
         # Mock response for development without a model
         return '{"score": 0.0, "confidence": 0.3}', 10
 
-    output = _llm(
-        prompt,
-        max_tokens=max_tokens,
-        temperature=temperature,
-        stop=stop or [],
-    )
-    text = output["choices"][0]["text"]
+    kwargs: dict = {
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temperature,
+        "stop": stop or [],
+    }
+    if grammar:
+        from llama_cpp import LlamaGrammar
+        kwargs["grammar"] = LlamaGrammar.from_string(grammar, verbose=False)
+
+    output = _llm.create_chat_completion(**kwargs)
+    text = output["choices"][0]["message"]["content"]
     tokens = output["usage"]["total_tokens"]
     return text, tokens
 
@@ -99,7 +141,7 @@ app = FastAPI(title="SLM Inference Service", lifespan=lifespan)
 async def completions(req: CompletionRequest):
     start = time.monotonic()
     try:
-        text, tokens = _generate(req.prompt, req.max_tokens, req.temperature, req.stop)
+        text, tokens = _generate(req.prompt, req.max_tokens, req.temperature, req.stop, req.grammar)
     except Exception as e:
         logger.error("Inference error", error=str(e))
         raise HTTPException(status_code=500, detail="Internal inference error")

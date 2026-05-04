@@ -21,8 +21,30 @@ PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "prompts
 
 @runtime_checkable
 class LLMBackend(Protocol):
-    async def complete(self, prompt: str) -> Optional[str]:
+    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
         ...
+
+
+# GBNF grammars constraining the SLM's output to parseable JSON. The cloud
+# backend ignores these (Anthropic doesn't support GBNF); the local llama.cpp
+# backend uses them to guarantee that bull/bear arguments and judge verdicts
+# come back as valid JSON, not prose.
+_ARGUMENT_GBNF = r'''
+root ::= "{" ws "\"argument\":" ws string "," ws "\"conviction\":" ws unit ws "}"
+string ::= "\"" char* "\""
+char ::= [^"\\\x00-\x1F] | "\\" (["\\bnrt/] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+unit ::= ("0" | "1") ("." [0-9]+)?
+ws ::= [ \t\n]*
+'''
+
+_JUDGE_GBNF = r'''
+root ::= "{" ws "\"score\":" ws score "," ws "\"confidence\":" ws unit "," ws "\"reasoning\":" ws string ws "}"
+string ::= "\"" char* "\""
+char ::= [^"\\\x00-\x1F] | "\\" (["\\bnrt/] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
+score ::= "-"? ("0" | "1") ("." [0-9]+)?
+unit ::= ("0" | "1") ("." [0-9]+)?
+ws ::= [ \t\n]*
+'''
 
 
 @dataclass
@@ -125,7 +147,7 @@ class DebateEngine:
 
             # Bull argues
             bull_prompt = _render(self._bull_template, ctx, previous_round=previous)
-            bull_raw = await self._backend.complete(bull_prompt)
+            bull_raw = await self._backend.complete(bull_prompt, grammar=_ARGUMENT_GBNF)
             bull_parsed = _extract_json(bull_raw) if bull_raw else None
 
             if bull_parsed:
@@ -137,7 +159,7 @@ class DebateEngine:
 
             # Bear argues
             bear_prompt = _render(self._bear_template, ctx, previous_round=previous)
-            bear_raw = await self._backend.complete(bear_prompt)
+            bear_raw = await self._backend.complete(bear_prompt, grammar=_ARGUMENT_GBNF)
             bear_parsed = _extract_json(bear_raw) if bear_raw else None
 
             if bear_parsed:
@@ -162,7 +184,7 @@ class DebateEngine:
         # Judge synthesizes
         transcript = "\n".join(transcript_parts)
         judge_prompt = _render(self._judge_template, ctx, transcript=transcript)
-        judge_raw = await self._backend.complete(judge_prompt)
+        judge_raw = await self._backend.complete(judge_prompt, grammar=_JUDGE_GBNF)
         judge_parsed = _extract_json(judge_raw) if judge_raw else None
 
         if judge_parsed:

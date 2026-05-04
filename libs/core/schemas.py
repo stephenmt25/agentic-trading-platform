@@ -319,6 +319,7 @@ class CompletionRequest(BaseModel):
     max_tokens: int = Field(default=256, ge=1, le=4096)
     temperature: float = Field(default=0.1, ge=0.0, le=2.0)
     stop: Optional[list[str]] = None
+    grammar: Optional[str] = None  # GBNF grammar to constrain output (llama.cpp only)
 
 
 class CompletionResponse(BaseModel):

@@ -33,8 +33,8 @@ if str(ROOT) not in sys.path:
 from libs.config import settings  # noqa: E402
 from services.debate.src.engine import DebateEngine, MarketContext  # noqa: E402
 from services.sentiment.src.scorer import (  # noqa: E402
-    CloudLLMBackend,
     LLMSentimentScorer,
+    create_backend,
 )
 
 
@@ -60,12 +60,13 @@ def _truncate(s: Optional[str], n: int = 200) -> str:
 
 
 async def smoke_debate(symbol: str, rounds: int) -> bool:
-    print(f"\n=== DEBATE smoke ({symbol}, {rounds} round(s)) ===")
-    if not settings.LLM_API_KEY:
-        print("FAIL  LLM_API_KEY is empty")
+    print(f"\n=== DEBATE smoke ({symbol}, {rounds} round(s), backend={settings.LLM_BACKEND}) ===")
+    backends = create_backend(settings.LLM_API_KEY)
+    if not backends:
+        print("FAIL  no LLM backends available")
         return False
 
-    backend = CloudLLMBackend(settings.LLM_API_KEY)
+    backend = backends[0]
     engine = DebateEngine(backend, num_rounds=rounds)
     ctx = _default_context(symbol)
 
@@ -105,13 +106,13 @@ async def smoke_debate(symbol: str, rounds: int) -> bool:
 
 
 async def smoke_sentiment(symbol: str) -> bool:
-    print(f"\n=== SENTIMENT smoke ({symbol}) ===")
-    if not settings.LLM_API_KEY:
-        print("FAIL  LLM_API_KEY is empty")
+    print(f"\n=== SENTIMENT smoke ({symbol}, backend={settings.LLM_BACKEND}) ===")
+    backends = create_backend(settings.LLM_API_KEY)
+    if not backends:
+        print("FAIL  no LLM backends available")
         return False
 
-    backend = CloudLLMBackend(settings.LLM_API_KEY)
-    scorer = LLMSentimentScorer(llm_key=settings.LLM_API_KEY, backends=[backend])
+    scorer = LLMSentimentScorer(llm_key=settings.LLM_API_KEY, backends=backends)
     headlines = [
         f"{symbol.split('/')[0]} ETF inflows hit a 6-month high as institutional demand returns",
         f"Macro analyst warns {symbol.split('/')[0]} faces resistance at recent highs after Fed remarks",

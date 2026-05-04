@@ -19,5 +19,7 @@ Evaluate both arguments objectively. Consider:
 2. Which side's logic was more internally consistent?
 3. What is the overall weight of evidence?
 
-Respond with ONLY a JSON object:
-{"score": <float -1.0 (strong bear) to 1.0 (strong bull)>, "confidence": <float 0.0 to 1.0>, "reasoning": "<1 sentence summary>"}
+Respond with ONLY a JSON object containing exactly three fields:
+- score: a number between -1.0 (strong bear) and 1.0 (strong bull)
+- confidence: a number between 0.0 and 1.0
+- reasoning: a one-sentence string summarising why you arrived at this verdict

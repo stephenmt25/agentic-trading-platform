@@ -27,8 +27,12 @@ class SentimentResult:
 
 @runtime_checkable
 class LLMBackend(Protocol):
-    async def complete(self, prompt: str) -> Optional[str]:
-        """Send a prompt to the LLM and return the response text, or None on failure."""
+    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
+        """Send a prompt to the LLM and return the response text, or None on failure.
+
+        If grammar (GBNF) is provided, the local backend constrains output to match
+        it. Cloud backends ignore grammar (Anthropic doesn't support GBNF).
+        """
         ...
 
 
@@ -42,7 +46,8 @@ class CloudLLMBackend:
         self._api_key = api_key
         self._last_call_time: float = 0.0
 
-    async def complete(self, prompt: str) -> Optional[str]:
+    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
+        # grammar is ignored — Anthropic API doesn't support GBNF.
         if not self._api_key:
             return None
 
@@ -87,13 +92,16 @@ class LocalLLMBackend:
     def __init__(self, base_url: str = None):
         self._base_url = base_url or settings.SLM_INFERENCE_URL
 
-    async def complete(self, prompt: str) -> Optional[str]:
+    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
         try:
             async with httpx.AsyncClient() as client:
+                payload: dict = {"prompt": prompt, "max_tokens": 100, "temperature": 0.1}
+                if grammar:
+                    payload["grammar"] = grammar
                 res = await client.post(
                     f"{self._base_url}/v1/completions",
-                    json={"prompt": prompt, "max_tokens": 100, "temperature": 0.1},
-                    timeout=5.0,
+                    json=payload,
+                    timeout=180.0,
                 )
                 if res.status_code == 200:
                     data = res.json()
