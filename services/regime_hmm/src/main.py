@@ -26,10 +26,12 @@ HMM_FIT_TIMEOUT_S = 30
 # Number of recent points to hold out from training for prediction
 HMM_PREDICT_WINDOW = 1
 # Minimum forward-algorithm probability for the decoded state before the
-# regime signal is published.  Predictions below this threshold are
+# regime signal is published. Predictions below this threshold are
 # suppressed — the Redis key is not written and a telemetry event is
 # emitted instead so the dashboard can surface low-confidence periods.
-CONFIDENCE_THRESHOLD = 0.70
+# Driven by settings.REGIME_HMM_CONFIDENCE_THRESHOLD (default 0.40 to
+# accommodate ~30 days of 1h training data; raise once data is denser).
+CONFIDENCE_THRESHOLD = settings.REGIME_HMM_CONFIDENCE_THRESHOLD
 
 
 async def classification_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
@@ -101,9 +103,13 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository, t
                             # Persist to TimescaleDB for charting overlays
                             if score_repo:
                                 try:
+                                    # Score = confidence (0.0-1.0), not state index (which is 0 for
+                                    # TRENDING_UP and would silently zero every row, causing the
+                                    # frontend's `score !== 0` hydration check to mark regime "dark").
+                                    # Categorical regime label + state index live in metadata.
                                     await score_repo.write_score(
                                         symbol, "regime_hmm",
-                                        Decimal(str(state)),
+                                        Decimal(str(confidence)),
                                         confidence=Decimal(str(confidence)),
                                         metadata={"regime": regime.value, "state_index": state},
                                     )

@@ -51,11 +51,14 @@ class AgentScoreRepository(BaseRepository):
             idx += 1
 
         where = " AND ".join(conditions)
+        # Order DESC + LIMIT to grab the NEWEST N rows. Caller re-sorts ASC for
+        # chart display. Previous ASC order returned the OLDEST N — for any
+        # agent with >limit rows, today's data was invisible to the chart.
         query = f"""
         SELECT symbol, agent_name, score, confidence, metadata, recorded_at
         FROM agent_score_history
         WHERE {where}
-        ORDER BY recorded_at ASC
+        ORDER BY recorded_at DESC
         LIMIT ${idx}
         """
         params.append(limit)

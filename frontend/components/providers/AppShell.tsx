@@ -20,6 +20,7 @@ const IS_MOCK_DATA = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
 const NAV_ITEMS = [
   { href: "/trade", label: "Trade" },
   { href: "/strategies", label: "Strategies" },
+  { href: "/agent-view", label: "Agents" },
   { href: "/docs", label: "Docs" },
 ];
 

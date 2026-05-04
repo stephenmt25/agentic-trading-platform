@@ -76,6 +76,13 @@ class Settings(BaseSettings):
     SLM_CONTEXT_LENGTH: int = Field(default=4096)
     SLM_GPU_LAYERS: int = Field(default=-1)              # -1 = all layers on GPU
 
+    # Regime HMM emission threshold. With ~30 days of 1h candles, 5-state
+    # GaussianHMM confidences typically peak around 0.45-0.55, so a 0.70
+    # default suppresses every emission. Lowered to 0.40 so the regime chip
+    # actually populates; raise back toward 0.70 once we have ≥6 months of
+    # candles per symbol and fits become more confident.
+    REGIME_HMM_CONFIDENCE_THRESHOLD: float = Field(default=0.40)
+
     # HITL (Human-in-the-Loop) execution gate
     HITL_ENABLED: bool = Field(default=False)
     HITL_SIZE_THRESHOLD_PCT: float = Field(default=5.0)       # Trigger when trade size > X% of allocation
