@@ -13,20 +13,21 @@ possible from the second brain setup."
 
 ## TL;DR
 
-Five focused commits. ML stack code is fully shipped (A.1–A.4) but
-**three of the four ML items have live-run blockers that were not
-resolved this session and are called out below**. D.PR2 MVP (the
-gate-efficacy half of the Insight Engine) is fully shipped with 24
-unit tests and a new endpoint, ready for a service restart to start
-producing reports.
+Five focused commits in the morning session. Two more commits in the
+same-day live-run follow-up. **Most live-run blockers are now cleared.**
+A live-run pass exposed a pre-existing HMM defect on `main` (every fit
+collapsed to a non-positive-definite covariance), which was diagnosed
+and fixed in commit `3b01c5e`. SLM is now actually serving real
+completions on CPU. A.1 still gated on Anthropic credits, A.4 still
+on elapsed time. See `## Live-run follow-up` below.
 
-| Track-Item | State | Commit | Live-run blocker |
-|-----------|-------|--------|------------------|
-| A.3 — HMM training script + checkpoint loading | ✅ shipped, unit-tested | 8df7f34 | DB down — checkpoints not actually trained |
-| A.1 — Debate / sentiment smoke test           | ⚠️ code shipped       | 2e9e177 | Anthropic API returns "credit balance too low" — billing issue, not code |
-| A.2 — slm_inference model path + benchmark    | ⚠️ code shipped       | 9ef54df | 2.4 GB GGUF download intentionally not run mid-session |
-| A.4 — Pre/post ML validation report           | ⚠️ code shipped       | 39fb722 | Needs DB + 24h post-hydration decisions |
-| D.PR2 — Gate efficacy MVP                     | ✅ shipped, unit-tested | 960a572 | Migration 019 not yet applied; needs `bash run_all.sh` |
+| Track-Item | State | Commit(s) | Status |
+|-----------|-------|-----------|--------|
+| A.3 — HMM training script + checkpoint loading | ✅ live-verified | 8df7f34, **3b01c5e** | Fit was failing on `main`; fixed with `covariance_type=diag`. BTC/USDT + ETH/USDT checkpoints loaded by live `regime_hmm`. |
+| A.1 — Debate / sentiment smoke test           | ⚠️ code shipped       | 2e9e177 | Anthropic credit balance still too low — top up to verify |
+| A.2 — slm_inference model path + benchmark    | ✅ live-verified | 9ef54df, **04d69ef** | `model_loaded=true`. CPU benchmark: p50 4.2s, p95/p99 6.2s for 20-token completions |
+| A.4 — Pre/post ML validation report           | ⚠️ code shipped       | 39fb722 | Stack now hydrating — wait ~24h then run the script |
+| D.PR2 — Gate efficacy MVP                     | ✅ live-verified (route) | 960a572 | Migration 019 applied; endpoint returns 401 (auth wired correctly); needs ≥6h for first Insight Engine pass |
 | D.PR3 / PR4 / PR5                             | ❌ skipped             | —      | Multi-day each per the source-of-truth doc |
 
 ---
@@ -209,26 +210,16 @@ Specifically, none of the following were observed running:
 
 ## Next steps for the human (in priority order)
 
-1. **Boot the stack:** `bash run_all.sh --stop && bash run_all.sh --local-frontend`.
-2. **Apply migration 019** (the lifespan probably already does this
-   via the migrations runner, but confirm
-   `gate_efficacy_reports` exists with `\d gate_efficacy_reports` in
-   psql).
+Items struck through were completed in the same-day follow-up session
+(see `## Live-run follow-up` below).
+
+1. ~~**Boot the stack:** `bash run_all.sh --stop && bash run_all.sh --local-frontend`.~~ ✅ Done.
+2. ~~**Apply migration 019**~~ ✅ Done. `gate_efficacy_reports` and `rule_fingerprint_outcomes` verified in psql.
 3. **Top up the Anthropic balance** and re-run
    `poetry run python scripts/smoke_debate.py` to clear A.1's live
-   verification.
-4. **Train the HMM checkpoints:**
-   ```bash
-   poetry run python scripts/train_hmm.py --all
-   ```
-   Restart `services/regime_hmm` (via `run_all.sh`) and verify
-   `agent:regime_hmm:{symbol}` Redis key updates with non-stale
-   regimes.
-5. **Download the SLM (optional, anytime):**
-   ```bash
-   poetry run python scripts/download_slm_model.py
-   # then uncomment PRAXIS_SLM_MODEL_PATH in .env and restart slm_inference
-   ```
+   verification. (Still pending — credits.)
+4. ~~**Train the HMM checkpoints:** `poetry run python scripts/train_hmm.py --all`~~ ✅ Done — but required commit `3b01c5e` to make the model fit at all. Both BTC/USDT and ETH/USDT checkpoints are loaded by the live `regime_hmm` service. Confidences below the 0.7 threshold (sparse 1h data) so emissions are correctly suppressed.
+5. ~~**Download the SLM:** `poetry run python scripts/download_slm_model.py`~~ ✅ Done. Also installed `llama-cpp-python` (CPU prebuilt wheel) and uncommented `PRAXIS_SLM_MODEL_PATH` in `.env`. `slm_inference` reports `model_loaded=true`.
 6. **Wait ~24h, then run the validation report:**
    ```bash
    poetry run python scripts/ml_validation.py
@@ -240,9 +231,96 @@ Specifically, none of the following were observed running:
    ```
    Expect at least one row per active gate per (active profile,
    symbol) — likely `abstention`, `hitl`, possibly `regime_mismatch`
-   if any profile has `preferred_regimes` set.
+   if any profile has `preferred_regimes` set. The unauthenticated
+   smoke test in the follow-up confirmed the route is wired (returns
+   401 without a bearer token).
 8. **Once PR2 has 7+ days of reports**, that's the precondition for
    starting D.PR3 (adaptive weights).
+
+---
+
+## Live-run follow-up (same-day continuation)
+
+After the morning session ended, a live-run pass was completed against
+the booted stack. Two new commits landed:
+
+| Commit | Subject | Why |
+|--------|---------|-----|
+| `3b01c5e` | `fix(regime_hmm): use diagonal covariance to prevent EM collapse` | A.3 — see "HMM defect" below |
+| `04d69ef` | `fix(scripts): SLM download/benchmark adjustments for current toolchain` | A.2 — `huggingface-cli` deprecation + benchmark timeout |
+
+### HMM defect discovered and fixed (A.3)
+
+`scripts/train_hmm.py --all` failed for **every** symbol with:
+
+```
+'covars' must be symmetric, positive-definite
+```
+
+The smoking gun: `.praxis_logs/regime_hmm.log` showed the **same error
+during the live service's in-process fit**. The agent had been silently
+broken on `main` — the prior session never observed it because the DB
+was down. Both `_is_fitted=False` paths were being taken: the offline
+training script returned False, and the live service silently fell
+through to a never-fitted model that produces no predictions.
+
+**Root cause:** `GaussianHMM` with `covariance_type="full"`, 5 states,
+and 2 features (log-return, rolling vol) overparameterises ~33 days
+of 1h candles (~770 observations after windowing). EM iterations
+collapse one state's covariance toward singularity.
+
+**Fix** (`services/regime_hmm/src/hmm_model.py:24`): switch to
+`covariance_type="diag"`. Diagonal covariance is well-conditioned
+for this data, all 21 regime_hmm unit tests still pass, and
+`regime_mapper` only reads `means_` so its classification is
+unaffected.
+
+After the fix:
+- BTC/USDT: 2 distinct regimes detected (CRISIS, TRENDING_UP)
+- ETH/USDT: 3 distinct regimes (CRISIS, HIGH_VOLATILITY, TRENDING_UP)
+- Live `regime_hmm` loaded both checkpoints from disk on startup.
+- Confidences (~0.47–0.51) sit below the 0.7 emission threshold —
+  expected for ~33 days of noisy 1h data; the service correctly
+  emits "regime suppressed (low confidence)" log events instead of
+  publishing.
+
+Coverage gap (not introduced by this session, but worth flagging):
+no test exercised an actual `.fit()` call against realistic
+log-return + volatility data. The 21 existing tests all use either
+synthetic / well-conditioned inputs or mock the `_is_fitted` flag.
+A future test that fits on a sample of real OHLC and asserts
+`_is_fitted=True` would have caught this.
+
+### A.2 — SLM activated end-to-end
+
+| Step | Outcome |
+|------|---------|
+| GGUF download | `models/Phi-3-mini-4k-instruct-q4.gguf` (2.4 GB) |
+| `huggingface-cli` deprecation | `download_slm_model.py` now prefers `hf` and drops the deprecated `--local-dir-use-symlinks` flag |
+| `llama-cpp-python` install | Source build needed MSVC; switched to the prebuilt CPU wheel (`--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu --only-binary=:all:`). Note: this dep is intentionally NOT in `pyproject.toml` — `slm_inference/src/main.py:41` imports it lazily and falls back to a mock for dev. |
+| `.env` | `PRAXIS_SLM_MODEL_PATH` uncommented |
+| Service load | `slm_inference` reports `model_loaded=true`, load time 10.6 s |
+| Benchmark (20-token completions) | p50 4.2 s, p95/p99 6.2 s. Far above the brief's aspirational <100 ms target — expected for CPU GGUF on this machine, sample output is sensible (`"Bitcoin breaks 50-day"`). The benchmark script's hardcoded 30 s httpx timeout was bumped to 120 s; without that, the very first call timed out before recording any sample. |
+
+### D.PR2 — endpoint route verified
+
+`migrations/versions/019_insight_engine_tables.sql` was applied
+during the boot. Both `gate_efficacy_reports` (with all expected
+indexes and the FK to `trading_profiles`) and the
+`rule_fingerprint_outcomes` scaffold are present. An unauthenticated
+GET to `/agent-performance/gate-efficacy/BTC%2FUSDT` returns 401 —
+the route is registered and gated by auth as designed. End-to-end
+verification with a bearer token still requires ≥6 h elapsed for
+the first Insight Engine pass to write a row.
+
+### Things still gated on you
+
+| Gate | Action |
+|------|--------|
+| Anthropic credits (A.1) | Top up, then `poetry run python scripts/smoke_debate.py` |
+| 24 h hydration window (A.4) | Then `poetry run python scripts/ml_validation.py` |
+| 6 h Insight Engine pass (D.PR2) | Then curl the endpoint with a real `Authorization: Bearer $TOKEN` |
+| 7+ days of PR2 data | Then start D.PR3 (adaptive weights) |
 
 ---
 
