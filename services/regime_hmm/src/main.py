@@ -14,6 +14,7 @@ from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage._timescale_client import TimescaleClient
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
+from .checkpoint import load_checkpoint
 from .hmm_model import HMMRegimeModel
 from .regime_mapper import map_state_to_regime
 
@@ -32,9 +33,29 @@ CONFIDENCE_THRESHOLD = 0.70
 
 
 async def classification_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
-    """Periodically classify market regime using HMM and write to Redis."""
+    """Periodically classify market regime using HMM and write to Redis.
+
+    On startup, prefer an offline checkpoint at ``models/regime_hmm_<SYM>.pkl``
+    written by ``scripts/train_hmm.py``. If the checkpoint is missing or stale
+    (>30 days), fall back to fitting in-process from recent candles — the
+    historical service behaviour.
+    """
     symbols = settings.TRADING_SYMBOLS
-    models: dict[str, HMMRegimeModel] = {sym: HMMRegimeModel() for sym in symbols}
+    models: dict[str, HMMRegimeModel] = {}
+    for sym in symbols:
+        cp = load_checkpoint(sym)
+        if cp is not None and not cp.is_stale():
+            models[sym] = cp.model
+            logger.info(
+                "Loaded HMM checkpoint",
+                symbol=sym,
+                trained_at=cp.trained_at.isoformat(),
+                n_train=cp.n_train,
+            )
+        else:
+            if cp is not None:
+                logger.warning("HMM checkpoint stale; will refit in-process", symbol=sym, trained_at=cp.trained_at.isoformat())
+            models[sym] = HMMRegimeModel()
 
     while True:
         try:
@@ -51,7 +72,7 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository, t
                 # Split: train on all but last N points, predict on full series
                 train_prices = prices[:-HMM_PREDICT_WINDOW]
 
-                # Re-fit only when model has not been fitted yet
+                # Re-fit only when model has not been fitted yet (no checkpoint or stale).
                 if not model._is_fitted:
                     models[symbol] = HMMRegimeModel()
                     model = models[symbol]

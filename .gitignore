@@ -56,6 +56,9 @@ frontend/.env.local
 # Secrets — NEVER commit
 .dev_secrets/
 
+# Trained model artifacts (HMM checkpoints, SLM weights, etc.)
+models/
+
 # Logs
 .praxis_logs/
 *.log
