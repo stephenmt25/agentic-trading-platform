@@ -6,10 +6,15 @@ from contextlib import asynccontextmanager
 from libs.config import settings
 from libs.storage import RedisClient
 from libs.storage._timescale_client import TimescaleClient
+from libs.storage.repositories.decision_repo import DecisionRepository
+from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
+from libs.storage.repositories.market_data_repo import MarketDataRepository
+from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
 from libs.core.agent_registry import AgentPerformanceTracker, AGENT_DEFAULTS, TRACKER_KEY, WEIGHTS_KEY
+from .insight_engine import insight_engine_loop
 
 logger = get_logger("analyst")
 
@@ -65,13 +70,22 @@ async def lifespan(app: FastAPI):
                 logger.error("Weight recomputation failed", error=str(e))
             await asyncio.sleep(WEIGHT_RECOMPUTE_INTERVAL_S)
 
-    logger.info("Analyst Agent started — weight computation engine")
+    profile_repo = ProfileRepository(timescale)
+    decision_repo = DecisionRepository(timescale)
+    market_repo = MarketDataRepository(timescale)
+    gate_repo = GateEfficacyRepository(timescale)
+
+    logger.info("Analyst Agent started — weight computation + insight engine")
     weight_task = asyncio.create_task(weight_recompute_loop())
+    insight_task = asyncio.create_task(
+        insight_engine_loop(profile_repo, decision_repo, market_repo, gate_repo)
+    )
 
     yield
 
     weight_task.cancel()
-    await asyncio.gather(weight_task, return_exceptions=True)
+    insight_task.cancel()
+    await asyncio.gather(weight_task, insight_task, return_exceptions=True)
     await telemetry.stop()
     await timescale.close()
     logger.info("Analyst Agent shutdown")

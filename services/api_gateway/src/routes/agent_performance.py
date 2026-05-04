@@ -4,9 +4,16 @@ from typing import List, Optional
 from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 
-from ..deps import get_redis, get_agent_score_repo, get_decision_repo, get_weight_history_repo
+from ..deps import (
+    get_redis,
+    get_agent_score_repo,
+    get_decision_repo,
+    get_weight_history_repo,
+    get_gate_efficacy_repo,
+)
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
+from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
 
 router = APIRouter()
@@ -213,3 +220,46 @@ async def get_gate_analytics(
         "outcome_counts": outcome_counts,
         "gate_details": gate_details,
     }
+
+
+@router.get("/gate-efficacy/{symbol:path}")
+async def get_gate_efficacy(
+    symbol: str,
+    profile_id: Optional[str] = Query(default=None),
+    gate_name: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    repo: GateEfficacyRepository = Depends(get_gate_efficacy_repo),
+):
+    """Read the most recent gate efficacy reports for a symbol.
+
+    Reports are produced every 6h by the analyst service's Insight Engine
+    (services/analyst/src/insight_engine.py). NULL win-rate / PnL fields
+    indicate sample size below MIN_SAMPLE_SIZE — the partner-facing UI
+    should render these as "not enough data yet" rather than 0.
+    """
+    symbol = _clean_symbol(symbol)
+    rows = await repo.get_recent(
+        symbol=symbol,
+        profile_id=profile_id,
+        gate_name=gate_name,
+        limit=limit,
+    )
+
+    def _normalise(row: dict) -> dict:
+        out = dict(row)
+        for key in (
+            "blocked_would_be_win_rate",
+            "blocked_would_be_pnl_pct",
+            "passed_realized_win_rate",
+            "passed_realized_pnl_pct",
+            "confidence_band",
+        ):
+            v = out.get(key)
+            out[key] = float(v) if v is not None else None
+        for ts_key in ("window_start", "window_end", "created_at"):
+            v = out.get(ts_key)
+            if hasattr(v, "isoformat"):
+                out[ts_key] = v.isoformat()
+        return out
+
+    return [_normalise(r) for r in rows]
