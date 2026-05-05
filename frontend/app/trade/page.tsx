@@ -280,14 +280,38 @@ export default function TradePage() {
     setGeneratingReport(true);
     try {
       const result = await api.paperTrading.generateReport(reportDate);
-      if (result.wrote) {
-        toast.success(`Report regenerated for ${result.report_date}`);
-      } else if (result.report) {
-        toast.info(`No new activity on ${result.report_date} — kept existing report`);
-      } else {
-        toast.info(`No trades or snapshots on ${result.report_date} — nothing to report`);
-      }
+      // Refresh first so the new row is in dailyReports, then auto-expand
+      // it. Without the expand the user only sees a toast — the actual
+      // numbers live one click away in the list below, which is invisible
+      // unless they scroll and hunt for the matching date.
       await loadLive();
+      if (result.report) {
+        setExpandedReportId(result.report.id);
+        // Scroll the row into view in case the user picked a backfill
+        // date that lands mid-list. requestAnimationFrame waits for the
+        // expand to render before the scroll, otherwise we scroll to
+        // the collapsed-row position.
+        const rid = result.report.id;
+        requestAnimationFrame(() => {
+          document
+            .getElementById(`report-row-${rid}`)
+            ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        });
+        const r = result.report;
+        const summary =
+          `${r.total_trades} trade${r.total_trades === 1 ? "" : "s"} · ` +
+          `${(r.win_rate * 100).toFixed(1)}% win · ` +
+          `${r.net_pnl >= 0 ? "+" : ""}$${r.net_pnl.toFixed(2)} net`;
+        if (result.wrote) {
+          toast.success(`Report for ${result.report_date}`, { description: summary });
+        } else {
+          toast.info(`No change on ${result.report_date}`, { description: summary });
+        }
+      } else {
+        toast.info(`No trades or snapshots on ${result.report_date}`, {
+          description: "Nothing to report for that day.",
+        });
+      }
     } catch (e: any) {
       toast.error(`Failed to generate report: ${e.message ?? e}`);
     } finally {
@@ -472,7 +496,7 @@ export default function TradePage() {
                 </div>
               ) : (
                 dailyReports.map((report) => (
-                  <div key={report.id}>
+                  <div key={report.id} id={`report-row-${report.id}`}>
                     <button
                       onClick={() => toggleReport(report.id)}
                       className="w-full p-2.5 border border-border rounded-md flex justify-between items-center hover:bg-accent transition-colors text-left min-h-[40px]"
