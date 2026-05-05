@@ -577,7 +577,7 @@ export default function TradePage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-        <section className="xl:col-span-2 border border-border rounded-md overflow-hidden flex flex-col h-[820px]">
+        <section className="xl:col-span-2 border border-border rounded-md overflow-hidden flex flex-col h-[700px]">
           <PanelHeader
             title="Decision Feed"
             subtitle="Live signals as the engine evaluates them — approvals, blocks, and reasons"
@@ -588,7 +588,7 @@ export default function TradePage() {
           </div>
         </section>
 
-        <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col h-[820px]">
+        <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col h-[700px]">
           <PanelHeader
             title="Price · Agent overlays"
             subtitle="Symbol price with agent score overlays"
