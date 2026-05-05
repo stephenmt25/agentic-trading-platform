@@ -23,6 +23,7 @@ from libs.messaging.channels import (
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
 from libs.core.models import RiskLimits
+from libs.core.notional import profile_notional
 from libs.core.schemas import DEFAULT_RISK_LIMITS
 from libs.indicators import create_indicator_set
 from services.strategy.src.compiler import RuleCompiler
