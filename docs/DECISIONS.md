@@ -5,6 +5,76 @@
 
 ---
 
+## 2026-05-05 — Clean-baseline reset of meta-learning Redis state
+
+### Context
+
+Five rails fixes landed today that change the *interpretation* of every prior
+closed trade in the EWMA learning loop:
+
+1. CRISIS abstention restored (`a08d576`) — trades during CRISIS regimes
+   should not have happened.
+2. Mainnet-vs-testnet OHLCV volume contamination (already RESOLVED earlier
+   2026-05-05) — every volume-derived feature was wrong by ~10×.
+3. Notional unit alignment ($10k vs $100k drift) — concentration math
+   used the wrong denominator.
+4. Sentiment + debate "fake LLM votes" filtered out (`4b58e52`) — the
+   `agent:closed:{symbol}` stream had been recording sentiment + debate
+   with `score=0.0` on every closed trade.
+5. Bytes-vs-string Redis decode bug in analyst tracker (`acb25ae`).
+
+The Redis EWMA aggregates (`agent:tracker:{symbol}:{agent}`,
+`agent:weights:{symbol}`) integrate over all that poisoned data. Going
+forward we want a clean reading.
+
+### Decision
+
+Ran `scripts/reset_clean_baseline.py --apply` at unix ts `1777985139`. The
+script:
+
+- Archived `agent:closed:{symbol}` and `agent:outcomes:{symbol}` streams to
+  `agent:archive:1777985139:closed:{symbol}` and
+  `agent:archive:1777985139:outcomes:{symbol}` (RENAME, atomic).
+- Deleted `agent:tracker:{symbol}:*` for every symbol/agent.
+- Deleted `agent:weights:{symbol}` so next recompute writes from defaults.
+- Deleted `sentiment:{symbol}:latest` (the cache poisoned by `llm_error`
+  fallbacks pre-fix).
+- Deleted `agent:sentiment:{symbol}` and `agent:debate:{symbol}` so the
+  next cycle writes fresh state.
+
+Pre-reset state: BTC/USDT had 3,689 closed-trade entries (9 wins / 3,680
+losses), ETH/USDT had 956. After reset: all four streams empty.
+
+### Trade-off
+
+We lose the EWMA convergence on the prior 4,645 trades. But that
+convergence was on contaminated inputs, so the only signal it carried was
+"all of this was wrong." Restarting from `AGENT_DEFAULTS`
+(`ta: 0.20, sentiment: 0.15, debate: 0.25`) gives every agent a fair shot
+at proving itself on post-fix data.
+
+### Not reset
+
+- `closed_trades` and `pnl_snapshots` Postgres tables — historical audit;
+  the dashboard's all-time PnL reads from these.
+- `agent_weight_history` Postgres table — historical record of what the
+  system actually computed; preserves the audit trail.
+- The archived Redis streams (`agent:archive:1777985139:*`) — kept for
+  post-mortem analysis of the contaminated period.
+
+### Verification
+
+After running `bash run_all.sh --local-frontend`, confirm with the probe:
+```
+poetry run python scripts/probe_agent_scores.py
+```
+The next analyst recompute (5-min cycle) should write `AGENT_DEFAULTS` to
+`agent:weights:{symbol}` for both symbols. The first post-reset closed
+trade adds an entry to a now-empty `agent:closed:{symbol}` stream; EWMA
+restarts from MIN_SAMPLES=10.
+
+---
+
 ## 2026-05-05 — Notional-per-allocation reverted to $10k across all four call sites
 
 ### Context
