@@ -1,26 +1,33 @@
+"""Focused circuit-breaker e2e — drives a profile whose daily realised PnL
+already exceeds the configured threshold through the full gate sequence and
+asserts the pipeline blocks at the circuit breaker.
+
+The broader scenario matrix lives in `test_happy_path.py`; this file exists
+to keep the circuit-breaker case discoverable by name in CI logs and to fail
+loudly if the gate is ever moved or removed from the production pipeline.
+"""
+
 import pytest
-from unittest.mock import AsyncMock, patch
-from services.hot_path.src.processor import HotPathProcessor
-from libs.core.enums import SignalDirection
+
+from ._pipeline import run_pipeline
+from .scenarios import (
+    SCENARIOS,
+    make_indicators,
+    make_signal,
+    make_state,
+    make_tick,
+)
+
 
 @pytest.mark.asyncio
-async def test_e2e_circuit_breaker():
-    # E2E test tracking limits when losses exceed static percentage bounds natively
-    # 1. Pipeline initiates
-    # 2. Check flags PNL array simulating active loss at -3%
-    # 3. Circuit breaker identifies bounds mapping > 2% static configs
-    # 4. Logs Event -> Halts explicitly mapping no Output order_approved
-    
-    mock_ledger = AsyncMock()
-    mock_publisher = AsyncMock()
-    mock_validation = AsyncMock()
-    
-    processor = HotPathProcessor(
-        ledger=mock_ledger,
-        publisher=mock_publisher,
-        validation=mock_validation
-    ) 
-    
-    # In live evaluations, hot-path reads current profile PnL against equity.
-    # processor.check_circuit_breaker() drops Order
-    assert True
+async def test_circuit_breaker_blocks_when_daily_loss_exceeds_threshold():
+    scenario = next(s for s in SCENARIOS if s.name == "circuit-breaker-trip")
+    outcome = await run_pipeline(
+        profile_state=make_state(scenario),
+        signal=make_signal(scenario),
+        tick=make_tick(scenario),
+        indicators=make_indicators(scenario),
+    )
+    assert outcome.decision == "BLOCKED_CIRCUIT_BREAKER", (
+        f"expected circuit breaker to block, got {outcome.decision} (reason={outcome.reason!r})"
+    )
