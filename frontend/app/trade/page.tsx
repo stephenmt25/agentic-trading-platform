@@ -577,7 +577,7 @@ export default function TradePage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-        <section className="xl:col-span-2 border border-border rounded-md overflow-hidden flex flex-col h-[600px]">
+        <section className="xl:col-span-2 border border-border rounded-md overflow-hidden flex flex-col h-[820px]">
           <PanelHeader
             title="Decision Feed"
             subtitle="Live signals as the engine evaluates them — approvals, blocks, and reasons"
@@ -588,13 +588,16 @@ export default function TradePage() {
           </div>
         </section>
 
-        <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col h-[600px]">
+        <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col h-[820px]">
           <PanelHeader
             title="Price · Agent overlays"
             subtitle="Symbol price with agent score overlays"
             scope="symbol"
           />
-          <div className="flex-1 overflow-hidden p-3">
+          {/* overflow-y-auto so the Current Agent Weights panel beneath the
+              agent-score overlay chart in AnalysisContent stays reachable
+              even at narrower widths or future content additions. */}
+          <div className="flex-1 min-h-0 overflow-y-auto p-3">
             <AnalysisContent />
           </div>
         </section>
