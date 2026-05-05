@@ -1,6 +1,7 @@
 import json
 from decimal import Decimal
 from .check_1_strategy import CheckResult
+from libs.core.notional import profile_notional
 from libs.observability import get_logger
 
 logger = get_logger("validation.risk_level")
@@ -41,11 +42,11 @@ class RiskLevelRecheck:
         else:
             risk_limits = raw_limits if isinstance(raw_limits, dict) else {}
 
-        # (a) Max allocation percentage check
+        # (a) Max allocation percentage check — notional from libs.core.notional
         max_allocation_pct = Decimal(str(risk_limits.get("max_allocation_pct", 1)))
-        profile_allocation = Decimal(str(profile.get("allocation_pct", 1)))
-        if profile_allocation > 0 and order_value > 0:
-            alloc_fraction = order_value / (profile_allocation * 10_000)
+        notional = profile_notional(profile)
+        if notional > 0 and order_value > 0:
+            alloc_fraction = order_value / notional
             if alloc_fraction > max_allocation_pct:
                 return CheckResult(
                     passed=False,

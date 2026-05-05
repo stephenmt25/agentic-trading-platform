@@ -41,13 +41,47 @@ the gate exists to enforce capital discipline. Workarounds for an active
 demo session: close positions, lower `allocation_pct`, or land the
 long-term fix.
 
-### Long-term fix (open)
+### Long-term fix (LANDED 2026-05-05)
 
-The hardcoded `$10,000` constant itself is the real defect. Notional should
-derive from a single source — most naturally from `trading_profiles.allocation_pct`
-(currently 0..N where 1.0 = 100% of some implicit base). When that lands,
-all four call sites collapse to a single helper and this DECISIONS.md
-entry can be marked as superseded.
+The hardcoded `$10,000` constant has been collapsed into a single helper at
+`libs/core/notional.py`:
+
+- `NOTIONAL_PER_ALLOC_UNIT_USD = Decimal("10000")` — the only place the
+  constant lives.
+- `DEFAULT_ALLOCATION_PCT = Decimal("1.0")`
+- `DEFAULT_NOTIONAL_USD = DEFAULT_ALLOCATION_PCT * NOTIONAL_PER_ALLOC_UNIT_USD`
+- `profile_notional(profile)` — accepts the dict returned by
+  `ProfileRepository.get_profile`, returns the computed Decimal. Strictly
+  positive — invalid/missing/zero/negative inputs all return
+  `DEFAULT_NOTIONAL_USD` so callers can divide without guards.
+
+While auditing, a **fifth** call site was discovered that the original
+DECISIONS entry missed: `services/validation/src/check_6_risk_level.py:48`
+used a Python `int` literal `10_000` (not even a `Decimal`). It would have
+been the next site to silently drift on any future bump.
+
+All five sites now read from the helper:
+
+| File (was) | Now |
+|------------|-----|
+| `services/hot_path/src/main.py:132` `alloc_pct * Decimal("10000")` | `profile_notional(prof)` |
+| `services/hot_path/src/state.py:33` default `Decimal("10000")` | default `DEFAULT_NOTIONAL_USD` |
+| `services/risk/src/__init__.py:60` `Decimal(...) * Decimal("10000")` | `profile_notional(profile)` |
+| `services/pnl/src/closer.py:_profile_notional` `alloc * _NOTIONAL_PER_ALLOC_UNIT` | wraps `profile_notional(row)` with caching |
+| `services/validation/src/check_6_risk_level.py:48` `profile_allocation * 10_000` | `profile_notional(profile)` |
+
+Tests: `tests/unit/test_notional.py` (16 cases) covers the helper's
+contract — string/Decimal/int/float inputs, missing/None/empty profile,
+zero/negative/garbage values, the strictly-positive-output property.
+
+### Future work (still open)
+
+- Schema rename `trading_profiles.allocation_pct` → `notional_capital_dollars`
+  (storing absolute dollars, not a multiplier). Single helper edit when it
+  lands. DB migration + frontend form update needed.
+- `notional` becomes profile-scoped from a config setting
+  (`PRAXIS_NOTIONAL_BASE_USD`) so operators can change the base without a
+  code edit. Would live entirely inside `libs/core/notional.py`.
 
 ### Why not preserve the bump (keep $100k everywhere)?
 

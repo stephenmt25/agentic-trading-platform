@@ -1,10 +1,11 @@
 from __future__ import annotations
 from decimal import Decimal
 from typing import Dict, Optional
-from libs.indicators import IndicatorSet
-from services.strategy.src.compiler import CompiledRuleSet
 from libs.core.enums import Regime
 from libs.core.models import RiskLimits
+from libs.core.notional import DEFAULT_NOTIONAL_USD
+from libs.indicators import IndicatorSet
+from services.strategy.src.compiler import CompiledRuleSet
 
 class ProfileState:
     __slots__ = (
@@ -30,7 +31,7 @@ class ProfileState:
         risk_limits: RiskLimits,
         blacklist: frozenset,
         indicators: IndicatorSet,
-        notional: Decimal = Decimal("10000"),
+        notional: Decimal = DEFAULT_NOTIONAL_USD,
         preferred_regimes: Optional[frozenset] = None,
     ):
         self.profile_id = profile_id
@@ -45,9 +46,10 @@ class ProfileState:
         self.daily_realised_pnl_pct: Decimal = Decimal("0")
         self.current_drawdown_pct: Decimal = Decimal("0")
         self.current_allocation_pct: Decimal = Decimal("0")
-        # Profile's nominal trading capital (allocation_pct × $10,000).
-        # Mirrors services/hot_path/src/main.py:132, services/risk/src/__init__.py:60,
-        # and services/pnl/src/closer.py:35 — all four MUST agree.
+        # Profile's nominal trading capital. Loader at hot_path/main.py
+        # populates via libs.core.notional.profile_notional(); the default
+        # above only fires when ProfileState is constructed without a profile
+        # (effectively dead code in production — kept for test ergonomics).
         self.notional: Decimal = notional
         # Sum of cost_basis over currently-open positions for this profile.
         # Updated by PnlSync poll loop from the positions table. Drives the

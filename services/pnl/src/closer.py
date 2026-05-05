@@ -19,22 +19,18 @@ from decimal import Decimal
 from typing import Optional, Tuple
 from uuid import UUID
 
-from libs.core.models import Position
 from libs.core.agent_registry import AgentPerformanceTracker
+from libs.core.models import Position
+from libs.core.notional import profile_notional
+from libs.observability import get_logger
 from libs.storage.repositories import ClosedTradeRepository, PositionRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
-from libs.observability import get_logger
 
 from .calculator import PnLCalculator
 
 logger = get_logger("pnl.closer")
 
 _ZERO = Decimal("0")
-# Notional capital per allocation unit. Mirrors services/hot_path/src/main.py:132,
-# services/hot_path/src/state.py:33, and services/risk/src/__init__.py:60 —
-# all four MUST agree. Long-term fix: derive from profile.allocation_pct alone.
-_NOTIONAL_PER_ALLOC_UNIT = Decimal("10000")
-_DEFAULT_ALLOC_PCT = Decimal("1.0")
 
 
 class PositionCloser:
@@ -137,24 +133,22 @@ class PositionCloser:
         return snapshot
 
     async def _profile_notional(self, profile_id: str) -> Decimal:
-        """Return the profile's notional capital (allocation_pct × 10,000),
-        or the default if profile_repo isn't wired or the lookup fails. Cached."""
+        """Return the profile's notional capital, cached.
+
+        Math lives in libs.core.notional.profile_notional — this method is
+        just the cache + DB lookup wrapper.
+        """
         cached = self._notional_cache.get(profile_id)
         if cached is not None and cached > _ZERO:
             return cached
-        if self._profile_repo is None:
-            notional = _DEFAULT_ALLOC_PCT * _NOTIONAL_PER_ALLOC_UNIT
-            self._notional_cache[profile_id] = notional
-            return notional
-        try:
-            row = await self._profile_repo.get_profile(profile_id)
-            alloc = Decimal(str(row.get("allocation_pct", _DEFAULT_ALLOC_PCT))) if row else _DEFAULT_ALLOC_PCT
-        except Exception:
-            logger.exception("Failed to fetch profile for notional lookup", profile_id=profile_id)
-            alloc = _DEFAULT_ALLOC_PCT
-        notional = alloc * _NOTIONAL_PER_ALLOC_UNIT
-        if notional <= _ZERO:
-            notional = _DEFAULT_ALLOC_PCT * _NOTIONAL_PER_ALLOC_UNIT
+        row: Optional[dict] = None
+        if self._profile_repo is not None:
+            try:
+                row = await self._profile_repo.get_profile(profile_id)
+            except Exception:
+                logger.exception("Failed to fetch profile for notional lookup", profile_id=profile_id)
+                row = None
+        notional = profile_notional(row)
         self._notional_cache[profile_id] = notional
         return notional
 

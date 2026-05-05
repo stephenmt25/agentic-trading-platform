@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Dict, Any, Optional
+from libs.core.notional import profile_notional
 from libs.observability import get_logger
 
 logger = get_logger("risk")
@@ -57,7 +58,7 @@ class RiskService:
                 if profile:
                     raw = profile.get("risk_limits", "{}")
                     risk_limits = json.loads(raw) if isinstance(raw, str) else (raw or {})
-                    portfolio_value = Decimal(str(profile.get("allocation_pct", 1.0))) * Decimal("10000")
+                    portfolio_value = profile_notional(profile)
             except Exception as e:
                 logger.error("Failed to load profile for risk check", error=str(e))
 

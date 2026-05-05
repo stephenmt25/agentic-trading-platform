@@ -127,9 +127,8 @@ async def lifespan(app: FastAPI):
         else:
             bl = blacklist_raw if isinstance(blacklist_raw, list) else []
 
-        # Notional capital — same convention as services/risk/__init__.py:60
-        alloc_pct = Decimal(str(prof.get("allocation_pct", "1.0")))
-        notional = alloc_pct * Decimal("10000")
+        # Notional capital — single source of truth in libs/core/notional.py
+        notional = profile_notional(prof)
 
         # C.4: preferred_regimes lives inside strategy_rules JSONB. Coerce each
         # entry to the Regime enum; silently drop unknown values rather than
