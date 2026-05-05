@@ -32,6 +32,23 @@ CLOSED_KEY = "agent:closed:{symbol}"             # Stream: {position_id, outcome
 TRACKER_KEY = "agent:tracker:{symbol}:{agent}"   # Hash: ewma_accuracy, sample_count, last_updated
 
 
+def _decode_hash(d):
+    """Decode bytes keys/values from a redis hgetall result.
+
+    The shared RedisClient does not set decode_responses=True, so hgetall
+    returns {bytes: bytes}. Any code that does ``hash.get("field")`` against
+    that dict silently falls through to the default — masking real state.
+    Use this helper before reading fields by string name.
+    """
+    if not d:
+        return {}
+    return {
+        (k.decode() if isinstance(k, (bytes, bytearray)) else k):
+        (v.decode() if isinstance(v, (bytes, bytearray)) else v)
+        for k, v in d.items()
+    }
+
+
 @dataclass
 class AgentOutcome:
     agent_name: str
@@ -119,7 +136,7 @@ class AgentPerformanceTracker:
         weights = {}
         for agent_name in agent_names:
             tracker_key = TRACKER_KEY.format(symbol=symbol, agent=agent_name)
-            tracker_raw = await self._redis.hgetall(tracker_key)
+            tracker_raw = _decode_hash(await self._redis.hgetall(tracker_key))
 
             ewma = float(tracker_raw.get("ewma_accuracy", "0.5"))
             sample_count = int(tracker_raw.get("sample_count", "0"))

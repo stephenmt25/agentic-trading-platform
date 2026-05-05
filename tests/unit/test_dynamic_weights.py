@@ -92,6 +92,19 @@ class FakePipeline:
         return results
 
 
+class BytesFakeRedis(FakeRedis):
+    """FakeRedis variant that returns bytes-keyed/-valued hash dicts.
+    Matches the default decode_responses=False behaviour of redis-py, which
+    is what the shared RedisClient uses in production."""
+    async def hgetall(self, key):
+        d = self._store.get(key, {})
+        return {
+            (k.encode() if isinstance(k, str) else k):
+            (v.encode() if isinstance(v, str) else v)
+            for k, v in d.items()
+        }
+
+
 # ---------------------------------------------------------------------------
 # AgentPerformanceTracker tests
 # ---------------------------------------------------------------------------
@@ -202,6 +215,41 @@ class TestAgentPerformanceTracker:
         weights = await AgentPerformanceTracker.get_weights(redis, "BTC/USDT")
         assert weights["ta"] == MAX_WEIGHT
         assert weights["sentiment"] == MIN_WEIGHT
+
+    @pytest.mark.asyncio
+    async def test_recompute_advances_last_ts_with_bytes_keyed_tracker(self):
+        """Regression: tracker hash from real Redis returns bytes keys/values.
+        recompute_weights must decode them, otherwise last_ts/sample_count read
+        as defaults every iteration and the EWMA path reprocesses the entire
+        stream window from scratch each pass (manifests as agent_weight_history
+        rows showing samples=0 even though many trades have closed)."""
+        bytes_redis = BytesFakeRedis()
+        tracker = AgentPerformanceTracker(bytes_redis)
+        # First pass: write enough wins for MIN_SAMPLES, plus one loss
+        for i in range(11):
+            await tracker.record_position_close(
+                symbol="BTC/USDT",
+                position_id=f"pos-a-{i}",
+                outcome="win",
+                pnl_pct=0.02,
+                agent_scores={"ta": {"direction": "BUY", "score": 0.5}},
+            )
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        first_pass = bytes_redis._store["agent:tracker:BTC/USDT:ta"]
+        first_samples = int((first_pass[b"sample_count"]
+                             if isinstance(list(first_pass.keys())[0], bytes)
+                             else first_pass["sample_count"]))
+        assert first_samples == 11, f"expected 11 samples after first pass, got {first_samples}"
+
+        # Second pass with no new outcomes: sample_count must NOT regress
+        # (if last_ts is decoded properly, no entries match ts > last_ts)
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        second_pass = bytes_redis._store["agent:tracker:BTC/USDT:ta"]
+        # Tracker hash should be unchanged (no new outcomes processed)
+        assert second_pass == first_pass, (
+            "second recompute mutated tracker despite no new outcomes — "
+            "indicates last_ts is being read as the default 0 instead of the "
+            "stored bytes value")
 
 
 # ---------------------------------------------------------------------------

@@ -16,3 +16,13 @@ PUBSUB_AGENT_TELEMETRY = "pubsub:agent_telemetry"
 # HITL (Human-in-the-Loop) channels
 PUBSUB_HITL_PENDING = "pubsub:hitl_pending"
 HITL_RESPONSE_STREAM = "stream:hitl_response"
+
+# Agent registry keys (per-symbol). The format-string source of truth is
+# libs/core/agent_registry.py; these aliases exist so channels.py stays the
+# single discoverable index of every well-known Redis key/stream.
+from libs.core.agent_registry import (  # noqa: E402
+    WEIGHTS_KEY as AGENT_WEIGHTS,
+    OUTCOMES_KEY as AGENT_OUTCOMES,
+    CLOSED_KEY as AGENT_CLOSED_OUTCOMES,
+    TRACKER_KEY as AGENT_TRACKER,
+)

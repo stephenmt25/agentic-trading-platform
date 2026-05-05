@@ -13,7 +13,13 @@ from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
-from libs.core.agent_registry import AgentPerformanceTracker, AGENT_DEFAULTS, TRACKER_KEY, WEIGHTS_KEY
+from libs.core.agent_registry import (
+    AgentPerformanceTracker,
+    AGENT_DEFAULTS,
+    TRACKER_KEY,
+    WEIGHTS_KEY,
+    _decode_hash,
+)
 from .insight_engine import insight_engine_loop
 
 logger = get_logger("analyst")
@@ -45,7 +51,7 @@ async def lifespan(app: FastAPI):
                         snapshot = {}
                         for agent_name in AGENT_DEFAULTS:
                             tk = TRACKER_KEY.format(symbol=symbol, agent=agent_name)
-                            tr = await redis_conn.hgetall(tk)
+                            tr = _decode_hash(await redis_conn.hgetall(tk))
                             wk = WEIGHTS_KEY.format(symbol=symbol)
                             w_raw = await redis_conn.hget(wk, agent_name)
                             snapshot[agent_name] = {
