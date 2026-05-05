@@ -1,0 +1,143 @@
+"""Paper-trading daily report generator.
+
+Single source of truth for `paper_trading_reports` row computation.
+Used by:
+  - scripts/daily_report.py (CLI + daemon)
+  - services/api_gateway endpoint that lets operators backfill / regenerate
+    a report for a specific day from the dashboard.
+
+A "report" aggregates a single UTC date's activity:
+  - total_trades   — confirmed orders placed that day
+  - win_rate       — fraction of pnl_snapshots that closed pre-tax positive
+  - gross_pnl      — sum of gross P&L across snapshots that day
+  - net_pnl        — sum of net (pre-tax) P&L
+  - max_drawdown   — worst pct_return seen on a snapshot that day
+  - sharpe_ratio   — naive same-day mean / std of pct_return
+
+Idempotent: ON CONFLICT (report_date) DO UPDATE so re-running for the same
+date overwrites the prior row.
+"""
+from __future__ import annotations
+
+from datetime import date
+
+from libs.observability import get_logger
+from libs.storage._timescale_client import TimescaleClient
+
+logger = get_logger("reports.daily")
+
+
+async def generate_for_date(db: TimescaleClient, day: date) -> bool:
+    """Compute and upsert one report row.
+
+    Returns True if a row was written (i.e. there was activity on `day`),
+    False if the day had no orders and no snapshots — the report table
+    intentionally skips empty days so the operator-facing list stays
+    informative.
+    """
+    trade_row = await db.fetchrow(
+        """
+        SELECT COUNT(*) AS total_trades
+        FROM orders
+        WHERE status = 'CONFIRMED' AND created_at::date = $1
+        """,
+        day,
+    )
+    total_trades = trade_row["total_trades"] if trade_row else 0
+
+    pnl_row = await db.fetchrow(
+        """
+        SELECT
+            COALESCE(SUM(gross_pnl), 0)        AS gross_pnl,
+            COALESCE(SUM(net_pnl_pre_tax), 0)  AS net_pnl,
+            COALESCE(MIN(pct_return), 0)       AS max_drawdown
+        FROM pnl_snapshots
+        WHERE snapshot_at::date = $1
+        """,
+        day,
+    )
+    gross_pnl = float(pnl_row["gross_pnl"]) if pnl_row else 0.0
+    net_pnl = float(pnl_row["net_pnl"]) if pnl_row else 0.0
+    max_drawdown = abs(float(pnl_row["max_drawdown"])) if pnl_row else 0.0
+
+    wr_row = await db.fetchrow(
+        """
+        SELECT
+            COUNT(*) FILTER (WHERE net_pnl_pre_tax > 0) AS wins,
+            COUNT(*)                                    AS total
+        FROM pnl_snapshots
+        WHERE snapshot_at::date = $1
+        """,
+        day,
+    )
+    wins = wr_row["wins"] if wr_row else 0
+    total_snaps = wr_row["total"] if wr_row else 0
+    win_rate = wins / total_snaps if total_snaps > 0 else 0.0
+
+    returns_rows = await db.fetch(
+        """
+        SELECT pct_return FROM pnl_snapshots
+        WHERE snapshot_at::date = $1 AND pct_return IS NOT NULL
+        """,
+        day,
+    )
+    returns = [float(r["pct_return"]) for r in returns_rows]
+    if len(returns) >= 2:
+        mean_ret = sum(returns) / len(returns)
+        variance = sum((r - mean_ret) ** 2 for r in returns) / len(returns)
+        std_ret = variance ** 0.5
+        sharpe = (mean_ret / std_ret) if std_ret > 0 else 0.0
+    else:
+        sharpe = 0.0
+
+    if total_snaps == 0 and total_trades == 0:
+        logger.info("No activity on day; skipping report", day=str(day))
+        return False
+
+    await db.execute(
+        """
+        INSERT INTO paper_trading_reports
+        (report_date, total_trades, win_rate, gross_pnl, net_pnl, max_drawdown, sharpe_ratio)
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (report_date) DO UPDATE SET
+            total_trades = EXCLUDED.total_trades,
+            win_rate     = EXCLUDED.win_rate,
+            gross_pnl    = EXCLUDED.gross_pnl,
+            net_pnl      = EXCLUDED.net_pnl,
+            max_drawdown = EXCLUDED.max_drawdown,
+            sharpe_ratio = EXCLUDED.sharpe_ratio
+        """,
+        day, total_trades, win_rate, gross_pnl, net_pnl, max_drawdown, sharpe,
+    )
+    logger.info(
+        "Wrote daily report",
+        day=str(day),
+        total_trades=total_trades,
+        net_pnl=round(net_pnl, 2),
+        win_rate=round(win_rate, 3),
+        sharpe=round(sharpe, 2),
+    )
+    return True
+
+
+async def backfill(db: TimescaleClient) -> int:
+    """Generate reports for every date with pnl_snapshots activity that
+    lacks a row in paper_trading_reports. Returns the number of rows
+    written. Useful after downtime or a fresh deploy."""
+    rows = await db.fetch(
+        """
+        SELECT DISTINCT snapshot_at::date AS day
+        FROM pnl_snapshots
+        WHERE snapshot_at::date NOT IN (SELECT report_date FROM paper_trading_reports)
+        ORDER BY day
+        """,
+    )
+    if not rows:
+        logger.info("Backfill: no missing report days")
+        return 0
+    written = 0
+    for r in rows:
+        if await generate_for_date(db, r["day"]):
+            written += 1
+    logger.info("Backfill complete", written=written)
+    return written

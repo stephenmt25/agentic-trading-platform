@@ -336,6 +336,27 @@ export const api = {
 
     decision: (eventId: string) =>
       apiRequest<TradeDecision>(`/paper-trading/decisions/${eventId}`),
+
+    // POST /paper-trading/reports/generate — manually compute / regenerate
+    // the daily report for `date` (YYYY-MM-DD UTC). Idempotent server-side.
+    generateReport: (date: string) =>
+      apiRequest<{
+        report_date: string;
+        wrote: boolean;
+        report: {
+          id: number;
+          report_date: string;
+          total_trades: number;
+          win_rate: number;
+          gross_pnl: number;
+          net_pnl: number;
+          max_drawdown: number;
+          sharpe_ratio: number;
+        } | null;
+      }>("/paper-trading/reports/generate", {
+        method: "POST",
+        body: { date },
+      }),
   },
 
   commands: {

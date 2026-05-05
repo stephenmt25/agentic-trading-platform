@@ -1,12 +1,29 @@
 import json
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, field_validator
 from ..deps import get_timescale, get_current_user, get_decision_repo
+from libs.reports.daily import generate_for_date
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.config import settings
 
 router = APIRouter(tags=["paper-trading"])
+
+
+class GenerateReportRequest(BaseModel):
+    """Body for POST /paper-trading/reports/generate."""
+    date: str  # YYYY-MM-DD, UTC
+
+    @field_validator("date")
+    @classmethod
+    def _valid_date(cls, v: str) -> str:
+        try:
+            datetime.strptime(v, "%Y-%m-%d")
+        except ValueError as exc:
+            raise ValueError("date must be in YYYY-MM-DD format") from exc
+        return v
 
 
 @router.get("/mode")
@@ -89,6 +106,63 @@ async def get_paper_trading_status(
             }
             for r in reports
         ],
+    }
+
+
+@router.post("/reports/generate")
+async def generate_report(
+    payload: GenerateReportRequest,
+    user_id: str = Depends(get_current_user),
+    db: TimescaleClient = Depends(get_timescale),
+):
+    """Compute and upsert the daily report for a given UTC date.
+
+    Same code path as the daily-report daemon (libs.reports.daily.generate_for_date)
+    so manual and scheduled runs produce bit-identical rows. Re-running for an
+    existing date overwrites that row.
+
+    Returns:
+      {
+        "report_date": str,
+        "wrote": bool,        # False if the day had no trades and no snapshots
+        "report": {...} | None  # the row that was written / already exists
+      }
+    """
+    requested = datetime.strptime(payload.date, "%Y-%m-%d").date()
+    today_utc = datetime.now(timezone.utc).date()
+    if requested > today_utc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot generate a report for a future date ({requested} > {today_utc})",
+        )
+
+    wrote = await generate_for_date(db, requested)
+
+    # Read back the row regardless of whether we wrote it now — there may
+    # already be one from an earlier run, and the operator wants to see the
+    # numbers either way.
+    row = await db.fetchrow(
+        "SELECT * FROM paper_trading_reports WHERE report_date = $1",
+        requested,
+    )
+
+    report_payload: Optional[dict] = None
+    if row:
+        report_payload = {
+            "id": row["id"],
+            "report_date": str(row["report_date"]),
+            "total_trades": row["total_trades"],
+            "win_rate": round(float(row["win_rate"]), 2),
+            "gross_pnl": round(float(row["gross_pnl"]), 2),
+            "net_pnl": round(float(row["net_pnl"]), 2),
+            "max_drawdown": round(float(row["max_drawdown"]), 4),
+            "sharpe_ratio": round(float(row["sharpe_ratio"]), 2),
+        }
+
+    return {
+        "report_date": str(requested),
+        "wrote": wrote,
+        "report": report_payload,
     }
 
 

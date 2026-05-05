@@ -28,6 +28,13 @@ export default function PaperTradingDashboard() {
     const [killSwitchToggling, setKillSwitchToggling] = useState(false);
     const [killSwitchLogOpen, setKillSwitchLogOpen] = useState(false);
 
+    // Today's UTC date as YYYY-MM-DD — default for the manual report picker.
+    // Using UTC because the daily-report daemon and the table both key off
+    // UTC dates; a local-tz default would surprise the operator near midnight.
+    const todayUtcIso = new Date().toISOString().slice(0, 10);
+    const [reportDate, setReportDate] = useState<string>(todayUtcIso);
+    const [generatingReport, setGeneratingReport] = useState(false);
+
     const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
     const isInitialLoad = useRef(true);
 
@@ -83,6 +90,30 @@ export default function PaperTradingDashboard() {
         const interval = setInterval(loadStatus, POLL_INTERVAL);
         return () => clearInterval(interval);
     }, [loadStatus]);
+
+    const handleGenerateReport = async () => {
+        if (!reportDate) {
+            toast.error("Pick a date first");
+            return;
+        }
+        setGeneratingReport(true);
+        try {
+            const result = await api.paperTrading.generateReport(reportDate);
+            if (result.wrote) {
+                toast.success(`Report regenerated for ${result.report_date}`);
+            } else if (result.report) {
+                toast.info(`No new activity on ${result.report_date} — kept existing report`);
+            } else {
+                toast.info(`No trades or snapshots on ${result.report_date} — nothing to report`);
+            }
+            // Refresh the dashboard so the new / updated row appears in the list.
+            await loadStatus();
+        } catch (e: any) {
+            toast.error(`Failed to generate report: ${e.message ?? e}`);
+        } finally {
+            setGeneratingReport(false);
+        }
+    };
 
     const handleKillSwitchToggle = async () => {
         if (!killSwitch) return;
@@ -332,9 +363,34 @@ export default function PaperTradingDashboard() {
 
                         {/* Sparkline + Daily Reports */}
                         <motion.section variants={fadeUpChild} className="flex flex-col border border-border p-4 md:p-6 rounded-md overflow-hidden">
-                            <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider mb-3">
-                                Daily P&L
-                            </h2>
+                            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap">
+                                <h2 className="uppercase text-xs font-semibold text-muted-foreground tracking-wider">
+                                    Daily P&L
+                                </h2>
+                                {/* Manual report generator — same code path as the
+                                    daily-report daemon (libs/reports/daily.py).
+                                    Idempotent server-side, so re-running for an
+                                    existing date overwrites the row. */}
+                                <div className="flex items-center gap-2 text-xs">
+                                    <input
+                                        type="date"
+                                        value={reportDate}
+                                        max={todayUtcIso}
+                                        onChange={(e) => setReportDate(e.target.value)}
+                                        disabled={generatingReport}
+                                        className="bg-background border border-border rounded px-2 py-1 font-mono text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50"
+                                        aria-label="Report date (UTC)"
+                                    />
+                                    <button
+                                        onClick={handleGenerateReport}
+                                        disabled={generatingReport || !reportDate}
+                                        className="px-3 py-1 rounded border border-border bg-accent hover:bg-accent/80 transition-colors uppercase tracking-wider font-mono disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 min-h-[28px]"
+                                    >
+                                        {generatingReport && <Loader2 className="w-3 h-3 animate-spin" />}
+                                        {generatingReport ? "Generating…" : "Create Report"}
+                                    </button>
+                                </div>
+                            </div>
 
                             {/* Sparkline */}
                             {dailyReports.length > 1 && (
