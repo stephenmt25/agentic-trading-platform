@@ -359,8 +359,9 @@ export const api = {
       }),
 
     // GET /paper-trading/reports/{date}/detail — rich detail for one day:
-    // summary row + every closed trade joined with its originating decision
-    // (agent attribution, gate trace, indicators, regime).
+    // summary + every closed trade joined with its originating decision +
+    // order timeline + slippage + profile rules at decision time + blocked
+    // decisions on the day (full transparency report).
     reportDetail: (date: string) =>
       apiRequest<{
         report_date: string;
@@ -391,11 +392,38 @@ export const api = {
           entry_regime: string | null;
           entry_agent_scores: Record<string, unknown> | null;
           decision_event_id: string | null;
+          decision_profile_id: string | null;
+          decision_at: string | null;
           decision_indicators: Record<string, unknown> | null;
           decision_agents: Record<string, unknown> | null;
           decision_gates: Record<string, unknown> | null;
           decision_regime: Record<string, unknown> | null;
+          profile_rules: Record<string, unknown> | null;
+          order: {
+            order_id: string;
+            intended_price: number | null;
+            fill_price: number | null;
+            quantity: number | null;
+            status: string | null;
+            exchange: string | null;
+            created_at: string | null;
+            filled_at: string | null;
+            fill_latency_ms: number | null;
+            slippage_pct: number | null;
+          } | null;
         }>;
+        blocked: {
+          counts_by_outcome: Record<string, number>;
+          total: number;
+          recent: Array<{
+            event_id: string;
+            created_at: string | null;
+            symbol: string;
+            profile_id: string;
+            outcome: string;
+            gates: Record<string, { passed?: boolean; reason?: string }> | null;
+          }>;
+        };
       }>(`/paper-trading/reports/${encodeURIComponent(date)}/detail`),
   },
 

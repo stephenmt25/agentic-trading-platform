@@ -222,13 +222,14 @@ export default function TradePage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const isInitial = useRef(true);
 
-  // Daily P&L card — picker + per-row expand. Today's UTC date as YYYY-MM-DD
+  // Daily P&L card — picker + drawer-open. Today's UTC date as YYYY-MM-DD
   // is the picker default; reports key off UTC dates so a local-tz default
-  // would surprise the operator near midnight.
+  // would surprise the operator near midnight. openReportDate drives the
+  // side drawer that opens when a report row is clicked.
   const todayUtcIso = new Date().toISOString().slice(0, 10);
   const [reportDate, setReportDate] = useState<string>(todayUtcIso);
   const [generatingReport, setGeneratingReport] = useState(false);
-  const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
+  const [openReportDate, setOpenReportDate] = useState<string | null>(null);
 
   const profileNamesById = profiles.reduce<Record<string, string>>((acc, p) => {
     acc[p.profile_id] = p.name;
@@ -281,23 +282,8 @@ export default function TradePage() {
     setGeneratingReport(true);
     try {
       const result = await api.paperTrading.generateReport(reportDate);
-      // Refresh first so the new row is in dailyReports, then auto-expand
-      // it. Without the expand the user only sees a toast — the actual
-      // numbers live one click away in the list below, which is invisible
-      // unless they scroll and hunt for the matching date.
       await loadLive();
       if (result.report) {
-        setExpandedReportId(result.report.id);
-        // Scroll the row into view in case the user picked a backfill
-        // date that lands mid-list. requestAnimationFrame waits for the
-        // expand to render before the scroll, otherwise we scroll to
-        // the collapsed-row position.
-        const rid = result.report.id;
-        requestAnimationFrame(() => {
-          document
-            .getElementById(`report-row-${rid}`)
-            ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        });
         const r = result.report;
         const summary =
           `${r.total_trades} trade${r.total_trades === 1 ? "" : "s"} · ` +
@@ -308,6 +294,9 @@ export default function TradePage() {
         } else {
           toast.info(`No change on ${result.report_date}`, { description: summary });
         }
+        // Open the side drawer with the full transparency report rather
+        // than a toast that disappears in 4 seconds.
+        setOpenReportDate(result.report_date);
       } else {
         toast.info(`No trades or snapshots on ${result.report_date}`, {
           description: "Nothing to report for that day.",
@@ -318,10 +307,6 @@ export default function TradePage() {
     } finally {
       setGeneratingReport(false);
     }
-  };
-
-  const toggleReport = (id: number) => {
-    setExpandedReportId(expandedReportId === id ? null : id);
   };
 
   const toggleKillSwitch = useCallback(async () => {
@@ -497,31 +482,24 @@ export default function TradePage() {
                 </div>
               ) : (
                 dailyReports.map((report) => (
-                  <div key={report.id} id={`report-row-${report.id}`}>
-                    <button
-                      onClick={() => toggleReport(report.id)}
-                      className="w-full p-2.5 border border-border rounded-md flex justify-between items-center hover:bg-accent transition-colors text-left min-h-[40px]"
-                    >
-                      <div className="flex flex-col gap-0.5">
-                        <span className="text-foreground font-medium">{report.report_date}</span>
-                        <span className="text-xs text-muted-foreground tabular-nums">
-                          {report.total_trades} trades | {report.win_rate}% win |{" "}
-                          <span className={report.net_pnl >= 0 ? "text-emerald-500" : "text-red-500"}>
-                            ${report.net_pnl.toFixed(2)}
-                          </span>
+                  <button
+                    key={report.id}
+                    id={`report-row-${report.id}`}
+                    onClick={() => setOpenReportDate(report.report_date)}
+                    className="w-full p-2.5 border border-border rounded-md flex justify-between items-center hover:bg-accent transition-colors text-left min-h-[40px]"
+                    title="Open full transparency report"
+                  >
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-foreground font-medium">{report.report_date}</span>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {report.total_trades} trades | {(report.win_rate * 100).toFixed(1)}% win |{" "}
+                        <span className={report.net_pnl >= 0 ? "text-emerald-500" : "text-red-500"}>
+                          ${report.net_pnl.toFixed(2)}
                         </span>
-                      </div>
-                      {expandedReportId === report.id
-                        ? <ChevronUp className="w-3 h-3 text-muted-foreground shrink-0" />
-                        : <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
-                      }
-                    </button>
-                    {expandedReportId === report.id && (
-                      <div className="mt-1 p-2.5 border border-border rounded-md animate-in fade-in slide-in-from-top-1 duration-150">
-                        <DailyReportDetail date={report.report_date} />
-                      </div>
-                    )}
-                  </div>
+                      </span>
+                    </div>
+                    <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">→</span>
+                  </button>
                 ))
               )}
             </div>
@@ -620,7 +598,93 @@ export default function TradePage() {
         profileId={profileId}
         profileName={activeProfileName}
       />
+
+      {/* Daily report drawer — opened by clicking a report row or the
+          Create Report button. Pulls the full /paper-trading/reports/{date}/detail
+          payload (summary + trades w/ decision lineage + blocked decisions). */}
+      <DailyReportDrawer
+        date={openReportDate}
+        onClose={() => setOpenReportDate(null)}
+      />
     </motion.div>
+  );
+}
+
+function DailyReportDrawer({ date, onClose }: {
+  date: string | null;
+  onClose: () => void;
+}) {
+  const open = date != null;
+
+  // Lock body scroll while open
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [open]);
+
+  // Close on Escape
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  return (
+    <AnimatePresence>
+      {open && date && (
+        <>
+          <motion.div
+            key="report-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            onClick={onClose}
+            className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm"
+            aria-hidden
+          />
+          <motion.aside
+            key="report-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Daily report ${date}`}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "tween", ease: [0.32, 0.72, 0, 1], duration: 0.25 }}
+            className="fixed top-0 right-0 bottom-0 z-50 w-full sm:w-[640px] lg:w-[920px] xl:w-[1100px] bg-background border-l border-border shadow-xl flex flex-col"
+          >
+            <header className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border bg-card/40 shrink-0">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="w-4 h-4 text-primary" />
+                  <h2 className="text-sm font-semibold tracking-tight text-foreground">
+                    Daily transparency report
+                  </h2>
+                  <ScopeBadge scope="system" />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                  {date} · summary, every closed trade with full decision lineage, and blocked attempts
+                </p>
+              </div>
+              <button
+                onClick={onClose}
+                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                aria-label="Close"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </header>
+            <div className="flex-1 min-h-0 overflow-y-auto p-5">
+              <DailyReportDetail date={date} />
+            </div>
+          </motion.aside>
+        </>
+      )}
+    </AnimatePresence>
   );
 }
 

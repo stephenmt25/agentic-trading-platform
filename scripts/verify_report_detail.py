@@ -55,21 +55,22 @@ async def main() -> int:
         if trades:
             t = trades[0]
             print(f"  first trade keys: {sorted(t.keys())}")
-            print(f"  first trade outcome={t['outcome']}  pnl={t['realized_pnl']}  reason={t['close_reason']}")
-            ag = t.get("decision_agents")
-            gates = t.get("decision_gates")
-            inds = t.get("decision_indicators")
-            regime = t.get("decision_regime")
-            print(f"  decision_event_id: {t.get('decision_event_id')}")
-            print(f"  decision_agents: {type(ag).__name__}  keys={list(ag.keys()) if isinstance(ag, dict) else None}")
-            print(f"  decision_gates: {type(gates).__name__}  keys={list(gates.keys()) if isinstance(gates, dict) else None}")
-            print(f"  decision_indicators: {type(inds).__name__}  keys={list(inds.keys()) if isinstance(inds, dict) else None}")
-            print(f"  decision_regime: {regime}")
-            print(f"  sample agent attribution:")
-            if isinstance(ag, dict):
-                for a in ("ta", "sentiment", "debate"):
-                    print(f"    {a}: {ag.get(a)}")
-                print(f"    confidence_before={ag.get('confidence_before')}  confidence_after={ag.get('confidence_after')}")
+            print(f"  outcome={t['outcome']}  pnl={t['realized_pnl']}  reason={t['close_reason']}")
+            print(f"  order: {t.get('order')}")
+            pr = t.get("profile_rules") or {}
+            print(f"  profile_rules keys: {list(pr.keys()) if isinstance(pr, dict) else None}")
+            if isinstance(pr, dict):
+                print(f"    direction={pr.get('direction')}  logic={pr.get('logic')}  base_conf={pr.get('base_confidence')}")
+                conds = pr.get("conditions") or []
+                print(f"    conditions: {len(conds)} entries")
+        blocked = d.get("blocked", {})
+        print(f"  blocked.total: {blocked.get('total')}")
+        print(f"  blocked.counts_by_outcome: {blocked.get('counts_by_outcome')}")
+        recent = blocked.get("recent", [])
+        print(f"  blocked.recent: {len(recent)} rows (showing first):")
+        if recent:
+            b = recent[0]
+            print(f"    {b['created_at'][11:19] if b['created_at'] else '—'}  {b['symbol']}  {b['outcome']}  gates_keys={list(b['gates'].keys()) if b.get('gates') else None}")
     return 0
 
 

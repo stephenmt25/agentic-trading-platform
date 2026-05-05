@@ -224,12 +224,24 @@ async def get_report_detail(
             ct.entry_regime,
             ct.entry_agent_scores::text  AS entry_agent_scores_json,
             td.event_id::text            AS decision_event_id,
+            td.profile_id::text          AS decision_profile_id,
             td.indicators::text          AS decision_indicators_json,
             td.agents::text              AS decision_agents_json,
             td.gates::text               AS decision_gates_json,
-            td.regime::text              AS decision_regime_json
+            td.regime::text              AS decision_regime_json,
+            td.profile_rules::text       AS profile_rules_json,
+            td.created_at                AS decision_at,
+            ord.order_id::text           AS order_id,
+            ord.price                    AS order_intended_price,
+            ord.fill_price               AS order_fill_price,
+            ord.quantity                 AS order_quantity,
+            ord.status                   AS order_status,
+            ord.exchange                 AS order_exchange,
+            ord.created_at               AS order_created_at,
+            ord.filled_at                AS order_filled_at
         FROM closed_trades ct
         LEFT JOIN trade_decisions td ON ct.decision_event_id = td.event_id
+        LEFT JOIN orders ord            ON ord.order_id        = ct.order_id
         WHERE ct.closed_at::date = $1
         ORDER BY ct.closed_at DESC
         """,
@@ -245,6 +257,33 @@ async def get_report_detail(
             except (ValueError, TypeError):
                 return None
         return raw  # asyncpg sometimes hands back a dict directly
+
+    def _build_order(r) -> Optional[dict]:
+        if r["order_id"] is None:
+            return None
+        intended = float(r["order_intended_price"]) if r["order_intended_price"] is not None else None
+        fill = float(r["order_fill_price"]) if r["order_fill_price"] is not None else None
+        # Slippage = (fill - intended) / intended, signed. Positive on a BUY
+        # means we paid more than intended; positive on a SELL means we got
+        # better than intended. Caller can interpret with the side.
+        slippage_pct: Optional[float] = None
+        if intended and intended != 0 and fill is not None:
+            slippage_pct = (fill - intended) / intended
+        latency_ms: Optional[float] = None
+        if r["order_created_at"] and r["order_filled_at"]:
+            latency_ms = (r["order_filled_at"] - r["order_created_at"]).total_seconds() * 1000.0
+        return {
+            "order_id": r["order_id"],
+            "intended_price": intended,
+            "fill_price": fill,
+            "quantity": float(r["order_quantity"]) if r["order_quantity"] is not None else None,
+            "status": r["order_status"],
+            "exchange": r["order_exchange"],
+            "created_at": r["order_created_at"].isoformat() if r["order_created_at"] else None,
+            "filled_at": r["order_filled_at"].isoformat() if r["order_filled_at"] else None,
+            "fill_latency_ms": round(latency_ms, 1) if latency_ms is not None else None,
+            "slippage_pct": round(slippage_pct, 6) if slippage_pct is not None else None,
+        }
 
     trades = [
         {
@@ -264,18 +303,74 @@ async def get_report_detail(
             "entry_regime": r["entry_regime"],
             "entry_agent_scores": _parse_jsonb(r["entry_agent_scores_json"]),
             "decision_event_id": r["decision_event_id"],
+            "decision_profile_id": r["decision_profile_id"],
+            "decision_at": r["decision_at"].isoformat() if r["decision_at"] else None,
             "decision_indicators": _parse_jsonb(r["decision_indicators_json"]),
             "decision_agents": _parse_jsonb(r["decision_agents_json"]),
             "decision_gates": _parse_jsonb(r["decision_gates_json"]),
             "decision_regime": _parse_jsonb(r["decision_regime_json"]),
+            "profile_rules": _parse_jsonb(r["profile_rules_json"]),
+            "order": _build_order(r),
         }
         for r in trade_rows
+    ]
+
+    # Blocked decisions on this day — counts-by-outcome for at-a-glance,
+    # plus a recent sample so the operator can drill into specific blocks.
+    # `shadow` rows are pure shadow comparisons (C.4 SHADOW), exclude them.
+    blocked_count_rows = await db.fetch(
+        """
+        SELECT outcome, COUNT(*) AS count
+        FROM trade_decisions
+        WHERE created_at::date = $1
+            AND outcome != 'APPROVED'
+            AND (shadow IS NULL OR shadow = FALSE)
+        GROUP BY outcome
+        ORDER BY count DESC
+        """,
+        day,
+    )
+    blocked_counts = {r["outcome"]: int(r["count"]) for r in blocked_count_rows}
+
+    blocked_recent_rows = await db.fetch(
+        """
+        SELECT
+            event_id::text       AS event_id,
+            created_at,
+            symbol,
+            profile_id::text     AS profile_id,
+            outcome,
+            gates::text          AS gates_json
+        FROM trade_decisions
+        WHERE created_at::date = $1
+            AND outcome != 'APPROVED'
+            AND (shadow IS NULL OR shadow = FALSE)
+        ORDER BY created_at DESC
+        LIMIT 100
+        """,
+        day,
+    )
+    blocked_recent = [
+        {
+            "event_id": r["event_id"],
+            "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+            "symbol": r["symbol"],
+            "profile_id": r["profile_id"],
+            "outcome": r["outcome"],
+            "gates": _parse_jsonb(r["gates_json"]),
+        }
+        for r in blocked_recent_rows
     ]
 
     return {
         "report_date": str(day),
         "summary": summary,
         "trades": trades,
+        "blocked": {
+            "counts_by_outcome": blocked_counts,
+            "total": sum(blocked_counts.values()),
+            "recent": blocked_recent,
+        },
     }
 
 
