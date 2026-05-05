@@ -1,14 +1,47 @@
 import asyncio
 import json
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import jwt
+import msgpack
 from libs.config import settings
 from libs.observability import get_logger
 from ..deps import get_redis
 
 from libs.messaging.channels import PUBSUB_PNL_UPDATES, PUBSUB_SYSTEM_ALERTS, PUBSUB_AGENT_TELEMETRY, PUBSUB_HITL_PENDING
+
+
+def _decode_pubsub_payload(data_raw: Any) -> Any:
+    """Decode a Redis pubsub payload published by either:
+
+    - libs.messaging._pubsub.PubSubBroadcaster (msgpack bytes — internal
+      services use this; first byte >= 0x80)
+    - Legacy JSON publishers (UTF-8 bytes or str — first byte in printable
+      ASCII range)
+
+    Falls back to a string representation if neither decoder accepts the
+    payload, so the WS handler never raises into the reconnect loop on a
+    malformed message.
+    """
+    if isinstance(data_raw, bytes):
+        if data_raw and data_raw[0] >= 0x80:
+            try:
+                return msgpack.unpackb(data_raw, raw=False)
+            except (ValueError, TypeError, msgpack.exceptions.ExtraData,
+                    msgpack.exceptions.UnpackException, msgpack.exceptions.FormatError):
+                pass
+        try:
+            data_str = data_raw.decode("utf-8")
+        except UnicodeDecodeError:
+            return repr(data_raw[:200])
+    else:
+        data_str = data_raw
+
+    try:
+        return json.loads(data_str)
+    except (json.JSONDecodeError, TypeError):
+        return data_str
 
 logger = get_logger("ws")
 
@@ -102,15 +135,10 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                     if message and message.get("type") == "message":
                         channel = message["channel"]
                         channel_str = channel.decode("utf-8") if isinstance(channel, bytes) else channel
-                        data_raw = message["data"]
-                        data_str = data_raw.decode("utf-8") if isinstance(data_raw, bytes) else data_raw
-                        try:
-                            data = json.loads(data_str)
-                        except (json.JSONDecodeError, TypeError):
-                            data = data_str
+                        data = _decode_pubsub_payload(message["data"])
 
                         env = {"channel": channel_str, "data": data}
-                        msg_text = json.dumps(env)
+                        msg_text = json.dumps(env, default=str)
 
                         if channel_str == PUBSUB_PNL_UPDATES:
                             msg_user_id = data.get("user_id") if isinstance(data, dict) else None

@@ -36,16 +36,18 @@ market_repo = MarketDataRepository(timescale_client)
 
 # Shared sync ccxt REST client — used by both startup backfill and
 # CandleAggregator's rollover fetches. Binance public klines don't need auth.
+# Always mainnet: testnet mirrors mainnet prices but has ~10% of mainnet volume,
+# which corrupts every volume-derived feature downstream. Ingestion never
+# places orders, so the testnet flag does not apply here. Order routing in
+# services/execution still respects PRAXIS_BINANCE_TESTNET.
 rest_client = ccxt.binance({"enableRateLimit": True})
-if settings.BINANCE_TESTNET:
-    rest_client.set_sandbox_mode(True)
 
 candle_aggregator = CandleAggregator(market_repo, rest_client)
 
 symbols_to_track = ["BTC/USDT", "ETH/USDT"]
 
 adapters = [
-    get_adapter("BINANCE", testnet=settings.BINANCE_TESTNET),
+    get_adapter("BINANCE", testnet=False),
     # get_adapter("COINBASE", testnet=settings.COINBASE_SANDBOX) # Removed to avoid duplications in simple demo
 ]
 ws_manager = WebSocketManager(adapters, symbols_to_track)
