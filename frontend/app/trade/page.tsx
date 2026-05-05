@@ -398,9 +398,13 @@ export default function TradePage() {
         </p>
       </header>
 
-      {/* ─── 1. ENGINE TOTALS + DAILY P&L ─── 7:3 width on xl screens ─── */}
+      {/* ─── 1. ENGINE TOTALS + DAILY P&L ─── 7:3 width on xl screens. The
+          left column also stacks Risk monitor + Approvals beneath the
+          totals strip so the otherwise blank space alongside Daily P&L
+          carries the constraints view that used to live further down. ─── */}
       <div className="grid grid-cols-1 xl:grid-cols-10 gap-4">
-      <section className="xl:col-span-7 self-start border border-border rounded-md overflow-hidden">
+      <div className="xl:col-span-7 flex flex-col gap-4">
+      <section className="border border-border rounded-md overflow-hidden">
         <PanelHeader
           title="Engine totals"
           subtitle="Aggregate performance across all profiles since boot"
@@ -437,6 +441,37 @@ export default function TradePage() {
           />
         </div>
       </section>
+
+      {/* Constraints — Risk monitor + Approvals — now beneath Engine totals
+          so the wide column doesn't leave whitespace next to the taller
+          Daily P&L card on the right. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <section className="border border-border rounded-md overflow-hidden">
+          <PanelHeader
+            title="Risk monitor"
+            subtitle="Live drawdown, allocation, and exposure"
+            scope="profile"
+          />
+          <div className="p-4">
+            <RiskMonitorCard
+              profileIds={profileId ? [profileId] : undefined}
+              profileNamesById={profileNamesById}
+            />
+          </div>
+        </section>
+
+        <section className="border border-border rounded-md overflow-hidden">
+          <PanelHeader
+            title="Approvals"
+            subtitle="Trades held by the HITL gate awaiting decision · all profiles"
+            scope="system"
+          />
+          <div className="p-2">
+            <ApprovalQueue />
+          </div>
+        </section>
+      </div>
+      </div>
 
       {/* ─── 2. DAILY P&L ─── per-day report list with on-demand generator ─── */}
       <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col">
@@ -561,34 +596,6 @@ export default function TradePage() {
           <PositionsPanel profileId={profileId} />
         </div>
       </section>
-
-      {/* ─── 3. CONSTRAINTS ─── why the engine can or can't do more ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <section className="border border-border rounded-md overflow-hidden">
-          <PanelHeader
-            title="Risk monitor"
-            subtitle="Live drawdown, allocation, and exposure"
-            scope="profile"
-          />
-          <div className="p-4">
-            <RiskMonitorCard
-              profileIds={profileId ? [profileId] : undefined}
-              profileNamesById={profileNamesById}
-            />
-          </div>
-        </section>
-
-        <section className="border border-border rounded-md overflow-hidden">
-          <PanelHeader
-            title="Approvals"
-            subtitle="Trades held by the HITL gate awaiting decision · all profiles"
-            scope="system"
-          />
-          <div className="p-2">
-            <ApprovalQueue />
-          </div>
-        </section>
-      </div>
 
       {/* Performance review drawer is triggered from the live-activity header above. */}
       <PerformanceReviewDrawer
