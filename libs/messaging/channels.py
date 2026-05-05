@@ -1,3 +1,11 @@
+"""Well-known Redis channel/stream/key names. Single source of truth.
+
+Schema for hashes/streams (required fields, expected types) lives in
+``libs/observability/redis_invariants.py``. When you add a new key here,
+also add a SCHEMAS entry there if you want the periodic scanner to enforce
+its shape.
+"""
+
 MARKET_DATA_STREAM = "stream:market_data"
 ORDERS_STREAM = "stream:orders"
 VALIDATION_STREAM = "stream:validation"

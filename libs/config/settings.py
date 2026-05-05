@@ -89,5 +89,9 @@ class Settings(BaseSettings):
     HITL_CONFIDENCE_THRESHOLD: float = Field(default=0.5)     # Trigger when confidence < threshold
     HITL_TIMEOUT_S: int = Field(default=60)                   # Seconds to wait for human response
 
+    # Redis schema invariant scanner cadence (libs/observability/redis_invariants.py).
+    # Set to 0 to disable. Background task lives in services/logger.
+    REDIS_INVARIANT_INTERVAL_S: int = Field(default=60)
+
     def is_secret_key_secure(self) -> bool:
         return self.SECRET_KEY != _INSECURE_DEFAULT_KEY
