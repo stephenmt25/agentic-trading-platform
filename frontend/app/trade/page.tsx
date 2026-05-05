@@ -88,16 +88,13 @@ function StatCell({ label, value, suffix, color }: {
     color === "negative" ? "text-red-500" :
     "text-foreground";
   return (
-    <div className="flex flex-col gap-0.5 min-w-0">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium truncate">
+    <div className="flex items-baseline gap-1.5 min-w-0">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium shrink-0">
         {label}
       </span>
-      <div className="flex items-baseline gap-1 min-w-0">
-        <span className={`font-mono tabular-nums text-base font-semibold truncate ${colorCls}`}>
-          {value}
-        </span>
-        {suffix && <span className="text-xs text-muted-foreground">{suffix}</span>}
-      </div>
+      <span className={`font-mono tabular-nums text-sm font-semibold truncate ${colorCls}`}>
+        {value}{suffix && <span className="text-xs text-muted-foreground ml-0.5">{suffix}</span>}
+      </span>
     </div>
   );
 }
@@ -403,13 +400,13 @@ export default function TradePage() {
 
       {/* ─── 1. ENGINE TOTALS + DAILY P&L ─── 7:3 width on xl screens ─── */}
       <div className="grid grid-cols-1 xl:grid-cols-10 gap-4">
-      <section className="xl:col-span-7 border border-border rounded-md overflow-hidden flex flex-col">
+      <section className="xl:col-span-7 self-start border border-border rounded-md overflow-hidden">
         <PanelHeader
           title="Engine totals"
           subtitle="Aggregate performance across all profiles since boot"
           scope="system"
         />
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 px-4 py-3 bg-card flex-1 content-center">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-x-4 gap-y-2 px-4 py-2 bg-card">
           <StatCell
             label="Net P&L"
             value={`${netPnl >= 0 ? "+" : ""}$${netPnl.toFixed(2)}`}
