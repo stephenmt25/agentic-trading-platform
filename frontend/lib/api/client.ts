@@ -566,6 +566,39 @@ export const api = {
     },
   },
 
+  audit: {
+    // Lineage from the closed_trades ledger (services/api_gateway/src/routes/audit.py).
+    // Returns rows ordered closed_at DESC.
+    closedTrades: (params?: { symbol?: string; limit?: number }) => {
+      const qs = new URLSearchParams();
+      if (params?.symbol) qs.set("symbol", params.symbol);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return apiRequest<Array<{
+        position_id: string;
+        profile_id: string;
+        symbol: string;
+        side: string;
+        decision_event_id: string | null;
+        order_id: string | null;
+        entry_price: number;
+        entry_quantity: number;
+        entry_fee: number;
+        entry_regime: string | null;
+        entry_agent_scores: Record<string, unknown> | null;
+        exit_price: number;
+        exit_fee: number;
+        close_reason: string;
+        opened_at: string;
+        closed_at: string;
+        holding_duration_s: number;
+        realized_pnl: number;
+        realized_pnl_pct: number;
+        outcome: string; // 'win' | 'loss' | 'breakeven'
+      }>>(`/audit/closed-trades${query ? `?${query}` : ""}`);
+    },
+  },
+
   agentConfig: {
     catalog: () =>
       apiRequest<Record<string, {

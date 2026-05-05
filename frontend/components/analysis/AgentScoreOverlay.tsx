@@ -71,6 +71,23 @@ function AgentScoreOverlayInner({
       (a, b) => (a.timestamp as number) - (b.timestamp as number),
     );
 
+    // Forward-fill missing per-agent values. Different agents emit at
+    // different timestamps (TA every minute, sentiment + debate every 5
+    // minutes), so each merged row carries only one agent's score by
+    // default — and the recharts tooltip then surfaces only that one
+    // series at hover. Carrying each agent's most-recent prior score
+    // forward gives the tooltip a complete payload at every x-position.
+    const lastSeen: Record<string, number> = {};
+    for (const row of merged) {
+      for (const agent of visibleAgents) {
+        if (typeof row[agent] === "number") {
+          lastSeen[agent] = row[agent] as number;
+        } else if (typeof lastSeen[agent] === "number") {
+          row[agent] = lastSeen[agent];
+        }
+      }
+    }
+
     // Stride-downsample when over cap — stride sampling works on composite
     // rows where per-series LTTB would desync timestamps.
     if (merged.length > MAX_DISPLAY_POINTS) {

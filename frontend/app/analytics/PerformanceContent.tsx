@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
+import { ClosedTradesPanel } from "@/components/performance/ClosedTradesPanel";
 import { GateBlockAnalytics } from "@/components/performance/GateBlockAnalytics";
 import { WeightEvolutionChart } from "@/components/performance/WeightEvolutionChart";
 import { TradeAttributionPanel } from "@/components/performance/TradeAttributionPanel";
@@ -82,6 +83,7 @@ export default function PerformanceContent({ profileId }: PerformanceContentProp
             <GateBlockAnalytics data={gateAnalytics} />
             <WeightEvolutionChart data={weightHistory} />
           </div>
+          <ClosedTradesPanel symbol={symbol} limit={200} />
           <TradeAttributionPanel data={attribution} />
         </>
       )}

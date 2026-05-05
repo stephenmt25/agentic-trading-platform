@@ -55,6 +55,7 @@ export function TradeAttributionPanel({ data }: Props) {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-zinc-800 text-zinc-500 text-xs">
+              <th className="text-left px-4 py-2 font-medium">Date</th>
               <th className="text-left px-4 py-2 font-medium">Time</th>
               <th className="text-right px-4 py-2 font-medium">Price</th>
               <th className="text-right px-4 py-2 font-medium">Conf Before</th>
@@ -69,11 +70,15 @@ export function TradeAttributionPanel({ data }: Props) {
               const agents = entry.agents as AttributionEntry["agents"];
               const confBefore = agents?.confidence_before;
               const confAfter = agents?.confidence_after;
+              const ts = entry.created_at ? new Date(entry.created_at) : null;
 
               return (
                 <tr key={entry.event_id} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-                  <td className="px-4 py-2 text-zinc-400 text-xs font-mono">
-                    {entry.created_at ? new Date(entry.created_at).toLocaleString() : "—"}
+                  <td className="px-4 py-2 text-zinc-400 text-xs font-mono whitespace-nowrap">
+                    {ts ? ts.toLocaleDateString([], { year: "numeric", month: "short", day: "numeric" }) : "—"}
+                  </td>
+                  <td className="px-4 py-2 text-zinc-400 text-xs font-mono whitespace-nowrap">
+                    {ts ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
                   </td>
                   <td className="text-right px-4 py-2 font-mono text-zinc-300">
                     {entry.input_price ? `$${entry.input_price.toLocaleString()}` : "—"}

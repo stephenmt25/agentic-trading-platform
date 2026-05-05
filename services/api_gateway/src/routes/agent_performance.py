@@ -11,6 +11,7 @@ from ..deps import (
     get_weight_history_repo,
     get_gate_efficacy_repo,
 )
+from libs.core.agent_registry import AGENT_DEFAULTS
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
@@ -80,9 +81,28 @@ async def get_agent_weights(
     pipe.hgetall(f"agent:tracker:{symbol}:debate")
     weights_raw, ta_tracker, sent_tracker, debate_tracker = await pipe.execute()
 
-    weights = {}
+    # The shared RedisClient does not set decode_responses=True, so hgetall
+    # returns {bytes: bytes}. Decode here so the JSON response carries str
+    # keys — otherwise the frontend's weights[agent] lookup misses every
+    # time. Same root cause as acb25ae (analyst tracker) — fixed there but
+    # the duplicate read path here was missed.
+    weights: dict = {}
     if weights_raw:
-        weights = {k: float(v) for k, v in weights_raw.items()}
+        for k, v in weights_raw.items():
+            dk = k.decode() if isinstance(k, bytes) else k
+            dv = v.decode() if isinstance(v, bytes) else v
+            try:
+                weights[dk] = float(dv)
+            except (TypeError, ValueError):
+                continue
+
+    # Fall back to AGENT_DEFAULTS for any agent the analyst hasn't recomputed
+    # yet. After a clean-baseline reset (or first boot) the Redis hash is
+    # empty until 10+ closed trades have been observed; without this, the
+    # dashboard panel shows "—" for hours despite the system using the
+    # defaults internally.
+    for agent, default in AGENT_DEFAULTS.items():
+        weights.setdefault(agent, default)
 
     def _parse_tracker(raw: dict) -> dict:
         if not raw:

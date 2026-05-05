@@ -44,9 +44,26 @@ function WeightEvolutionChartInner({ data }: Props) {
       row[point.agent_name] = point.weight;
     }
 
-    return Array.from(timeMap.values()).sort(
+    const merged = Array.from(timeMap.values()).sort(
       (a, b) => (a.timestamp as number) - (b.timestamp as number)
     );
+
+    // Forward-fill so each row carries every agent's most-recent prior
+    // weight. Without this the recharts tooltip shows only the one
+    // agent that recorded a snapshot at the hovered timestamp.
+    const agents = Object.keys(AGENT_COLORS);
+    const lastSeen: Record<string, number> = {};
+    for (const row of merged) {
+      for (const agent of agents) {
+        if (typeof row[agent] === "number") {
+          lastSeen[agent] = row[agent] as number;
+        } else if (typeof lastSeen[agent] === "number") {
+          row[agent] = lastSeen[agent];
+        }
+      }
+    }
+
+    return merged;
   }, [data]);
 
   if (!chartData.length) {

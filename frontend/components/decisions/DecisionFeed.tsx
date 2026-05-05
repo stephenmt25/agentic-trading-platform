@@ -113,7 +113,14 @@ export function DecisionFeed({ profileId }: { profileId?: string | null } = {}) 
                     {decisions.map((d) => {
                         const isApproved = d.outcome === "APPROVED";
                         const isExpanded = expandedId === d.event_id;
-                        const time = new Date(d.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+                        const ts = new Date(d.created_at);
+                        const isToday = ts.toDateString() === new Date().toDateString();
+                        // Same-day decisions show only HH:MM:SS to keep rows compact;
+                        // older entries get a short date (MMM d) prefix so the operator
+                        // can tell which day they're scrolling through.
+                        const time = isToday
+                            ? ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+                            : `${ts.toLocaleDateString([], { month: "short", day: "numeric" })} ${ts.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
                         const conf = d.agents?.confidence_after ?? d.strategy.base_confidence;
 
                         // Build one-line summary
