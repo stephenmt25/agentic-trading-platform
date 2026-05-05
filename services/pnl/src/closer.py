@@ -30,8 +30,9 @@ from .calculator import PnLCalculator
 logger = get_logger("pnl.closer")
 
 _ZERO = Decimal("0")
-# Notional capital per allocation unit. Mirrors services/risk/__init__.py:60
-# (allocation_pct × 10,000) — keep in sync if that constant moves.
+# Notional capital per allocation unit. Mirrors services/hot_path/src/main.py:132,
+# services/hot_path/src/state.py:33, and services/risk/src/__init__.py:60 —
+# all four MUST agree. Long-term fix: derive from profile.allocation_pct alone.
 _NOTIONAL_PER_ALLOC_UNIT = Decimal("10000")
 _DEFAULT_ALLOC_PCT = Decimal("1.0")
 
