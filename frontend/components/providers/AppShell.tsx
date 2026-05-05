@@ -17,8 +17,12 @@ const IS_MOCK_DATA = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
 
 // Trade is the primary surface and default landing page.
 // Backtest lives inside Strategies → Verify. Analyze is absorbed into Trade.
+// Paper Trading exposes the Daily P&L reports + manual report generator;
+// it carries operational state (kill switch, mode, days-elapsed) that
+// Trade page intentionally omits.
 const NAV_ITEMS = [
   { href: "/trade", label: "Trade" },
+  { href: "/paper-trading", label: "Paper Trading" },
   { href: "/strategies", label: "Strategies" },
   { href: "/agent-view", label: "Agents" },
   { href: "/docs", label: "Docs" },
