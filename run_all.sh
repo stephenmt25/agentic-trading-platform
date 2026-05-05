@@ -273,7 +273,9 @@ if [[ "$LOCAL_FRONTEND" == true ]]; then
     echo "=== [4/4] Starting Local Frontend (Next.js) ==="
     rm -f frontend/.next/dev/lock 2>/dev/null
     if command -v powershell.exe >/dev/null 2>&1; then
-        powershell.exe -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { \$_ -ne 0 } | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null
+        # Trailing `|| true` so an empty pipeline (no listener on :3000) does
+        # not trip `set -e` and abort the script before the dev server starts.
+        powershell.exe -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { \$_ -ne 0 } | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null || true
     fi
     sleep 1
     cd frontend
