@@ -42,7 +42,8 @@ def _make_state(profile_id="test-profile", daily_pnl=0.0, drawdown=0.0, allocati
 
 def _make_tick():
     return NormalisedTick(
-        symbol="BTC/USDT", exchange="binance", timestamp=1000000, price=50000.0, volume=1.0
+        symbol="BTC/USDT", exchange="binance", timestamp=1000000,
+        price=Decimal("50000"), volume=Decimal("1"),
     )
 
 
@@ -73,11 +74,18 @@ class TestCircuitBreaker:
 
 
 class TestRiskGate:
-    def test_blocks_when_allocation_at_limit(self):
-        """Allocation at max should block."""
-        state = _make_state(allocation=0.25)
+    def test_blocks_when_exposure_saturates_notional(self):
+        """Open exposure already consuming full notional should block.
+
+        Replaces the older `current_allocation_pct >= max_allocation_pct` test:
+        RiskGate now compares free_capital = notional - open_exposure_dollars
+        against zero (see services/hot_path/src/risk_gate.py:38-48).
+        """
+        state = _make_state()
+        state.open_exposure_dollars = state.notional  # no room left
         result = RiskGate.check(state, _make_signal(), _make_tick())
         assert result.blocked is True
+        assert result.reason == "exposure_at_notional"
 
     def test_blocks_when_drawdown_exceeds_limit(self):
         """Drawdown above max should block."""
@@ -101,7 +109,13 @@ class TestRiskGate:
         assert result_stressed.suggested_quantity < result_normal.suggested_quantity
 
     def test_reduces_quantity_in_high_volatility(self):
-        """HIGH_VOLATILITY regime should reduce quantity by 30%."""
+        """HIGH_VOLATILITY regime should reduce quantity by 30%.
+
+        Sizing is now equity-aware (asset units, not fraction):
+        qty = (notional × max_alloc × confidence × regime_multiplier) / price
+            = (10000 × 0.25 × 1.0 × 0.7) / 50000
+            = 0.035 BTC
+        """
         state = _make_state()
         state.regime = Regime.HIGH_VOLATILITY
 
@@ -110,8 +124,7 @@ class TestRiskGate:
 
         result = RiskGate.check(state, signal, tick)
         assert not result.blocked
-        # 0.25 * 1.0 * 0.7 = 0.175
-        assert float(result.suggested_quantity) == pytest.approx(0.175)
+        assert float(result.suggested_quantity) == pytest.approx(0.035)
 
     def test_dynamic_sizing_uses_confidence(self):
         """Position size should scale with signal confidence."""

@@ -47,6 +47,14 @@ def _make_closer(closed_trade_repo=None, snapshot_payload=None):
     else:
         redis_client.get = AsyncMock(return_value=json.dumps(snapshot_payload).encode())
     redis_client.delete = AsyncMock(return_value=1)
+    # Pre-seed hget so closer._bump_daily_realised_pnl reads today's date
+    # (skipping the day-rollover branch that would call delete a second time).
+    # Tests that want to exercise day-rollover should override this on the
+    # specific redis_client instance.
+    today_iso = datetime.now(timezone.utc).date().isoformat()
+    redis_client.hget = AsyncMock(return_value=today_iso.encode())
+    redis_client.hset = AsyncMock(return_value=1)
+    redis_client.hincrby = AsyncMock(return_value=1)
 
     closer = PositionCloser(
         position_repo=position_repo,

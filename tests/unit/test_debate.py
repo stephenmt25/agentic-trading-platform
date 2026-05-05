@@ -36,7 +36,7 @@ class MockBackend:
         self.judge_conf = judge_conf
         self.prompts_received: list[str] = []
 
-    async def complete(self, prompt: str) -> Optional[str]:
+    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
         self.prompts_received.append(prompt)
         if "BULL advocate" in prompt:
             return json.dumps({
@@ -59,13 +59,13 @@ class MockBackend:
 
 class FailingBackend:
     """Always returns None."""
-    async def complete(self, prompt: str) -> Optional[str]:
+    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
         return None
 
 
 class GarbageBackend:
     """Returns non-JSON text."""
-    async def complete(self, prompt: str) -> Optional[str]:
+    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
         return "I cannot make a determination at this time."
 
 
@@ -236,7 +236,7 @@ class TestDebateEngine:
     @pytest.mark.asyncio
     async def test_score_clamped(self):
         class ExtremeBackend:
-            async def complete(self, prompt):
+            async def complete(self, prompt, grammar: Optional[str] = None):
                 if "JUDGE" in prompt:
                     return json.dumps({"score": 5.0, "confidence": 3.0, "reasoning": "extreme"})
                 return json.dumps({"argument": "test", "conviction": 0.5})
