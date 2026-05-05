@@ -99,6 +99,19 @@ async def debate_loop(
                 ctx = await _get_market_context(redis_client, symbol)
                 result = await engine.run(ctx)
 
+                # Skip Redis write on total LLM failure — score/conf are
+                # default fallbacks (~0.0/0.3) that the meta-learning loop
+                # would otherwise treat as a real bearish vote. Let the
+                # previous good value TTL out so consumers see "no data"
+                # rather than fake data.
+                if result.backend_failure:
+                    logger.warning(
+                        "Debate backend failure — skipping Redis write",
+                        symbol=symbol,
+                        latency_ms=result.total_latency_ms,
+                    )
+                    continue
+
                 key = f"agent:debate:{symbol}"
                 await redis_client.set(
                     key,

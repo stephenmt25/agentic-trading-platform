@@ -113,15 +113,23 @@ class OrderExecutor:
             agents = {}
             direction = side if isinstance(side, str) else side.value
 
+            # Defence in depth: even though sentiment/debate now skip the
+            # Redis write on LLM failure (services/sentiment/src/main.py and
+            # services/debate/src/main.py), we still filter here so a
+            # regression upstream can't poison the meta-learning loop.
+            _DEGRADED_SOURCES = {"llm_error", "fallback"}
+
             if ta_raw:
                 data = AgentScorePayload.model_validate_json(ta_raw)
                 agents["ta"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
             if sent_raw:
                 data = AgentScorePayload.model_validate_json(sent_raw)
-                agents["sentiment"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
+                if data.source not in _DEGRADED_SOURCES:
+                    agents["sentiment"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
             if debate_raw:
                 data = AgentScorePayload.model_validate_json(debate_raw)
-                agents["debate"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
+                if data.source not in _DEGRADED_SOURCES:
+                    agents["debate"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
 
             regime = None
             if regime_raw:

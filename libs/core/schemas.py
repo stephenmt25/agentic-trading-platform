@@ -647,12 +647,19 @@ class BacktestSweepResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class AgentScorePayload(BaseModel):
-    """Validated agent score from Redis (ta, sentiment, debate)."""
+    """Validated agent score from Redis (ta, sentiment, debate).
+
+    `source` identifies the producer / failure mode. Sentiment uses
+    "cloud" / "local" / "cache" for healthy paths and "llm_error" / "fallback"
+    for degraded paths — consumers must drop the latter to avoid feeding
+    fake votes into the meta-learning loop.
+    """
     score: float
     direction: Optional[str] = None
     confidence: Optional[float] = None
     regime: Optional[str] = None
     state_index: Optional[int] = None
+    source: Optional[str] = None
     model_config = ConfigDict(extra="allow")
 
 

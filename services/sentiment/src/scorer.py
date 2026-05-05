@@ -193,8 +193,12 @@ class LLMSentimentScorer:
             logger.error("All LLM backends failed", symbol=symbol)
             result = SentimentResult(score=0.0, confidence=0.5, source="llm_error")
 
-        # 5. Cache result
-        if self._cache:
+        # 5. Cache only successful, real results. Caching llm_error or fallback
+        # propagated stale failures for the entire 15-min TTL — every read
+        # came back as source="cache" with score=0.0, indistinguishable from
+        # a real neutral sentiment. See agent:closed:{symbol} stream
+        # contamination logged in the tech-debt registry (2026-05-05).
+        if self._cache and result.source not in ("llm_error", "fallback"):
             cache_data = json.dumps({
                 "score": result.score,
                 "confidence": result.confidence,

@@ -118,6 +118,33 @@ class TestLLMSentimentScorer:
         await scorer.score("BTC/USDT", ["headline"])
         cache.set.assert_called_once()
 
+    @pytest.mark.asyncio
+    async def test_llm_error_result_is_not_cached(self):
+        """All-backends-fail must NOT poison the cache. Caching the
+        SentimentResult(0.0, 0.5, 'llm_error') made every read for the
+        next 15 min return source='cache' with neutral fake values —
+        contaminated 4,645+ closed-trade entries before being noticed."""
+        bad = AsyncMock()
+        bad.complete = AsyncMock(return_value=None)
+        cache = AsyncMock()
+        cache.get = AsyncMock(return_value=None)
+        cache.set = AsyncMock()
+        scorer = LLMSentimentScorer(cache_client=cache, cache_ttl=900, backends=[bad])
+        result = await scorer.score("BTC/USDT", ["headline"])
+        assert result.source == "llm_error"
+        cache.set.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_no_headlines_fallback_is_not_cached(self):
+        """Fallback (no headlines) is also a degraded path — don't cache."""
+        cache = AsyncMock()
+        cache.get = AsyncMock(return_value=None)
+        cache.set = AsyncMock()
+        scorer = LLMSentimentScorer(cache_client=cache, cache_ttl=900, backends=[])
+        result = await scorer.score("BTC/USDT", [])
+        assert result.source == "fallback"
+        cache.set.assert_not_called()
+
 
 # ---------------------------------------------------------------------------
 # create_backend tests

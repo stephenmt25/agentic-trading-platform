@@ -31,17 +31,32 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
                 headlines = await news_client.get_headlines(symbol, limit=5)
                 result = await scorer.score(symbol, headlines)
 
-                key = f"agent:sentiment:{symbol}"
-                await redis_client.set(
-                    key,
-                    json.dumps({
-                        "score": result.score,
-                        "confidence": result.confidence,
-                        "source": result.source,
-                    }),
-                    ex=SCORE_TTL_S,
-                )
-                # Persist to TimescaleDB for charting overlays
+                # Skip the agent:sentiment:{symbol} Redis write on LLM error
+                # or no-headlines fallback. The TimescaleDB persist below
+                # still captures the failure for charting/audit, but the
+                # meta-learning loop downstream (executor, EWMA tracker)
+                # treats absent-key as "no signal" rather than a fake
+                # bearish/neutral vote.
+                if result.source not in ("llm_error", "fallback"):
+                    key = f"agent:sentiment:{symbol}"
+                    await redis_client.set(
+                        key,
+                        json.dumps({
+                            "score": result.score,
+                            "confidence": result.confidence,
+                            "source": result.source,
+                        }),
+                        ex=SCORE_TTL_S,
+                    )
+                else:
+                    logger.warning(
+                        "Sentiment unhealthy — skipping agent:sentiment Redis write",
+                        symbol=symbol,
+                        source=result.source,
+                    )
+
+                # Persist to TimescaleDB for charting overlays — always, so
+                # the dashboard can show "tried, failed" as well as success.
                 if score_repo:
                     try:
                         await score_repo.write_score(

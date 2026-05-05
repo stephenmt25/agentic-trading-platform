@@ -65,6 +65,10 @@ class DebateResult:
     cycle_id: UUID = field(default_factory=uuid.uuid4)
     rounds: list[DebateRound] = field(default_factory=list)
     total_latency_ms: float = 0.0
+    # True when the LLM backend produced no usable JSON for any of the
+    # bull/bear/judge calls — score/confidence are then default fallbacks
+    # and writing them to Redis would lie to the meta-learning loop.
+    backend_failure: bool = False
 
 
 @dataclass
@@ -137,6 +141,7 @@ class DebateEngine:
 
         rounds: list[DebateRound] = []
         transcript_parts: list[str] = []
+        any_llm_success = False
 
         for round_num in range(1, self._num_rounds + 1):
             # Build previous round context
@@ -153,6 +158,7 @@ class DebateEngine:
             if bull_parsed:
                 bull_arg = bull_parsed.get("argument", "No argument provided")
                 bull_conv = max(0.0, min(1.0, float(bull_parsed.get("conviction", 0.5))))
+                any_llm_success = True
             else:
                 bull_arg = bull_raw or "Failed to generate argument"
                 bull_conv = 0.5
@@ -165,6 +171,7 @@ class DebateEngine:
             if bear_parsed:
                 bear_arg = bear_parsed.get("argument", "No argument provided")
                 bear_conv = max(0.0, min(1.0, float(bear_parsed.get("conviction", 0.5))))
+                any_llm_success = True
             else:
                 bear_arg = bear_raw or "Failed to generate argument"
                 bear_conv = 0.5
@@ -191,6 +198,7 @@ class DebateEngine:
             score = max(-1.0, min(1.0, float(judge_parsed.get("score", 0.0))))
             confidence = max(0.0, min(1.0, float(judge_parsed.get("confidence", 0.5))))
             reasoning = judge_parsed.get("reasoning", "")
+            any_llm_success = True
         else:
             # Fallback: average conviction difference
             bull_avg = sum(r.bull_conviction for r in rounds) / len(rounds) if rounds else 0.5
@@ -208,4 +216,5 @@ class DebateEngine:
             reasoning=reasoning,
             rounds=rounds,
             total_latency_ms=round(latency, 1),
+            backend_failure=not any_llm_success,
         )
