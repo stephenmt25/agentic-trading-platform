@@ -166,6 +166,119 @@ async def generate_report(
     }
 
 
+@router.get("/reports/{date}/detail")
+async def get_report_detail(
+    date: str,
+    user_id: str = Depends(get_current_user),
+    db: TimescaleClient = Depends(get_timescale),
+):
+    """Rich detail for a single day's report: summary + every closed trade
+    on that UTC date with its full decision lineage.
+
+    Joins closed_trades to trade_decisions on decision_event_id so each
+    trade carries the agent attribution, gate trace, indicators, and
+    regime that was captured at decision time.
+
+    Filter is closed_at::date = $1 — i.e. trades that CLOSED that day,
+    regardless of when they opened. That matches the summary row's
+    semantics (the daily report rolls up closes).
+    """
+    try:
+        day = datetime.strptime(date, "%Y-%m-%d").date()
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="date must be YYYY-MM-DD") from exc
+
+    summary_row = await db.fetchrow(
+        "SELECT * FROM paper_trading_reports WHERE report_date = $1",
+        day,
+    )
+    summary: Optional[dict] = None
+    if summary_row:
+        summary = {
+            "id": summary_row["id"],
+            "report_date": str(summary_row["report_date"]),
+            "total_trades": summary_row["total_trades"],
+            "win_rate": round(float(summary_row["win_rate"]), 4),
+            "gross_pnl": round(float(summary_row["gross_pnl"]), 2),
+            "net_pnl": round(float(summary_row["net_pnl"]), 2),
+            "max_drawdown": round(float(summary_row["max_drawdown"]), 4),
+            "sharpe_ratio": round(float(summary_row["sharpe_ratio"]), 2),
+        }
+
+    trade_rows = await db.fetch(
+        """
+        SELECT
+            ct.position_id::text         AS position_id,
+            ct.symbol,
+            ct.side,
+            ct.entry_price,
+            ct.entry_quantity,
+            ct.exit_price,
+            ct.opened_at,
+            ct.closed_at,
+            ct.holding_duration_s,
+            ct.realized_pnl,
+            ct.realized_pnl_pct,
+            ct.outcome,
+            ct.close_reason,
+            ct.entry_regime,
+            ct.entry_agent_scores::text  AS entry_agent_scores_json,
+            td.event_id::text            AS decision_event_id,
+            td.indicators::text          AS decision_indicators_json,
+            td.agents::text              AS decision_agents_json,
+            td.gates::text               AS decision_gates_json,
+            td.regime::text              AS decision_regime_json
+        FROM closed_trades ct
+        LEFT JOIN trade_decisions td ON ct.decision_event_id = td.event_id
+        WHERE ct.closed_at::date = $1
+        ORDER BY ct.closed_at DESC
+        """,
+        day,
+    )
+
+    def _parse_jsonb(raw):
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            try:
+                return json.loads(raw)
+            except (ValueError, TypeError):
+                return None
+        return raw  # asyncpg sometimes hands back a dict directly
+
+    trades = [
+        {
+            "position_id": r["position_id"],
+            "symbol": r["symbol"],
+            "side": r["side"],
+            "entry_price": float(r["entry_price"]),
+            "entry_quantity": float(r["entry_quantity"]),
+            "exit_price": float(r["exit_price"]),
+            "opened_at": r["opened_at"].isoformat() if r["opened_at"] else None,
+            "closed_at": r["closed_at"].isoformat() if r["closed_at"] else None,
+            "holding_duration_s": r["holding_duration_s"],
+            "realized_pnl": round(float(r["realized_pnl"]), 4),
+            "realized_pnl_pct": round(float(r["realized_pnl_pct"]), 6),
+            "outcome": r["outcome"],
+            "close_reason": r["close_reason"],
+            "entry_regime": r["entry_regime"],
+            "entry_agent_scores": _parse_jsonb(r["entry_agent_scores_json"]),
+            "decision_event_id": r["decision_event_id"],
+            "decision_indicators": _parse_jsonb(r["decision_indicators_json"]),
+            "decision_agents": _parse_jsonb(r["decision_agents_json"]),
+            "decision_gates": _parse_jsonb(r["decision_gates_json"]),
+            "decision_regime": _parse_jsonb(r["decision_regime_json"]),
+        }
+        for r in trade_rows
+    ]
+
+    return {
+        "report_date": str(day),
+        "summary": summary,
+        "trades": trades,
+    }
+
+
 def _serialize_decision(row: dict) -> dict:
     """Convert a trade_decisions DB row to a JSON-safe dict."""
     result = dict(row)

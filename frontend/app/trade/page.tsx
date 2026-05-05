@@ -15,6 +15,7 @@ import {
   type KillSwitchStatus, type TradingModeStatus,
 } from "@/lib/api/client";
 import { DecisionFeed } from "@/components/decisions/DecisionFeed";
+import { DailyReportDetail } from "@/components/performance/DailyReportDetail";
 import { RiskMonitorCard } from "@/components/risk/RiskMonitorCard";
 import { PositionsPanel } from "@/components/trade/PositionsPanel";
 import AnalysisContent from "../analytics/AnalysisContent";
@@ -517,36 +518,7 @@ export default function TradePage() {
                     </button>
                     {expandedReportId === report.id && (
                       <div className="mt-1 p-2.5 border border-border rounded-md animate-in fade-in slide-in-from-top-1 duration-150">
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          <div className="p-1.5">
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Trades</div>
-                            <div className="text-sm font-medium tabular-nums text-foreground">{report.total_trades}</div>
-                          </div>
-                          <div className="p-1.5">
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Win Rate</div>
-                            <div className="text-sm font-medium tabular-nums text-emerald-500">{report.win_rate}%</div>
-                          </div>
-                          <div className="p-1.5">
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Sharpe</div>
-                            <div className="text-sm font-medium tabular-nums text-foreground">{report.sharpe_ratio.toFixed(2)}</div>
-                          </div>
-                          <div className="p-1.5">
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Gross</div>
-                            <div className={`text-sm font-medium tabular-nums ${report.gross_pnl >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-                              ${report.gross_pnl.toFixed(2)}
-                            </div>
-                          </div>
-                          <div className="p-1.5">
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Net</div>
-                            <div className={`text-sm font-medium tabular-nums ${report.net_pnl >= 0 ? "text-emerald-500" : "text-red-500"}`}>
-                              ${report.net_pnl.toFixed(2)}
-                            </div>
-                          </div>
-                          <div className="p-1.5">
-                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Drawdown</div>
-                            <div className="text-sm font-medium tabular-nums text-amber-500">{(report.max_drawdown * 100).toFixed(1)}%</div>
-                          </div>
-                        </div>
+                        <DailyReportDetail date={report.report_date} />
                       </div>
                     )}
                   </div>

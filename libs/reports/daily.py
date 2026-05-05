@@ -35,11 +35,17 @@ async def generate_for_date(db: TimescaleClient, day: date) -> bool:
     intentionally skips empty days so the operator-facing list stays
     informative.
     """
+    # "trades on day X" = closes on day X. The earlier version counted
+    # orders by created_at::date which silently went to zero on days where
+    # all trades were close-outs of positions opened on a prior day — which
+    # is most days once positions hold across UTC midnight. closed_trades
+    # is the audit-table side of the same idea and matches the trades the
+    # detail view (GET /paper-trading/reports/{date}/detail) renders.
     trade_row = await db.fetchrow(
         """
         SELECT COUNT(*) AS total_trades
-        FROM orders
-        WHERE status = 'CONFIRMED' AND created_at::date = $1
+        FROM closed_trades
+        WHERE closed_at::date = $1
         """,
         day,
     )

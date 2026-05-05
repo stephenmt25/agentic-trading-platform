@@ -357,6 +357,46 @@ export const api = {
         method: "POST",
         body: { date },
       }),
+
+    // GET /paper-trading/reports/{date}/detail — rich detail for one day:
+    // summary row + every closed trade joined with its originating decision
+    // (agent attribution, gate trace, indicators, regime).
+    reportDetail: (date: string) =>
+      apiRequest<{
+        report_date: string;
+        summary: {
+          id: number;
+          report_date: string;
+          total_trades: number;
+          win_rate: number;
+          gross_pnl: number;
+          net_pnl: number;
+          max_drawdown: number;
+          sharpe_ratio: number;
+        } | null;
+        trades: Array<{
+          position_id: string;
+          symbol: string;
+          side: string;
+          entry_price: number;
+          entry_quantity: number;
+          exit_price: number;
+          opened_at: string;
+          closed_at: string;
+          holding_duration_s: number;
+          realized_pnl: number;
+          realized_pnl_pct: number;
+          outcome: string;
+          close_reason: string;
+          entry_regime: string | null;
+          entry_agent_scores: Record<string, unknown> | null;
+          decision_event_id: string | null;
+          decision_indicators: Record<string, unknown> | null;
+          decision_agents: Record<string, unknown> | null;
+          decision_gates: Record<string, unknown> | null;
+          decision_regime: Record<string, unknown> | null;
+        }>;
+      }>(`/paper-trading/reports/${encodeURIComponent(date)}/detail`),
   },
 
   commands: {
