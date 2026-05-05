@@ -101,6 +101,43 @@ function StatCell({ label, value, suffix, color }: {
   );
 }
 
+function PnlSparkline({ data }: { data: number[] }) {
+  if (data.length < 2) return null;
+  const width = 240;
+  const height = 48;
+  const padding = 2;
+  const min = Math.min(...data, 0);
+  const max = Math.max(...data, 0);
+  const range = max - min || 1;
+  const points = data
+    .map((v, i) => {
+      const x = padding + (i / (data.length - 1)) * (width - padding * 2);
+      const y = height - padding - ((v - min) / range) * (height - padding * 2);
+      return `${x},${y}`;
+    })
+    .join(" ");
+  const zeroY = height - padding - ((0 - min) / range) * (height - padding * 2);
+  const lastValue = data[data.length - 1];
+  const lineColor = lastValue >= 0 ? "#22c55e" : "#ef4444";
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-12" preserveAspectRatio="none">
+      <line
+        x1={padding} y1={zeroY} x2={width - padding} y2={zeroY}
+        stroke="currentColor" strokeWidth="0.5" strokeDasharray="3,3"
+        className="text-border"
+      />
+      <polyline
+        points={points}
+        fill="none"
+        stroke={lineColor}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function CollapsibleSection({
   title, subtitle, defaultOpen = false, children,
 }: { title: string; subtitle?: string; defaultOpen?: boolean; children: React.ReactNode }) {
@@ -184,6 +221,14 @@ export default function TradePage() {
   const [reviewOpen, setReviewOpen] = useState(false);
   const isInitial = useRef(true);
 
+  // Daily P&L card — picker + per-row expand. Today's UTC date as YYYY-MM-DD
+  // is the picker default; reports key off UTC dates so a local-tz default
+  // would surprise the operator near midnight.
+  const todayUtcIso = new Date().toISOString().slice(0, 10);
+  const [reportDate, setReportDate] = useState<string>(todayUtcIso);
+  const [generatingReport, setGeneratingReport] = useState(false);
+  const [expandedReportId, setExpandedReportId] = useState<number | null>(null);
+
   const profileNamesById = profiles.reduce<Record<string, string>>((acc, p) => {
     acc[p.profile_id] = p.name;
     return acc;
@@ -227,6 +272,33 @@ export default function TradePage() {
     return () => clearInterval(t);
   }, [loadLive]);
 
+  const handleGenerateReport = async () => {
+    if (!reportDate) {
+      toast.error("Pick a date first");
+      return;
+    }
+    setGeneratingReport(true);
+    try {
+      const result = await api.paperTrading.generateReport(reportDate);
+      if (result.wrote) {
+        toast.success(`Report regenerated for ${result.report_date}`);
+      } else if (result.report) {
+        toast.info(`No new activity on ${result.report_date} — kept existing report`);
+      } else {
+        toast.info(`No trades or snapshots on ${result.report_date} — nothing to report`);
+      }
+      await loadLive();
+    } catch (e: any) {
+      toast.error(`Failed to generate report: ${e.message ?? e}`);
+    } finally {
+      setGeneratingReport(false);
+    }
+  };
+
+  const toggleReport = (id: number) => {
+    setExpandedReportId(expandedReportId === id ? null : id);
+  };
+
   const toggleKillSwitch = useCallback(async () => {
     if (!killSwitch) return;
     setKillSwitchBusy(true);
@@ -245,6 +317,7 @@ export default function TradePage() {
 
   // Derived
   const m = status?.metrics;
+  const dailyReports = status?.daily_reports ?? [];
   const netPnl = m?.total_net_pnl ?? 0;
   const grossPnl = m?.total_gross_pnl ?? 0;
   const winRate = m?.avg_win_rate ?? 0;
@@ -318,7 +391,149 @@ export default function TradePage() {
         </p>
       </header>
 
-      {/* ─── 1. LIVE ACTIVITY ─── what is the engine doing right now ─── */}
+      {/* ─── 1. ENGINE TOTALS ─── headline numbers up front ─── */}
+      <section className="border border-border rounded-md overflow-hidden">
+        <PanelHeader
+          title="Engine totals"
+          subtitle="Aggregate performance across all profiles since boot"
+          scope="system"
+        />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 px-4 py-3 bg-card">
+          <StatCell
+            label="Net P&L"
+            value={`${netPnl >= 0 ? "+" : ""}$${netPnl.toFixed(2)}`}
+            color={netPnl > 0 ? "positive" : netPnl < 0 ? "negative" : "neutral"}
+          />
+          <StatCell
+            label="Gross P&L"
+            value={`${grossPnl >= 0 ? "+" : ""}$${grossPnl.toFixed(2)}`}
+            color={grossPnl > 0 ? "positive" : grossPnl < 0 ? "negative" : "neutral"}
+          />
+          <StatCell label="Trades" value={totalTrades.toLocaleString()} />
+          <StatCell
+            label="Win rate"
+            value={`${(winRate * 100).toFixed(1)}`}
+            suffix="%"
+            color={winRate >= 0.5 ? "positive" : winRate > 0 ? "negative" : "neutral"}
+          />
+          <StatCell
+            label="Max DD"
+            value={`${(drawdown * 100).toFixed(1)}`}
+            suffix="%"
+            color={drawdown > 0 ? "negative" : "neutral"}
+          />
+          <StatCell
+            label="Sharpe"
+            value={sharpe.toFixed(2)}
+            color={sharpe >= 1 ? "positive" : sharpe < 0 ? "negative" : "neutral"}
+          />
+        </div>
+      </section>
+
+      {/* ─── 2. DAILY P&L ─── per-day report list with on-demand generator ─── */}
+      <section className="border border-border rounded-md overflow-hidden flex flex-col">
+        <PanelHeader
+          title="Daily P&L"
+          subtitle="Per-day reports — sparkline + drill-down · idempotent, idempotent regenerate any date"
+          scope="system"
+          action={
+            <div className="flex items-center gap-2 text-xs">
+              <input
+                type="date"
+                value={reportDate}
+                max={todayUtcIso}
+                onChange={(e) => setReportDate(e.target.value)}
+                disabled={generatingReport}
+                className="bg-background border border-border rounded px-2 py-1 font-mono text-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:opacity-50"
+                aria-label="Report date (UTC)"
+              />
+              <button
+                onClick={handleGenerateReport}
+                disabled={generatingReport || !reportDate}
+                className="px-3 py-1 rounded border border-border bg-accent hover:bg-accent/80 transition-colors uppercase tracking-wider font-mono disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 min-h-[28px]"
+              >
+                {generatingReport && <Loader2 className="w-3 h-3 animate-spin" />}
+                {generatingReport ? "Generating…" : "Create Report"}
+              </button>
+            </div>
+          }
+        />
+        <div className="p-4 flex flex-col gap-3">
+          {dailyReports.length > 1 && (
+            <PnlSparkline data={dailyReports.map((r) => r.net_pnl).reverse()} />
+          )}
+
+          <div className="max-h-[280px] overflow-y-auto pr-1">
+            <div className="space-y-1.5 font-mono text-xs">
+              {dailyReports.length === 0 ? (
+                <div className="p-3 border border-border rounded-md flex justify-between items-center opacity-50">
+                  <span className="text-muted-foreground">Day 0</span>
+                  <span className="text-muted-foreground">Awaiting first report…</span>
+                </div>
+              ) : (
+                dailyReports.map((report) => (
+                  <div key={report.id}>
+                    <button
+                      onClick={() => toggleReport(report.id)}
+                      className="w-full p-2.5 border border-border rounded-md flex justify-between items-center hover:bg-accent transition-colors text-left min-h-[40px]"
+                    >
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-foreground font-medium">{report.report_date}</span>
+                        <span className="text-xs text-muted-foreground tabular-nums">
+                          {report.total_trades} trades | {report.win_rate}% win |{" "}
+                          <span className={report.net_pnl >= 0 ? "text-emerald-500" : "text-red-500"}>
+                            ${report.net_pnl.toFixed(2)}
+                          </span>
+                        </span>
+                      </div>
+                      {expandedReportId === report.id
+                        ? <ChevronUp className="w-3 h-3 text-muted-foreground shrink-0" />
+                        : <ChevronDown className="w-3 h-3 text-muted-foreground shrink-0" />
+                      }
+                    </button>
+                    {expandedReportId === report.id && (
+                      <div className="mt-1 p-2.5 border border-border rounded-md animate-in fade-in slide-in-from-top-1 duration-150">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                          <div className="p-1.5">
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Trades</div>
+                            <div className="text-sm font-medium tabular-nums text-foreground">{report.total_trades}</div>
+                          </div>
+                          <div className="p-1.5">
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Win Rate</div>
+                            <div className="text-sm font-medium tabular-nums text-emerald-500">{report.win_rate}%</div>
+                          </div>
+                          <div className="p-1.5">
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Sharpe</div>
+                            <div className="text-sm font-medium tabular-nums text-foreground">{report.sharpe_ratio.toFixed(2)}</div>
+                          </div>
+                          <div className="p-1.5">
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Gross</div>
+                            <div className={`text-sm font-medium tabular-nums ${report.gross_pnl >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                              ${report.gross_pnl.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="p-1.5">
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Net</div>
+                            <div className={`text-sm font-medium tabular-nums ${report.net_pnl >= 0 ? "text-emerald-500" : "text-red-500"}`}>
+                              ${report.net_pnl.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="p-1.5">
+                            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Drawdown</div>
+                            <div className="text-sm font-medium tabular-nums text-amber-500">{(report.max_drawdown * 100).toFixed(1)}%</div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ─── 3. LIVE ACTIVITY ─── what is the engine doing right now ─── */}
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-xs font-semibold tracking-wider uppercase text-foreground">Live activity</h2>
@@ -401,45 +616,6 @@ export default function TradePage() {
           </div>
         </section>
       </div>
-
-      {/* ─── 4. ENGINE TOTALS ─── headline numbers (whole engine, not just this profile) ─── */}
-      <section className="border border-border rounded-md overflow-hidden">
-        <PanelHeader
-          title="Engine totals"
-          subtitle="Aggregate performance across all profiles since boot"
-          scope="system"
-        />
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 px-4 py-3 bg-card">
-          <StatCell
-            label="Net P&L"
-            value={`${netPnl >= 0 ? "+" : ""}$${netPnl.toFixed(2)}`}
-            color={netPnl > 0 ? "positive" : netPnl < 0 ? "negative" : "neutral"}
-          />
-          <StatCell
-            label="Gross P&L"
-            value={`${grossPnl >= 0 ? "+" : ""}$${grossPnl.toFixed(2)}`}
-            color={grossPnl > 0 ? "positive" : grossPnl < 0 ? "negative" : "neutral"}
-          />
-          <StatCell label="Trades" value={totalTrades.toLocaleString()} />
-          <StatCell
-            label="Win rate"
-            value={`${(winRate * 100).toFixed(1)}`}
-            suffix="%"
-            color={winRate >= 0.5 ? "positive" : winRate > 0 ? "negative" : "neutral"}
-          />
-          <StatCell
-            label="Max DD"
-            value={`${(drawdown * 100).toFixed(1)}`}
-            suffix="%"
-            color={drawdown > 0 ? "negative" : "neutral"}
-          />
-          <StatCell
-            label="Sharpe"
-            value={sharpe.toFixed(2)}
-            color={sharpe >= 1 ? "positive" : sharpe < 0 ? "negative" : "neutral"}
-          />
-        </div>
-      </section>
 
       {/* Performance review drawer is triggered from the live-activity header above. */}
       <PerformanceReviewDrawer
