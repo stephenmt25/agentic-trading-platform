@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { api } from "@/lib/api/client";
 
@@ -221,9 +221,8 @@ export function DailyReportDetail({ date }: Props) {
                       ? `${failing[0]}${failing[1]?.reason ? `: ${failing[1].reason}` : ""}`
                       : b.outcome.replace("BLOCKED_", "").toLowerCase();
                     return (
-                      <>
+                      <Fragment key={b.event_id}>
                         <tr
-                          key={b.event_id}
                           onClick={() => setExpandedBlockedId(isOpen ? null : b.event_id)}
                           className="border-b border-border/50 hover:bg-accent/20 cursor-pointer"
                         >
@@ -244,7 +243,7 @@ export function DailyReportDetail({ date }: Props) {
                             </td>
                           </tr>
                         )}
-                      </>
+                      </Fragment>
                     );
                   })}
                 </tbody>
