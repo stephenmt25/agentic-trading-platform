@@ -446,13 +446,13 @@ export default function TradePage() {
           so the wide column doesn't leave whitespace next to the taller
           Daily P&L card on the right. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <section className="border border-border rounded-md overflow-hidden">
+        <section className="border border-border rounded-md overflow-hidden flex flex-col max-h-[360px]">
           <PanelHeader
             title="Risk monitor"
             subtitle="Live drawdown, allocation, and exposure"
             scope="profile"
           />
-          <div className="p-4">
+          <div className="p-4 flex-1 min-h-0 overflow-y-auto">
             <RiskMonitorCard
               profileIds={profileId ? [profileId] : undefined}
               profileNamesById={profileNamesById}
@@ -460,13 +460,13 @@ export default function TradePage() {
           </div>
         </section>
 
-        <section className="border border-border rounded-md overflow-hidden">
+        <section className="border border-border rounded-md overflow-hidden flex flex-col max-h-[360px]">
           <PanelHeader
             title="Approvals"
             subtitle="Trades held by the HITL gate awaiting decision · all profiles"
             scope="system"
           />
-          <div className="p-2">
+          <div className="p-2 flex-1 min-h-0 overflow-y-auto">
             <ApprovalQueue />
           </div>
         </section>
@@ -474,7 +474,7 @@ export default function TradePage() {
       </div>
 
       {/* ─── 2. DAILY P&L ─── per-day report list with on-demand generator ─── */}
-      <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col">
+      <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col max-h-[600px]">
         <PanelHeader
           title="Daily P&L"
           subtitle="Per-day reports — sparkline + drill-down"
@@ -562,7 +562,7 @@ export default function TradePage() {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
-        <section className="xl:col-span-2 border border-border rounded-md overflow-hidden flex flex-col h-[760px]">
+        <section className="xl:col-span-2 border border-border rounded-md overflow-hidden flex flex-col h-[600px]">
           <PanelHeader
             title="Decision Feed"
             subtitle="Live signals as the engine evaluates them — approvals, blocks, and reasons"
@@ -573,7 +573,7 @@ export default function TradePage() {
           </div>
         </section>
 
-        <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col h-[760px]">
+        <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col h-[600px]">
           <PanelHeader
             title="Price · Agent overlays"
             subtitle="Symbol price with agent score overlays"
