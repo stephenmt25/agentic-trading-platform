@@ -401,14 +401,15 @@ export default function TradePage() {
         </p>
       </header>
 
-      {/* ─── 1. ENGINE TOTALS ─── headline numbers up front ─── */}
-      <section className="border border-border rounded-md overflow-hidden">
+      {/* ─── 1. ENGINE TOTALS + DAILY P&L ─── 7:3 width on xl screens ─── */}
+      <div className="grid grid-cols-1 xl:grid-cols-10 gap-4">
+      <section className="xl:col-span-7 border border-border rounded-md overflow-hidden flex flex-col">
         <PanelHeader
           title="Engine totals"
           subtitle="Aggregate performance across all profiles since boot"
           scope="system"
         />
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 px-4 py-3 bg-card">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 px-4 py-3 bg-card flex-1 content-center">
           <StatCell
             label="Net P&L"
             value={`${netPnl >= 0 ? "+" : ""}$${netPnl.toFixed(2)}`}
@@ -441,10 +442,10 @@ export default function TradePage() {
       </section>
 
       {/* ─── 2. DAILY P&L ─── per-day report list with on-demand generator ─── */}
-      <section className="border border-border rounded-md overflow-hidden flex flex-col">
+      <section className="xl:col-span-3 border border-border rounded-md overflow-hidden flex flex-col">
         <PanelHeader
           title="Daily P&L"
-          subtitle="Per-day reports — sparkline + drill-down · idempotent, idempotent regenerate any date"
+          subtitle="Per-day reports — sparkline + drill-down"
           scope="system"
           action={
             <div className="flex items-center gap-2 text-xs">
@@ -506,6 +507,7 @@ export default function TradePage() {
           </div>
         </div>
       </section>
+      </div>
 
       {/* ─── 3. LIVE ACTIVITY ─── what is the engine doing right now ─── */}
       <div className="flex items-center justify-between gap-3">

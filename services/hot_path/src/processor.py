@@ -1,5 +1,6 @@
 import uuid
 from dataclasses import asdict
+from decimal import Decimal
 from typing import Dict, Any, Optional
 from .state import ProfileStateCache
 from .strategy_eval import StrategyEvaluator, SignalResult, EvaluatedIndicators
@@ -383,6 +384,25 @@ class HotPathProcessor:
                         )
                         await self._publisher.publish(self._orders_channel, order_ev)
                         MetricsCollector.increment_counter("orders.approved")
+
+                        # Pre-bump open exposure so the next tick's RiskGate sees
+                        # the projected commitment immediately. Without this,
+                        # PnlSync's 5s reconciliation poll leaves a race window
+                        # where multiple ticks in the same window all see
+                        # exposure=0 and approve in parallel — the live failure
+                        # mode that opened 3 ETH/USDT positions in 6 seconds
+                        # past a $10k notional cap. The poll loop overwrites
+                        # this value in seconds with the DB-derived ground
+                        # truth, so over-counting is bounded to one poll cycle.
+                        try:
+                            projected_cost = Decimal(str(qty)) * Decimal(str(tick.price))
+                            profile_state.open_exposure_dollars += projected_cost
+                        except Exception:
+                            logger.exception(
+                                "Failed to pre-bump open_exposure_dollars",
+                                profile_id=profile_state.profile_id,
+                                symbol=tick.symbol,
+                            )
 
                         # Write approved decision trace.
                         # Note: trade_decisions.order_id intentionally left NULL.
