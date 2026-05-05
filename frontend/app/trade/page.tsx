@@ -233,6 +233,11 @@ export default function TradePage() {
     return acc;
   }, {});
   const activeProfileName = profileId ? profileNamesById[profileId] ?? null : null;
+  // Risk monitor shows ALL active profiles regardless of which one the user
+  // is scoped to; the panel is system-level oversight, not a per-profile
+  // drill-down. Empty array means "no active profiles" — RiskMonitorCard
+  // distinguishes that from "all profiles" via length check.
+  const activeProfileIds = profiles.filter((p) => p.is_active).map((p) => p.profile_id);
 
   // Profiles (one-time)
   useEffect(() => {
@@ -368,28 +373,18 @@ export default function TradePage() {
           </div>
         </div>
 
-        {/* Profile scope */}
-        <div className="flex items-center gap-3 flex-wrap">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Profile</span>
-          <select
-            value={profileId ?? ""}
-            onChange={(e) => setProfileId(e.target.value || null)}
-            className="bg-card border border-border rounded-md px-3 py-1.5 text-sm text-foreground min-h-[36px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-          >
-            {profiles.length === 0 && <option value="">No profiles</option>}
-            {profiles.map((p) => (
-              <option key={p.profile_id} value={p.profile_id}>
-                {p.name}{p.is_active ? "" : " (inactive)"}
-              </option>
-            ))}
-          </select>
-          {offlineReason && (
+        {/* System-state badge — kill switch / trading-disabled warning lives
+            here even though the profile picker has moved down to the Live
+            Activity row, because this is system-wide and shouldn't get
+            scoped under a per-profile control. */}
+        {offlineReason && (
+          <div className="flex items-center gap-3 flex-wrap">
             <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-red-500/10 border border-red-500/30 text-[11px] text-red-400">
               <AlertTriangle className="w-3 h-3" />
               {offlineReason}
             </span>
-          )}
-        </div>
+          </div>
+        )}
         <p className="text-[11px] text-muted-foreground">
           Each panel below is tagged{" "}
           <ScopeBadge scope="profile" />{" "}reflects the selected profile,{" "}
@@ -449,12 +444,12 @@ export default function TradePage() {
         <section className="border border-border rounded-md overflow-hidden flex flex-col max-h-[360px]">
           <PanelHeader
             title="Risk monitor"
-            subtitle="Live drawdown, allocation, and exposure"
-            scope="profile"
+            subtitle="Live drawdown, allocation, and exposure — all active profiles"
+            scope="system"
           />
           <div className="p-4 flex-1 min-h-0 overflow-y-auto">
             <RiskMonitorCard
-              profileIds={profileId ? [profileId] : undefined}
+              profileIds={activeProfileIds.length > 0 ? activeProfileIds : undefined}
               profileNamesById={profileNamesById}
             />
           </div>
@@ -542,23 +537,43 @@ export default function TradePage() {
       </div>
 
       {/* ─── 3. LIVE ACTIVITY ─── what is the engine doing right now ─── */}
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="min-w-0">
           <h2 className="text-xs font-semibold tracking-wider uppercase text-foreground">Live activity</h2>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             Decisions and price stream — what the engine is doing right now.
           </p>
         </div>
-        <button
-          onClick={() => setReviewOpen(true)}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border border-border bg-card hover:bg-accent/40 transition-colors min-h-[36px] shrink-0"
-          title="Gate efficacy, weight evolution, and trade attribution"
-        >
-          <BarChart3 className="w-3.5 h-3.5 text-primary" />
-          <span className="text-foreground">Performance review</span>
-          <ScopeBadge scope="profile" />
-          <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">→</span>
-        </button>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Profile picker scopes the per-profile panels (Decision Feed,
+              Open positions, Performance review). Risk monitor and Engine
+              totals deliberately ignore it — both are system-level views. */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">Profile</span>
+            <select
+              value={profileId ?? ""}
+              onChange={(e) => setProfileId(e.target.value || null)}
+              className="bg-card border border-border rounded-md px-3 py-1.5 text-sm text-foreground min-h-[36px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+            >
+              {profiles.length === 0 && <option value="">No profiles</option>}
+              {profiles.map((p) => (
+                <option key={p.profile_id} value={p.profile_id}>
+                  {p.name}{p.is_active ? "" : " (inactive)"}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={() => setReviewOpen(true)}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-medium border border-border bg-card hover:bg-accent/40 transition-colors min-h-[36px] shrink-0"
+            title="Gate efficacy, weight evolution, and trade attribution"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-primary" />
+            <span className="text-foreground">Performance review</span>
+            <ScopeBadge scope="profile" />
+            <span className="text-[10px] uppercase tracking-wider font-mono text-muted-foreground">→</span>
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-4">
