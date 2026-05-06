@@ -60,10 +60,31 @@ class TestComputeIndicators:
 
         inds = _compute_indicators(closes, highs, lows, volumes)
 
-        expected_keys = ["rsi", "macd.macd_line", "atr", "adx", "bb.pct_b", "obv", "choppiness"]
+        expected_keys = [
+            "rsi", "macd.macd_line", "atr", "adx", "bb.pct_b", "obv", "choppiness",
+            "z_score", "vwap", "keltner.upper", "keltner.middle", "keltner.lower",
+            "rvol", "hurst",
+        ]
         for key in expected_keys:
             assert key in inds
             assert len(inds[key]) == 50
+
+    def test_c2_indicators_prime_with_values(self):
+        """C.2 indicators (z_score, vwap, keltner, rvol, hurst) must populate values
+        after their priming windows — otherwise the Mean Reversion template silently
+        produces zero trades on the vectorbt engine."""
+        import numpy as np
+        candles = _make_candles(300)
+        closes = np.array([c["close"] for c in candles])
+        highs = np.array([c["high"] for c in candles])
+        lows = np.array([c["low"] for c in candles])
+        volumes = np.array([c["volume"] for c in candles])
+
+        inds = _compute_indicators(closes, highs, lows, volumes)
+
+        for key in ("z_score", "vwap", "keltner.upper", "rvol", "hurst"):
+            non_nan = [v for v in inds[key] if not math.isnan(v)]
+            assert len(non_nan) > 0, f"{key} produced no values across 300 bars"
 
     def test_rsi_primes_after_period(self):
         import numpy as np

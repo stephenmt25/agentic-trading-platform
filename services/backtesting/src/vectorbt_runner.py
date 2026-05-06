@@ -15,6 +15,7 @@ from services.strategy.src.compiler import RuleCompiler
 from libs.indicators import (
     RSICalculator, MACDCalculator, ATRCalculator,
     ADXCalculator, BollingerCalculator, OBVCalculator, ChoppinessCalculator,
+    VWAPCalculator, KeltnerCalculator, RVOLCalculator, ZScoreCalculator, HurstCalculator,
 )
 from .simulator import BacktestJob, BacktestResult, SimulatedTrade
 
@@ -40,6 +41,13 @@ def _compute_indicators(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
     bb_lower_arr = np.full(n, np.nan)
     obv_arr = np.full(n, np.nan)
     chop_arr = np.full(n, np.nan)
+    zscore_arr = np.full(n, np.nan)
+    vwap_arr = np.full(n, np.nan)
+    keltner_upper_arr = np.full(n, np.nan)
+    keltner_middle_arr = np.full(n, np.nan)
+    keltner_lower_arr = np.full(n, np.nan)
+    rvol_arr = np.full(n, np.nan)
+    hurst_arr = np.full(n, np.nan)
 
     rsi_calc = RSICalculator()
     macd_calc = MACDCalculator()
@@ -48,6 +56,11 @@ def _compute_indicators(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
     bb_calc = BollingerCalculator()
     obv_calc = OBVCalculator()
     chop_calc = ChoppinessCalculator()
+    zscore_calc = ZScoreCalculator()
+    vwap_calc = VWAPCalculator()
+    keltner_calc = KeltnerCalculator()
+    rvol_calc = RVOLCalculator()
+    hurst_calc = HurstCalculator()
 
     for i in range(n):
         c, h, l, v = closes[i], highs[i], lows[i], volumes[i]
@@ -85,6 +98,28 @@ def _compute_indicators(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
         if cv is not None:
             chop_arr[i] = cv
 
+        zv = zscore_calc.update(c)
+        if zv is not None:
+            zscore_arr[i] = zv
+
+        wv = vwap_calc.update(c, v)
+        if wv is not None:
+            vwap_arr[i] = wv
+
+        kv = keltner_calc.update(h, l, c)
+        if kv is not None:
+            keltner_upper_arr[i] = kv.upper
+            keltner_middle_arr[i] = kv.middle
+            keltner_lower_arr[i] = kv.lower
+
+        rv2 = rvol_calc.update(v)
+        if rv2 is not None:
+            rvol_arr[i] = rv2
+
+        hv = hurst_calc.update(c)
+        if hv is not None:
+            hurst_arr[i] = hv
+
     return {
         "rsi": rsi_arr,
         "macd.macd_line": macd_line_arr,
@@ -98,6 +133,13 @@ def _compute_indicators(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
         "bb.lower": bb_lower_arr,
         "obv": obv_arr,
         "choppiness": chop_arr,
+        "z_score": zscore_arr,
+        "vwap": vwap_arr,
+        "keltner.upper": keltner_upper_arr,
+        "keltner.middle": keltner_middle_arr,
+        "keltner.lower": keltner_lower_arr,
+        "rvol": rvol_arr,
+        "hurst": hurst_arr,
     }
 
 
