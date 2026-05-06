@@ -71,6 +71,8 @@ class TradingSimulator:
             close = _D(str(candle["close"]))
             candle_time = str(candle.get("time", ""))
 
+            volume_f = float(candle.get("volume", 0))  # float-ok: indicator library requires float
+
             # Update indicators (these use float internally — that's fine for signal generation)
             rsi_val = indicators.rsi.update(close_f)
             macd_val = indicators.macd.update(close_f)
@@ -78,9 +80,18 @@ class TradingSimulator:
 
             adx_val = indicators.adx.update(high_f, low_f, close_f) if indicators.adx else None
             bb_val = indicators.bollinger.update(close_f) if indicators.bollinger else None
-            volume_f = float(candle.get("volume", 0))  # float-ok: indicator library requires float
             obv_val = indicators.obv.update(close_f, volume_f) if indicators.obv else None
             chop_val = indicators.choppiness.update(high_f, low_f, close_f) if indicators.choppiness else None
+
+            # C.2 indicators — must be populated for templates that reference them
+            # (z_score / vwap / keltner / rvol / hurst). Without these, the rule
+            # compiler sees `None` for any C.2 condition and treats every candle
+            # as "still priming" → zero trades.
+            zscore_val = indicators.zscore.update(close_f) if indicators.zscore else None
+            vwap_val = indicators.vwap.update(close_f, volume_f) if indicators.vwap else None
+            keltner_val = indicators.keltner.update(high_f, low_f, close_f) if indicators.keltner else None
+            rvol_val = indicators.rvol.update(volume_f) if indicators.rvol else None
+            hurst_val = indicators.hurst.update(close_f) if indicators.hurst else None
 
             if rsi_val is None or macd_val is None or atr_val is None:
                 equity_curve.append(equity)
@@ -104,6 +115,18 @@ class TradingSimulator:
                 eval_dict["obv"] = obv_val
             if chop_val is not None:
                 eval_dict["choppiness"] = chop_val
+            if zscore_val is not None:
+                eval_dict["z_score"] = zscore_val
+            if vwap_val is not None:
+                eval_dict["vwap"] = vwap_val
+            if keltner_val is not None:
+                eval_dict["keltner.upper"] = keltner_val.upper
+                eval_dict["keltner.middle"] = keltner_val.middle
+                eval_dict["keltner.lower"] = keltner_val.lower
+            if rvol_val is not None:
+                eval_dict["rvol"] = rvol_val
+            if hurst_val is not None:
+                eval_dict["hurst"] = hurst_val
 
             result = compiled.evaluate(eval_dict)
 
