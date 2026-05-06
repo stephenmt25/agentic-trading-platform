@@ -39,13 +39,29 @@ async def get_profiles(
             # Defensive: skip rows whose stored rules can't round-trip. Migration 017
             # is the long-term cleanup; this guard keeps GET safe in the meantime.
             continue
+        # Clean up the user-facing payload: drop null fields, then drop the
+        # legacy `signals: []` when the both-legs shape is in use. Otherwise
+        # the editor shows phantom nulls/empties that have no meaning for the
+        # active rule shape and confuse round-trip edits.
+        rules_dict = user_rules.model_dump(exclude_none=True, mode="json")
+        if "entry_long" in rules_dict or "entry_short" in rules_dict:
+            rules_dict.pop("signals", None)
+        raw_risk = p.get("risk_limits") or {}
+        if isinstance(raw_risk, str):
+            try:
+                raw_risk = _json.loads(raw_risk)
+            except (ValueError, TypeError):
+                raw_risk = {}
+        if not isinstance(raw_risk, dict):
+            raw_risk = {}
         results.append(ProfileResponse(
             profile_id=str(p.get("profile_id", "")),
             name=p.get("name", ""),
             is_active=p.get("is_active", False),
-            rules_json=user_rules,
+            rules_json=rules_dict,
             rules_json_canonical=raw_rules,
             allocation_pct=Decimal(str(p.get("allocation_pct", 0))),
+            risk_limits=raw_risk,
             created_at=str(p.get("created_at", "")),
             deleted_at=str(p.get("deleted_at", "")) if p.get("deleted_at") else None,
         ))
@@ -80,9 +96,21 @@ async def update_profile(
     user_id: str = Depends(get_current_user),
     repo: ProfileRepository = Depends(get_profile_repo),
 ):
-    """Update strategy rules. Validates user-facing input, stores canonical."""
+    """Update strategy rules, optionally risk_limits and allocation_pct.
+
+    risk_limits is JSONB-merged so callers can update a single key (e.g. just
+    max_allocation_pct) without overwriting the rest. allocation_pct is a
+    scalar update — None = leave unchanged.
+    """
     canonical_rules = strategy_rules_to_canonical(profile_data.rules_json)
-    updated = await repo.update_profile(str(profile_id), user_id, canonical_rules, profile_data.is_active)
+    updated = await repo.update_profile(
+        str(profile_id),
+        user_id,
+        canonical_rules,
+        profile_data.is_active,
+        risk_limits=profile_data.risk_limits,
+        allocation_pct=profile_data.allocation_pct,
+    )
     if not updated:
         raise HTTPException(status_code=404, detail="Profile not found")
     return {"status": "updated", "profile": updated}

@@ -5,11 +5,52 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Save, Plus, Activity, Power, PowerOff, Code, Loader2, Trash2, X, Copy, Ban } from "lucide-react";
+import { Save, Plus, Power, PowerOff, Loader2, Trash2, X, Copy, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { api, type ProfileResponse } from "@/lib/api/client";
 import { motion } from "framer-motion";
 import { pageEnter } from "@/lib/motion";
+
+// Default risk-limits values mirror libs/core/schemas.py:DEFAULT_RISK_LIMITS.
+// If the profile JSONB lacks a key, the input falls back to this so we never
+// render a blank field. Stored as fractions, not %.
+const RISK_DEFAULTS = {
+  max_allocation_pct: 1.0,
+  stop_loss_pct: 0.05,
+  take_profit_pct: 0.015,
+  max_drawdown_pct: 0.10,
+  circuit_breaker_daily_loss_pct: 0.02,
+  max_holding_hours: 48.0,
+} as const;
+
+// Field config: storage value is a fraction (0.05 = 5%), input shown as percent
+// for legibility — except max_holding_hours which stays in hours.
+const RISK_FIELDS: Array<{
+  key: keyof typeof RISK_DEFAULTS;
+  label: string;
+  help: string;
+  isPct: boolean;
+  min: number;
+  max: number;
+  step: number;
+}> = [
+  { key: "max_allocation_pct", label: "Max trade size", help: "Per-trade cap as % of free capital × signal confidence. 100% = current behaviour.", isPct: true, min: 1, max: 100, step: 1 },
+  { key: "stop_loss_pct", label: "Stop loss", help: "Auto-close on this loss vs. entry.", isPct: true, min: 0.1, max: 50, step: 0.1 },
+  { key: "take_profit_pct", label: "Take profit", help: "Auto-close on this gain vs. entry.", isPct: true, min: 0.1, max: 50, step: 0.1 },
+  { key: "max_drawdown_pct", label: "Max drawdown", help: "Block new trades when peak-to-trough loss exceeds this.", isPct: true, min: 1, max: 50, step: 0.5 },
+  { key: "circuit_breaker_daily_loss_pct", label: "Daily loss kill", help: "Halt trading when realised daily loss exceeds this fraction of notional.", isPct: true, min: 0.1, max: 50, step: 0.1 },
+  { key: "max_holding_hours", label: "Max hold (hours)", help: "Force-close any position held longer than this.", isPct: false, min: 0.5, max: 720, step: 0.5 },
+];
+
+function readNumber(rl: Record<string, unknown>, key: string, fallback: number): number {
+  const v = rl[key];
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const parsed = parseFloat(v);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  }
+  return fallback;
+}
 
 const DEFAULT_RULES = {
   direction: "long",
@@ -27,6 +68,11 @@ export default function ProfilesPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+
+  // Risk Limits / Allocation editor state. All values are stored as fractions
+  // matching the backend (0.05 = 5%); UI converts on display/save.
+  const [riskLimits, setRiskLimits] = useState<Record<string, number>>({ ...RISK_DEFAULTS });
+  const [allocationPct, setAllocationPct] = useState<number>(1.0);
 
   // Create profile modal state
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -78,6 +124,16 @@ export default function ProfilesPage() {
   useEffect(() => {
     if (selectedProfile) {
       setEditorContent(JSON.stringify(selectedProfile.rules_json, null, 2));
+      const rl = (selectedProfile.risk_limits ?? {}) as Record<string, unknown>;
+      setRiskLimits({
+        max_allocation_pct: readNumber(rl, "max_allocation_pct", RISK_DEFAULTS.max_allocation_pct),
+        stop_loss_pct: readNumber(rl, "stop_loss_pct", RISK_DEFAULTS.stop_loss_pct),
+        take_profit_pct: readNumber(rl, "take_profit_pct", RISK_DEFAULTS.take_profit_pct),
+        max_drawdown_pct: readNumber(rl, "max_drawdown_pct", RISK_DEFAULTS.max_drawdown_pct),
+        circuit_breaker_daily_loss_pct: readNumber(rl, "circuit_breaker_daily_loss_pct", RISK_DEFAULTS.circuit_breaker_daily_loss_pct),
+        max_holding_hours: readNumber(rl, "max_holding_hours", RISK_DEFAULTS.max_holding_hours),
+      });
+      setAllocationPct(typeof selectedProfile.allocation_pct === "number" ? selectedProfile.allocation_pct : 1.0);
     } else {
       setEditorContent("");
     }
@@ -88,9 +144,13 @@ export default function ProfilesPage() {
     setIsSaving(true);
     try {
       const parsed = JSON.parse(editorContent);
+      // risk_limits is JSONB-merged on the server, so sending the full set is
+      // safe and explicit — it overwrites every key the user can edit here.
       await api.profiles.update(selectedProfile.profile_id, {
         rules_json: parsed,
         is_active: selectedProfile.is_active,
+        risk_limits: riskLimits,
+        allocation_pct: allocationPct,
       });
       toast.success("Profile saved!");
       await loadProfiles();
@@ -332,6 +392,67 @@ export default function ProfilesPage() {
                   )}
                 </div>
               </div>
+              {/* Risk Limits + Allocation editor */}
+              {!isSelectedDeleted && (
+                <div className="border-b border-border bg-card/30 px-4 py-3">
+                  <div className="flex items-baseline justify-between mb-2.5">
+                    <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      Risk Limits & Allocation
+                    </span>
+                    <span className="text-[10px] text-muted-foreground/70">
+                      Stored on save. Server merges with existing values.
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                    {RISK_FIELDS.map((f) => {
+                      const stored = riskLimits[f.key] ?? RISK_DEFAULTS[f.key];
+                      const display = f.isPct ? stored * 100 : stored;
+                      return (
+                        <div key={f.key} className="space-y-1">
+                          <label className="text-[10px] font-medium text-muted-foreground block" title={f.help}>
+                            {f.label}{f.isPct ? " (%)" : ""}
+                          </label>
+                          <Input
+                            type="number"
+                            min={f.min}
+                            max={f.max}
+                            step={f.step}
+                            value={Number.isFinite(display) ? display : ""}
+                            onChange={(e) => {
+                              const raw = parseFloat(e.target.value);
+                              if (!Number.isFinite(raw)) return;
+                              const fraction = f.isPct ? raw / 100 : raw;
+                              setRiskLimits((prev) => ({ ...prev, [f.key]: fraction }));
+                            }}
+                            className="bg-background border-border text-foreground font-mono tabular-nums text-xs h-8"
+                          />
+                          <p className="text-[9px] text-muted-foreground/70 leading-tight">{f.help}</p>
+                        </div>
+                      );
+                    })}
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-medium text-muted-foreground block" title="Notional scale. 1.0 = $10,000 base capital.">
+                        Capital scale (×)
+                      </label>
+                      <Input
+                        type="number"
+                        min={0.01}
+                        max={100}
+                        step={0.1}
+                        value={Number.isFinite(allocationPct) ? allocationPct : ""}
+                        onChange={(e) => {
+                          const v = parseFloat(e.target.value);
+                          if (Number.isFinite(v)) setAllocationPct(v);
+                        }}
+                        className="bg-background border-border text-foreground font-mono tabular-nums text-xs h-8"
+                      />
+                      <p className="text-[9px] text-muted-foreground/70 leading-tight">
+                        = ${(allocationPct * 10000).toLocaleString(undefined, { maximumFractionDigits: 0 })} notional
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
               <div className={`flex-1 relative p-4 text-sm overflow-hidden ${isSelectedDeleted ? 'bg-background/50' : 'bg-background'}`}>
                 <textarea
                   className={`w-full h-full bg-transparent font-mono tabular-nums resize-none focus:outline-none ${isSelectedDeleted ? 'text-muted-foreground cursor-default' : 'text-foreground/80 placeholder:text-muted-foreground/30'}`}

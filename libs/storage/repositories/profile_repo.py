@@ -56,20 +56,47 @@ class ProfileRepository(BaseRepository):
         )
         return dict(record) if record else {}
 
-    async def update_profile(self, profile_id: str, user_id: str, strategy_rules: dict, is_active: bool = True) -> dict:
-        query = """
+    async def update_profile(
+        self,
+        profile_id: str,
+        user_id: str,
+        strategy_rules: dict,
+        is_active: bool = True,
+        risk_limits: Optional[dict] = None,
+        allocation_pct: Optional[float] = None,
+    ) -> dict:
+        """Update strategy rules + active flag, and optionally risk_limits / allocation_pct.
+
+        risk_limits is merged with existing JSONB rather than overwritten — callers
+        only need to send the keys they want to change. allocation_pct is a scalar
+        update (None = leave unchanged).
+        """
+        # Build the SET clause dynamically so unspecified fields aren't touched.
+        sets = ["strategy_rules = $1", "is_active = $2", "updated_at = NOW()"]
+        args: list = [json.dumps(strategy_rules), is_active]
+        idx = 3
+
+        if risk_limits is not None:
+            # JSONB merge keeps existing keys (max_drawdown_pct etc.) when only
+            # one knob like max_allocation_pct changes.
+            sets.append(f"risk_limits = COALESCE(risk_limits, '{{}}'::jsonb) || ${idx}::jsonb")
+            args.append(json.dumps(risk_limits))
+            idx += 1
+
+        if allocation_pct is not None:
+            sets.append(f"allocation_pct = ${idx}")
+            args.append(allocation_pct)
+            idx += 1
+
+        args.append(UUID(profile_id))
+        args.append(UUID(user_id))
+        query = f"""
         UPDATE trading_profiles
-        SET strategy_rules = $1, is_active = $2, updated_at = NOW()
-        WHERE profile_id = $3 AND user_id = $4
+        SET {', '.join(sets)}
+        WHERE profile_id = ${idx} AND user_id = ${idx + 1}
         RETURNING *
         """
-        record = await self._fetchrow(
-            query,
-            json.dumps(strategy_rules),
-            is_active,
-            UUID(profile_id),
-            UUID(user_id)
-        )
+        record = await self._fetchrow(query, *args)
         return dict(record) if record else {}
 
     async def toggle_active(self, profile_id: str, user_id: str, is_active: bool) -> dict:

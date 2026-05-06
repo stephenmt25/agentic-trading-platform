@@ -163,6 +163,11 @@ class ProfileCreate(BaseModel):
 class ProfileUpdate(BaseModel):
     rules_json: "StrategyRulesInput"
     is_active: bool = True
+    # Optional risk-limits update. Merges with stored values — only the keys
+    # present in the payload overwrite. Validated by RiskLimitsPayload upstream.
+    risk_limits: Optional[Dict[str, Any]] = None
+    # Optional allocation_pct update (notional scale, 1.0 = $10k base).
+    allocation_pct: Optional[float] = Field(default=None, ge=0.0, le=100.0)
 
 
 class ProfileToggle(BaseModel):
@@ -173,9 +178,14 @@ class ProfileResponse(BaseModel):
     profile_id: str
     name: str
     is_active: bool
-    rules_json: "StrategyRulesInput"
+    # Was StrategyRulesInput — now a plain dict so the route can pre-clean it
+    # (drop nulls + irrelevant fields based on shape) before returning. Keeping
+    # the strict model would force Pydantic to serialise null direction/match_mode
+    # for both-legs profiles, polluting the editor with phantom nulls.
+    rules_json: Dict[str, Any] = Field(default_factory=dict)
     rules_json_canonical: Dict[str, Any] = Field(default_factory=dict)
     allocation_pct: Percentage
+    risk_limits: Dict[str, Any] = Field(default_factory=dict)
     created_at: str
     deleted_at: Optional[str] = None
 
