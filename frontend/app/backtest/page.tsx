@@ -103,6 +103,9 @@ export default function BacktestPage() {
   const [elapsedMs, setElapsedMs] = useState(0);
   const [runs, setRuns] = useState<StoredRun[]>([]);
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  // Bumped every time a backtest completes so PastRunsPanel re-fetches and
+  // the just-finished run shows up without a manual refresh click.
+  const [pastRunsRefreshKey, setPastRunsRefreshKey] = useState(0);
 
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -224,6 +227,7 @@ export default function BacktestPage() {
       return [...prev, newRun];
     });
     setActiveRunId(newRun.id);
+    setPastRunsRefreshKey((k) => k + 1);
   }, []);
 
   const pollResult = useCallback(
@@ -598,6 +602,7 @@ export default function BacktestPage() {
             <PastRunsPanel
               onLoad={handleLoadPastRun}
               filterSymbol={isEmbedded ? symbol : undefined}
+              refreshKey={pastRunsRefreshKey}
             />
           </div>
         </section>

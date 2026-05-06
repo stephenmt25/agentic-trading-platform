@@ -29,6 +29,9 @@ interface PastRunsPanelProps {
   // Optional symbol filter so the embedded /strategies → Verify tab only
   // shows runs for the symbol currently being verified.
   filterSymbol?: string;
+  // Bumped by the parent each time a new backtest completes — forces a
+  // re-fetch so just-finished runs appear without the user clicking refresh.
+  refreshKey?: number;
 }
 
 function num(v: string | number): number {
@@ -56,7 +59,7 @@ function fmtDate(iso: string | null): string {
   });
 }
 
-const PastRunsPanelImpl: React.FC<PastRunsPanelProps> = ({ onLoad, filterSymbol }) => {
+const PastRunsPanelImpl: React.FC<PastRunsPanelProps> = ({ onLoad, filterSymbol, refreshKey }) => {
   const [items, setItems] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadingId, setLoadingId] = useState<string | null>(null);
@@ -82,7 +85,7 @@ const PastRunsPanelImpl: React.FC<PastRunsPanelProps> = ({ onLoad, filterSymbol 
   useEffect(() => {
     fetchHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterSymbol]);
+  }, [filterSymbol, refreshKey]);
 
   const sortedItems = useMemo(() => {
     const copy = [...items];
