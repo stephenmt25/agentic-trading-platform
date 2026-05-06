@@ -174,6 +174,14 @@ class JobRunner:
                 }
                 for t in result.trades
             ],
+            # B.2 history fields — populated for new runs; pre-existing rows
+            # remain NULL on these columns, which the history endpoint filters
+            # out for user-scoped views. ISO strings keep this dict
+            # json-serializable when echoed onto the Redis status key.
+            "created_by": user_id,
+            "start_date": start.isoformat(),
+            "end_date": end.isoformat(),
+            "timeframe": timeframe,
         }
 
         # Persist to DB

@@ -12,6 +12,7 @@ from libs.storage.repositories.weight_history_repo import WeightHistoryRepositor
 from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.debate_repo import DebateRepository
 from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
+from libs.storage.repositories.backtest_repo import BacktestRepository
 from fastapi.security import HTTPBearer
 from .middleware.auth import verify_jwt
 
@@ -83,6 +84,11 @@ async def get_debate_repo(request: Request) -> DebateRepository:
 async def get_gate_efficacy_repo(request: Request) -> GateEfficacyRepository:
     client = await get_timescale(request)
     return GateEfficacyRepository(client)
+
+
+async def get_backtest_repo(request: Request) -> BacktestRepository:
+    client = await get_timescale(request)
+    return BacktestRepository(client)
 
 
 def get_current_user(request: Request) -> str:

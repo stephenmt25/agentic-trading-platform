@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { EquityCurveChart, EquitySeries } from '@/components/backtest/EquityCurveChart';
 import { TradesTable } from '@/components/backtest/TradesTable';
 import { RunHistoryStrip } from '@/components/backtest/RunHistoryStrip';
+import { PastRunsPanel } from '@/components/backtest/PastRunsPanel';
 import { ComparisonTable } from '@/components/backtest/ComparisonTable';
 import { Loader2, Play, AlertTriangle } from 'lucide-react';
 import { motion } from "framer-motion";
@@ -368,6 +369,37 @@ export default function BacktestPage() {
     });
   }, []);
 
+  // Load a past (DB-persisted) run into the session-level comparison state.
+  // The past-runs panel calls this when the user clicks "Load" on a row.
+  const handleLoadPastRun = useCallback(async (jobId: string) => {
+    if (runsRef.current.some((r) => r.id === jobId)) {
+      // Already loaded — just activate it.
+      setActiveRunId(jobId);
+      return;
+    }
+    const res = await api.backtest.result(jobId);
+    // The result endpoint returns BacktestResult-shaped JSON when status
+    // is "completed". start/end/timeframe come from the persisted row;
+    // rulesJson isn't needed for visualization so we leave it empty
+    // (Clone-from-strip would re-fetch via /backtest/{id} if we extend it).
+    const payload = res as unknown as BacktestResult & {
+      start_date?: string | null;
+      end_date?: string | null;
+      timeframe?: string | null;
+      symbol?: string;
+    };
+
+    const cfg: RunConfig = {
+      symbol: payload.symbol || 'BTC/USDT',
+      start: (payload.start_date ?? '').slice(0, 10),
+      end: (payload.end_date ?? '').slice(0, 10),
+      timeframe: payload.timeframe ?? '1m',
+      slippage: '0.001',
+      rulesJson: '',
+    };
+    addCompletedRun(payload, cfg);
+  }, [addCompletedRun]);
+
   const handleClearUnpinned = useCallback(() => {
     setRuns((prev) => prev.filter((r) => r.pinned));
     setActiveRunId((curr) => {
@@ -561,6 +593,13 @@ export default function BacktestPage() {
               Job ID: {jobId}
             </div>
           )}
+
+          <div className="pt-4 border-t border-border">
+            <PastRunsPanel
+              onLoad={handleLoadPastRun}
+              filterSymbol={isEmbedded ? symbol : undefined}
+            />
+          </div>
         </section>
 
         {/* Right: Results */}

@@ -130,6 +130,7 @@ const ProfileResponseSchema = z.object({
   rules_json: z.record(z.string(), z.unknown()),
   rules_json_canonical: z.record(z.string(), z.unknown()).optional(),
   allocation_pct: z.coerce.number(),
+  risk_limits: z.record(z.string(), z.unknown()).default({}),
   created_at: z.string(),
   deleted_at: z.string().nullable(),
 });
@@ -168,6 +169,7 @@ export interface ProfileResponse {
   rules_json: Record<string, unknown>;
   rules_json_canonical?: Record<string, unknown>;
   allocation_pct: number;
+  risk_limits: Record<string, unknown>;
   created_at: string;
   deleted_at: string | null;
 }
@@ -272,6 +274,10 @@ export const api = {
     update: (profileId: string, data: {
       rules_json: Record<string, unknown>;
       is_active?: boolean;
+      // Optional. Server JSONB-merges, so partial updates don't wipe siblings.
+      risk_limits?: Record<string, number>;
+      // Optional. Notional-scale multiplier (1.0 = $10k base).
+      allocation_pct?: number;
     }) =>
       apiRequest<{ status: string; profile: ProfileResponse }>(`/profiles/${profileId}`, {
         method: "PUT",
@@ -312,8 +318,39 @@ export const api = {
         unrealized_net_pnl?: number | null;
         unrealized_gross_pnl?: number | null;
         unrealized_pct_return?: number | null;
+        // Enrichment from /positions (api_gateway/src/routes/positions.py)
+        notional?: string | null;
+        profile_notional?: string | null;
+        allocation_used_pct?: number | null;
+        mark_price?: string | null;
+        stop_loss_price?: string | null;
+        stop_loss_pct?: string | null;
+        take_profit_price?: string | null;
+        take_profit_pct?: string | null;
       }>>(`/positions?${params.toString()}`);
     },
+
+    // Manual close — see services/api_gateway/src/routes/positions.py.
+    // Marks the position CLOSED in DB at the latest mark price. Does NOT
+    // submit a real exchange order (matches the existing exit_monitor close
+    // path). Safe in PAPER mode; in LIVE mode the exchange position remains
+    // open until separately flattened.
+    close: (positionId: string) =>
+      apiRequest<{
+        status: string;
+        position_id: string;
+        symbol: string;
+        side: string;
+        entry_price: string;
+        exit_price: string;
+        mark_price_was_fresh: boolean;
+        quantity: string;
+        gross_pnl: string;
+        net_pnl_pre_tax: string;
+        pct_return: number;
+        closed_at: string;
+        trading_mode: "PAPER" | "TESTNET" | "LIVE";
+      }>(`/positions/${encodeURIComponent(positionId)}/close`, { method: "POST" }),
   },
 
   paperTrading: {
@@ -516,6 +553,37 @@ export const api = {
 
     result: (jobId: string) =>
       validatedRequest(BacktestResultSchema, `/backtest/${jobId}`),
+
+    history: (params: {
+      profileId?: string;
+      symbol?: string;
+      limit?: number;
+    } = {}) => {
+      const q = new URLSearchParams();
+      if (params.profileId) q.set("profile_id", params.profileId);
+      if (params.symbol) q.set("symbol", params.symbol);
+      if (params.limit !== undefined) q.set("limit", String(params.limit));
+      const qs = q.toString();
+      return apiRequest<{
+        items: Array<{
+          job_id: string;
+          profile_id: string | null;
+          symbol: string;
+          total_trades: number;
+          win_rate: string | number;
+          avg_return: string | number;
+          max_drawdown: string | number;
+          sharpe: string | number;
+          profit_factor: string | number;
+          created_at: string;
+          created_by: string | null;
+          start_date: string | null;
+          end_date: string | null;
+          timeframe: string | null;
+        }>;
+        limit: number;
+      }>(`/backtest/history${qs ? `?${qs}` : ""}`);
+    },
   },
 
   agents: {
@@ -686,6 +754,15 @@ export const api = {
         outcome: string; // 'win' | 'loss' | 'breakeven'
       }>>(`/audit/closed-trades${query ? `?${query}` : ""}`);
     },
+
+    // Full lineage for a single decision event id. See services/api_gateway/src/routes/audit.py.
+    chain: (decisionEventId: string) =>
+      apiRequest<{
+        decision: Record<string, unknown> | null;
+        order: Record<string, unknown> | null;
+        position: Record<string, unknown> | null;
+        closed_trade: Record<string, unknown> | null;
+      }>(`/audit/chain/${encodeURIComponent(decisionEventId)}`),
   },
 
   agentConfig: {
