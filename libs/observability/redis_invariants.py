@@ -77,8 +77,12 @@ SCHEMAS: tuple[KeySchema, ...] = (
     KeySchema(
         pattern="agent:outcomes:*",
         expected_type="stream",
-        required_fields=("agent", "direction", "price", "timestamp"),
-        notes="Stream of agent score snapshots taken at decision time.",
+        required_fields=("agent", "direction", "score", "timestamp"),
+        notes="Stream of agent score snapshots taken at order-execution time. "
+              "Producer is libs/core/agent_registry.py::record_agent_scores; "
+              "no live consumer — kept as an audit trail. Field is `score` "
+              "(stringified float in [0, 1]), not `price` — the original plan "
+              "doc had this wrong.",
     ),
     KeySchema(
         pattern="agent:closed:*",

@@ -27,7 +27,7 @@ AGENT_DEFAULTS = {
 
 # Redis key patterns
 WEIGHTS_KEY = "agent:weights:{symbol}"          # Hash: agent_name -> weight (float)
-OUTCOMES_KEY = "agent:outcomes:{symbol}"         # Stream: {agent, direction, price, timestamp}
+OUTCOMES_KEY = "agent:outcomes:{symbol}"         # Stream: {agent, direction, score, timestamp}
 CLOSED_KEY = "agent:closed:{symbol}"             # Stream: {position_id, outcome, pnl_pct, agents_json}
 TRACKER_KEY = "agent:tracker:{symbol}:{agent}"   # Hash: ewma_accuracy, sample_count, last_updated
 
