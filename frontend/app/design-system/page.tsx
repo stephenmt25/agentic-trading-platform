@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, Search, Eye, EyeOff } from "lucide-react";
 import {
   Button,
@@ -318,32 +318,115 @@ export default function DesignSystemPage() {
       </Section>
 
       {/* MODE-SCOPED PREVIEW */}
-      <Section title="Mode preview (HOT vs. COOL vs. CALM)" tokens="data-mode resolves bg/fg/border aliases">
+      <Section
+        title="Mode preview (HOT vs. COOL vs. CALM)"
+        tokens="data-mode resolves --bg-canvas / --bg-panel / --bg-raised / --fg-* aliases"
+      >
+        <p className="text-xs text-fg-muted mb-4 leading-relaxed">
+          Surface colors are intentionally close between modes. The bigger
+          differentiators per <code className="text-fg-secondary">01-design-philosophy.md</code> §2
+          are <strong className="text-fg">density</strong> (font sizes,
+          row heights) and <strong className="text-fg">motion budget</strong>{" "}
+          (≤180ms HOT, ≤220ms COOL, ≤320ms CALM). The introspection rows below
+          show the actual computed CSS values per mode — that&apos;s where the
+          color shifts are.
+        </p>
         <div className="grid grid-cols-3 gap-4">
           {(["hot", "cool", "calm"] as const).map((m) => (
-            <div
-              key={m}
-              data-mode={m}
-              className="rounded-md border border-border-subtle bg-bg-canvas p-4"
-            >
-              <p className="text-[11px] uppercase tracking-widest text-fg-muted mb-3 num-tabular">
-                {m}
-              </p>
-              <div className="flex flex-col gap-2">
-                <Button intent="primary" size="sm">
-                  Primary
-                </Button>
-                <Button intent="secondary" size="sm">
-                  Secondary
-                </Button>
-                <div className="text-sm text-fg">Foreground / primary</div>
-                <div className="text-sm text-fg-secondary">Foreground / secondary</div>
-                <div className="text-sm text-fg-muted">Foreground / muted</div>
-              </div>
-            </div>
+            <ModePreviewBlock key={m} mode={m} />
           ))}
         </div>
       </Section>
+    </div>
+  );
+}
+
+/** Renders one mode block + introspects the resolved CSS variables so the
+ *  reader can SEE that data-mode actually re-scopes them, even when the
+ *  on-screen difference is intentionally subtle. */
+function ModePreviewBlock({ mode }: { mode: "hot" | "cool" | "calm" }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [resolved, setResolved] = useState<Record<string, string> | null>(null);
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const styles = getComputedStyle(ref.current);
+    const get = (name: string) => styles.getPropertyValue(name).trim() || "—";
+    setResolved({
+      "--bg-canvas": get("--bg-canvas"),
+      "--bg-panel": get("--bg-panel"),
+      "--bg-raised": get("--bg-raised"),
+      "--fg-primary": get("--fg-primary"),
+      "--fg-secondary": get("--fg-secondary"),
+      "--fg-muted": get("--fg-muted"),
+      "--motion-default": get("--motion-default"),
+    });
+  }, [mode]);
+
+  // Per philosophy §2: HOT 12–13px, COOL 13–14px, CALM 14–15px.
+  const bodySize =
+    mode === "hot" ? "text-[13px]" : mode === "cool" ? "text-[14px]" : "text-[15px]";
+  const rowHeight =
+    mode === "hot" ? "h-7" : mode === "cool" ? "h-9" : "h-11";
+
+  return (
+    <div
+      ref={ref}
+      data-mode={mode}
+      className="rounded-md border border-border-subtle bg-bg-canvas p-4 flex flex-col gap-3"
+    >
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] uppercase tracking-widest text-fg-muted num-tabular">
+          {mode}
+        </p>
+        <Tag intent={mode === "hot" ? "ask" : mode === "cool" ? "accent" : "neutral"} style="subtle">
+          {mode === "hot" ? "cockpit" : mode === "cool" ? "laboratory" : "office"}
+        </Tag>
+      </div>
+
+      {/* Surface swatches — three steps */}
+      <div className="flex gap-1">
+        <div className="flex-1 h-6 rounded-sm bg-bg-canvas border border-border-subtle" title="bg-canvas" />
+        <div className="flex-1 h-6 rounded-sm bg-bg-panel border border-border-subtle" title="bg-panel" />
+        <div className="flex-1 h-6 rounded-sm bg-bg-raised border border-border-subtle" title="bg-raised" />
+      </div>
+
+      {/* Density sample */}
+      <div className="rounded-sm border border-border-subtle bg-bg-panel">
+        <div className={`${rowHeight} ${bodySize} flex items-center px-2 border-b border-border-subtle text-fg`}>
+          <span className="num-tabular">42,318.27</span>
+        </div>
+        <div className={`${rowHeight} ${bodySize} flex items-center px-2 border-b border-border-subtle text-fg-secondary`}>
+          <span className="num-tabular">38,002.44</span>
+        </div>
+        <div className={`${rowHeight} ${bodySize} flex items-center px-2 text-fg-muted`}>
+          <span className="num-tabular">36,114.10</span>
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Button intent="primary" size="sm">Primary</Button>
+        <Button intent="secondary" size="sm">Secondary</Button>
+      </div>
+
+      {/* Resolved CSS variable introspection */}
+      <div className="rounded-sm bg-bg-panel border border-border-subtle p-2">
+        <p className="text-[10px] uppercase tracking-widest text-fg-muted mb-1 num-tabular">
+          Resolved
+        </p>
+        {resolved ? (
+          <ul className="text-[10px] font-mono num-tabular flex flex-col gap-0.5 text-fg-secondary">
+            {Object.entries(resolved).map(([k, v]) => (
+              <li key={k} className="flex items-center justify-between gap-2">
+                <span className="text-fg-muted truncate">{k}</span>
+                <span className="text-fg">{v}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-[10px] text-fg-muted">Computing…</p>
+        )}
+      </div>
     </div>
   );
 }
