@@ -77,3 +77,14 @@ ov.conf
 test_viking.py
 .praxis_pids
 .mcp.json
+
+# Claude Code worktree storage (ephemeral; not part of the project tree)
+.claude/worktrees/
+frontend/.claude/
+
+# Local Claude settings (per-machine; harness writes them)
+.claude/settings.local.json
+
+# UI walkthrough capture artifacts (regeneratable)
+scrnshts/
+
