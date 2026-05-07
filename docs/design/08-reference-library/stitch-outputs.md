@@ -4,7 +4,7 @@ Log of Stitch runs against the prompts in `06-stitch-prompts/`. Each entry captu
 
 | Date | Surface | Prompt file | Figma URL | Notes |
 |------|---------|-------------|-----------|-------|
-| _pending_ | Profiles & Settings (calibration) | `06-stitch-prompts/06-profiles.prompt.md` | — | First calibration run |
+| 2026-05-07 | Profiles & Settings (calibration v1) | `06-stitch-prompts/06-profiles.prompt.md` | _HTML output, no Figma export_ | Iteration #1 — see audit below. Structure right, color/icon systems drifted to Material Design defaults, paused cards abbreviated. Iteration prompt staged below. |
 
 ---
 
@@ -42,6 +42,80 @@ The plan calls Profiles the calibration surface (simplest, lowest iteration cost
 6. When the result feels right, **export to Figma**, copy the Figma file URL, and log it in the table above.
 
 If after a few iterations the output still looks generic-shadcn or marketing-page, re-anchor with `01-design-philosophy.md` §4 (Vibe + Anti-moods) and try again. The prompt is intentionally heavy on anti-references because Stitch defaults pull toward generic SaaS dashboards.
+
+---
+
+## Calibration v1 — audit (2026-05-07)
+
+**Verdict:** good baseline; structure is right; needs one focused iteration to fix color/icon drift and restore abbreviated content. Not yet usable as visual grounding for component generation.
+
+**What landed correctly:**
+- Two-column nav (56px rail + 220px settings column), main content bounded to 720px and centered.
+- Background `#0f0f12`, card `#18181b`, border `#27272a`.
+- IBM Plex Sans loaded (design system override worked end-to-end).
+- All three card titles, status pills, meta rows; the kill-switch tooltip on Edit settings.
+
+**Drift to fix in v2:**
+1. Accent: design system tokens emit `primary: #c0c1ff` (Material You light indigo); only raw hex literals use `#6366f1`. Force `#6366f1` for all primary roles.
+2. Card 1 "Open in canvas" is solid primary indigo. Spec says all three actions are ghost; indigo on hover only.
+3. Material Symbols icons everywhere — pulls toward Google MD3 aesthetic. Switch to single-stroke 1.5px line icons (Lucide grammar).
+4. Left rail has 4 + Help icons. Spec wants all six surfaces: Hot Trading, Agent Observatory, Pipeline Canvas, Backtesting, Risk Control, Settings (active).
+5. Tabular font mapped to JetBrains Mono. Should be IBM Plex Mono.
+6. Card 2: only 2 metrics (missing Win Rate). All three metrics required, with `--` for paused state.
+7. Card 3: 0 metrics, only one action. Restore three metrics + the same three actions as card 1.
+8. Card 2 has "Resume" instead of "Edit settings + Run backtest". All three cards share the same three actions; paused state can swap "Run backtest" for "Resume" only.
+9. Settings nav has 9 items including extra "Security". Spec lists 8 — remove Security.
+10. Output includes a 64px top header with breadcrumb + notifications. The surface starts BELOW the chrome bar (chrome lives in `RedesignShell`). Drop the top header from the surface output.
+11. LIVE pill / PnL green is `#22c55e` (Tailwind default). Use `#10b981` exactly (our `--color-bid-500`).
+12. Card hover changes border but no shadow. Add a subtle shadow on hover.
+
+### Iteration #2 — refinement prompt to paste into Stitch
+
+Tell Stitch (via natural-language edit on the same screen):
+
+```
+Refinements to the Profiles & Settings screen — please apply ALL of these:
+
+COLOR (strict):
+- The accent color must be exactly #6366f1, not a Material You derived primary. Wherever the design system emits primary tones like #c0c1ff or #8083ff, replace with #6366f1. The accent appears in: the active settings nav indicator bar, hover states on ghost buttons, the active filter tab underline, and the "+ New profile" button hover. Nowhere else.
+- The LIVE status pill dot and the positive PnL value use exactly #10b981 (not #22c55e).
+- Replace "primary" / "primary-container" / "secondary-container" semantic tokens with literal hex on the elements that use them, so no Material You derived tones appear.
+
+ICONS (strict):
+- Replace ALL Material Symbols Outlined icons with single-stroke 1.5px outline line icons (Lucide grammar). Square 20x20px optical-aligned. Do not use filled or rounded variants. The tone is "engineered" — closer to Heroicons outline or Lucide than to Google's Material set.
+
+LEFT RAIL (six icons, not four):
+- The 56px rail must contain SIX surface icons in this order from top:
+  1. Hot Trading (lightning / zap)
+  2. Agent Observatory (cpu / bot)
+  3. Pipeline Canvas (workflow / nodes)
+  4. Backtesting (bar chart)
+  5. Risk Control (shield)
+  6. Profiles & Settings (gear) — currently active, indigo bar on left
+- Below them (separated by a thin line), keep two utility icons: keyboard reference (?) and session switcher (user circle).
+- No "Home" or "Help" icon.
+
+SECONDARY NAV (settings column, 220px):
+- Must be exactly these eight items in this order: Profiles (active), Exchange keys, Risk defaults, Notifications, Tax, Account, Sessions / API, Audit log.
+- Remove the "Security" item — it is not in the spec.
+- No section divider between them.
+
+CARDS — all three must be structurally identical:
+- All three cards show three metrics under "Last 7 days": PnL, Trades, Win rate. For paused cards 2 and 3, the values are em-dash "—" not blank.
+- All three cards show the same three action buttons in the same order: "Open in canvas", "Edit settings", "Run backtest". On paused cards, "Run backtest" is replaced with "Resume" but the other two are unchanged.
+- ALL three buttons on EVERY card are ghost (transparent background, #27272a border, off-white text). On hover the border becomes #6366f1 and the text becomes #6366f1. None of the three is a solid primary button.
+- Card hover state: border darkens from #27272a to #3f3f46 AND a small shadow appears (0 4px 12px rgba(0,0,0,0.4)). Currently only the border changes.
+
+CHROME (remove):
+- Drop the entire 64px top header bar (with breadcrumb + notifications + avatar). The Profiles surface starts directly at the page header "Profiles" with subtitle and "+ New profile" button. The chrome lives outside this surface.
+
+TYPOGRAPHY:
+- The mono font must be "IBM Plex Mono" (not "JetBrains Mono") wherever tabular figures appear (PnL value, Trades count, Win rate, meta row).
+
+Do not introduce new sections. Do not add empty-state illustrations or hero banners. Keep the rest unchanged.
+```
+
+After applying, re-export and update the table at the top of this file with the v2 result + a fresh audit row.
 
 ---
 
