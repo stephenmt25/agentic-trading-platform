@@ -13,6 +13,18 @@ import {
   Avatar,
   type SelectOption,
 } from "@/components/primitives";
+import {
+  Table,
+  List,
+  ListItem,
+  KeyValue,
+  Sparkline,
+  Pill,
+  StatusDot,
+  type TableColumn,
+  type SortDirection,
+} from "@/components/data-display";
+import { AlertTriangle } from "lucide-react";
 
 /**
  * /design-system — internal route exercising every primitive variant
@@ -317,6 +329,138 @@ export default function DesignSystemPage() {
         </Row>
       </Section>
 
+      {/* STATUS DOT */}
+      <Section title="StatusDot" tokens="bg-{bid,ask,warn,danger,neutral}-{400,500}; pulse animation">
+        <Row label="States (size 8)">
+          <span className="inline-flex items-center gap-1.5 text-sm text-fg-secondary">
+            <StatusDot state="live" pulse /> live (pulse)
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-fg-secondary">
+            <StatusDot state="idle" /> idle
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-fg-secondary">
+            <StatusDot state="warn" /> warn
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-fg-secondary">
+            <StatusDot state="error" /> error
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-fg-secondary">
+            <StatusDot state="armed" pulse /> armed (pulse)
+          </span>
+        </Row>
+        <Row label="Sizes">
+          <StatusDot state="live" size={6} pulse />
+          <StatusDot state="live" size={8} pulse />
+          <StatusDot state="live" size={10} pulse />
+        </Row>
+      </Section>
+
+      {/* PILL */}
+      <Section title="Pill" tokens="--radius-full, intent colors at subtle; active uses accent.500/15 bg + accent.300 fg">
+        <Row label="Static (chrome)">
+          <Pill icon={<StatusDot state="live" size={6} pulse />}>live</Pill>
+          <Pill intent="warn" icon={<AlertTriangle className="w-3 h-3" strokeWidth={1.5} />}>
+            regime: choppy
+          </Pill>
+          <Pill intent="neutral">
+            <span className="num-tabular">12 ms</span>
+          </Pill>
+          <Pill intent="bid">
+            <span className="num-tabular">+0.84%</span>
+          </Pill>
+        </Row>
+        <Row label="Clickable">
+          <PillToggleDemo />
+        </Row>
+        <Row label="Removable (filter chips)">
+          <FilterChipDemo />
+        </Row>
+      </Section>
+
+      {/* KEY VALUE */}
+      <Section title="KeyValue" tokens="--fg-muted (label), --fg-primary (value); type scale.{label,body-dense}">
+        <Row label="Inline + tones">
+          <div className="w-72 flex flex-col gap-2 bg-bg-canvas border border-border-subtle rounded-md p-3">
+            <KeyValue label="Equity" value="$42,318.27" />
+            <KeyValue label="PnL (today)" value="+234.56 USDC" tone="bid" />
+            <KeyValue label="Drawdown" value="-12.40 USDC" tone="ask" />
+            <KeyValue label="Trades" value="42" />
+            <KeyValue label="Win rate" value="58%" />
+          </div>
+        </Row>
+        <Row label="Stacked + hint">
+          <div className="flex gap-6 bg-bg-canvas border border-border-subtle rounded-md p-3">
+            <KeyValue layout="stacked" label="Position size" value="0.0125 BTC" hint="≈ $812.50" />
+            <KeyValue layout="stacked" label="Entry" value="$64,920" hint="2h ago" />
+            <KeyValue layout="stacked" label="Target" value="$68,000" tone="bid" />
+          </div>
+        </Row>
+      </Section>
+
+      {/* SPARKLINE */}
+      <Section title="Sparkline" tokens="stroke --color-bid-500 / --color-ask-500 / --color-neutral-400; auto trend detect">
+        <Row label="Trend tones (auto-detect)">
+          <Sparkline values={[100, 102, 99, 105, 108, 110, 112]} />
+          <Sparkline values={[100, 96, 94, 98, 92, 90, 87]} />
+          <Sparkline values={[100, 100.2, 99.8, 100.1, 99.9, 100.05]} tone="neutral" />
+        </Row>
+        <Row label="With area">
+          <Sparkline area values={[100, 102, 99, 105, 108, 110, 112]} width={120} height={28} />
+          <Sparkline area values={[100, 96, 94, 98, 92, 90, 87]} width={120} height={28} />
+        </Row>
+        <Row label="With midline">
+          <Sparkline withMid values={[100, 105, 102, 108, 99, 110, 106]} width={120} height={28} />
+        </Row>
+      </Section>
+
+      {/* LIST */}
+      <Section title="List" tokens="--space-{1,2,3} (compact/standard/comfortable); --border-subtle (between)">
+        <Row label="Interactive + dividers">
+          <div className="w-80 bg-bg-canvas border border-border-subtle rounded-md p-2">
+            <List dividers="between">
+              <ListItem
+                interactive
+                withDividers
+                leading={<Avatar size="sm" name="Aggressive v3" />}
+                meta={<StatusDot state="live" pulse />}
+              >
+                Aggressive-v3
+              </ListItem>
+              <ListItem
+                interactive
+                withDividers
+                leading={<Avatar size="sm" name="Conservative v1" />}
+                meta="paused"
+              >
+                Conservative-v1
+              </ListItem>
+              <ListItem
+                interactive
+                withDividers
+                leading={<Avatar size="sm" name="Experimental v0" />}
+                meta="6d ago"
+              >
+                Experimental-v0
+              </ListItem>
+            </List>
+          </div>
+        </Row>
+        <Row label="Dense static">
+          <div className="w-80 bg-bg-canvas border border-border-subtle rounded-md p-2">
+            <List spacing="compact">
+              <ListItem dense meta="14 nodes">Aggressive-v3</ListItem>
+              <ListItem dense meta="6 nodes">Conservative-v1</ListItem>
+              <ListItem dense meta="9 nodes">Experimental-v0</ListItem>
+            </List>
+          </div>
+        </Row>
+      </Section>
+
+      {/* TABLE */}
+      <Section title="Table" tokens="--bg-{canvas,row-hover}, --border-subtle, sortable headers, tick-flash on update">
+        <TableDemo />
+      </Section>
+
       {/* MODE-SCOPED PREVIEW */}
       <Section
         title="Mode preview (HOT vs. COOL vs. CALM)"
@@ -486,5 +630,176 @@ function LabeledToggle({
       {children}
       <span>{label}</span>
     </span>
+  );
+}
+
+function PillToggleDemo() {
+  const [active, setActive] = useState<"all" | "active" | "paused">("active");
+  return (
+    <>
+      {(["all", "active", "paused"] as const).map((k) => (
+        <Pill
+          key={k}
+          as="clickable"
+          intent="neutral"
+          active={active === k}
+          onClick={() => setActive(k)}
+        >
+          {k}
+        </Pill>
+      ))}
+    </>
+  );
+}
+
+function FilterChipDemo() {
+  const [chips, setChips] = useState<string[]>(["regime: choppy", "BTC-PERP", "open"]);
+  if (chips.length === 0) {
+    return (
+      <Button size="xs" onClick={() => setChips(["regime: choppy", "BTC-PERP", "open"])}>
+        Reset
+      </Button>
+    );
+  }
+  return (
+    <>
+      {chips.map((c) => (
+        <Pill
+          key={c}
+          as="removable"
+          intent="accent"
+          onRemove={() => setChips((s) => s.filter((x) => x !== c))}
+        >
+          {c}
+        </Pill>
+      ))}
+    </>
+  );
+}
+
+interface PositionRow {
+  symbol: string;
+  side: "long" | "short";
+  size: number;
+  entry: number;
+  mark: number;
+  pnl: number;
+  trend: number[];
+}
+
+const POSITIONS: PositionRow[] = [
+  { symbol: "BTC-PERP", side: "long", size: 0.0125, entry: 64920, mark: 65310, pnl: 487.5, trend: [100, 102, 99, 105, 108, 110, 112] },
+  { symbol: "ETH-PERP", side: "long", size: 0.42, entry: 3120, mark: 3088, pnl: -134.4, trend: [100, 96, 94, 98, 92, 90, 87] },
+  { symbol: "SOL-PERP", side: "short", size: 12.0, entry: 145.2, mark: 142.7, pnl: 30.0, trend: [100, 100.2, 99.8, 100.1, 99.9, 100.05] },
+  { symbol: "ARB-PERP", side: "long", size: 850, entry: 0.812, mark: 0.798, pnl: -11.9, trend: [100, 99, 98, 97, 96, 95, 94] },
+];
+
+function TableDemo() {
+  const [sortKey, setSortKey] = useState<string | undefined>("pnl");
+  const [sortDir, setSortDir] = useState<SortDirection>("desc");
+  const [selected, setSelected] = useState<string | null>("BTC-PERP");
+  const [density, setDensity] = useState<"compact" | "standard" | "comfortable">("standard");
+
+  const sortedData = [...POSITIONS].sort((a, b) => {
+    if (!sortKey) return 0;
+    const av = (a as Record<string, unknown>)[sortKey];
+    const bv = (b as Record<string, unknown>)[sortKey];
+    if (typeof av === "number" && typeof bv === "number") {
+      return sortDir === "asc" ? av - bv : bv - av;
+    }
+    return sortDir === "asc"
+      ? String(av).localeCompare(String(bv))
+      : String(bv).localeCompare(String(av));
+  });
+
+  const columns: TableColumn<PositionRow>[] = [
+    { key: "symbol", header: "Symbol", sortable: true },
+    {
+      key: "side",
+      header: "Side",
+      sortable: true,
+      render: (row) => (
+        <Tag intent={row.side === "long" ? "bid" : "ask"} style="subtle">
+          {row.side}
+        </Tag>
+      ),
+    },
+    {
+      key: "size",
+      header: "Size",
+      numeric: true,
+      sortable: true,
+      render: (row) => row.size.toFixed(4),
+    },
+    {
+      key: "entry",
+      header: "Entry",
+      numeric: true,
+      sortable: true,
+      render: (row) => `$${row.entry.toLocaleString()}`,
+    },
+    {
+      key: "mark",
+      header: "Mark",
+      numeric: true,
+      sortable: true,
+      render: (row) => `$${row.mark.toLocaleString()}`,
+    },
+    {
+      key: "pnl",
+      header: "PnL",
+      numeric: true,
+      sortable: true,
+      render: (row) => (
+        <span className={row.pnl >= 0 ? "text-bid-400" : "text-ask-500"}>
+          {row.pnl >= 0 ? "+" : ""}
+          {row.pnl.toFixed(2)}
+        </span>
+      ),
+    },
+    {
+      key: "trend",
+      header: "7d",
+      align: "right",
+      render: (row) => <Sparkline values={row.trend} width={64} height={16} />,
+    },
+  ];
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] text-fg-muted uppercase tracking-wider num-tabular">
+          density
+        </span>
+        {(["compact", "standard", "comfortable"] as const).map((d) => (
+          <Pill
+            key={d}
+            as="clickable"
+            intent="neutral"
+            active={density === d}
+            onClick={() => setDensity(d)}
+          >
+            {d}
+          </Pill>
+        ))}
+      </div>
+      <div className="rounded-md border border-border-subtle overflow-hidden">
+        <Table
+          data={sortedData}
+          columns={columns}
+          rowKey={(r) => r.symbol}
+          density={density}
+          sortKey={sortKey}
+          sortDirection={sortDir}
+          onSortChange={(k, d) => {
+            setSortKey(k);
+            setSortDir(d);
+          }}
+          selectable="single"
+          selectedRowKey={selected}
+          onRowSelect={(r) => setSelected(r.symbol)}
+        />
+      </div>
+    </div>
   );
 }
