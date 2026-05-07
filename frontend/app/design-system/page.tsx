@@ -24,6 +24,17 @@ import {
   type TableColumn,
   type SortDirection,
 } from "@/components/data-display";
+import {
+  PnLBadge,
+  PositionRow,
+  TapeRow,
+  RiskMeter,
+  DepthChart,
+  OrderBook,
+  OrderEntryPanel,
+  type DepthLevel,
+  type OrderBookLevel,
+} from "@/components/trading";
 import { AlertTriangle } from "lucide-react";
 
 /**
@@ -461,6 +472,274 @@ export default function DesignSystemPage() {
         <TableDemo />
       </Section>
 
+      {/* ─── Trading-specific (Phase 5.3) ─────────────────────────────── */}
+      <header className="mt-16 mb-8">
+        <h2 className="text-lg font-semibold text-fg">Trading-specific</h2>
+        <p className="text-sm text-fg-muted mt-1">
+          Domain components from{" "}
+          <code className="text-fg-secondary">
+            frontend/components/trading/
+          </code>
+          . Per spec, these compose primitives + data-display and are HOT-mode
+          first. OrderEntryPanel and OrderBook are critical-path.
+        </p>
+      </header>
+
+      {/* PnL BADGE */}
+      <Section
+        title="PnLBadge"
+        tokens="--color-bid-{400,500,tick-flash}, --color-ask-{400,500,tick-flash}, --font-tabular"
+      >
+        <Row label="Modes (inline)">
+          <PnLBadge value={234.56} mode="absolute" currency="USDC" />
+          <PnLBadge value={-134.4} mode="absolute" currency="USDC" />
+          <PnLBadge value={2.34} mode="pct" />
+          <PnLBadge value={-0.42} mode="pct" />
+          <PnLBadge value={45} mode="bps" />
+          <PnLBadge value={1.2} mode="r-multiple" />
+          <PnLBadge value={0} mode="absolute" currency="USDC" />
+        </Row>
+        <Row label="Prominent (chrome)">
+          <PnLBadge value={1234.56} size="prominent" mode="absolute" currency="USDC" />
+          <PnLBadge value={-487.2} size="prominent" mode="absolute" currency="USDC" />
+          <PnLBadge value={4.32} size="prominent" mode="pct" />
+        </Row>
+        <Row label="Flash on change (click to tick)">
+          <FlashingPnLDemo />
+        </Row>
+      </Section>
+
+      {/* TAPE ROW */}
+      <Section
+        title="TapeRow"
+        tokens="--color-{bid,ask}-500/10% (row tint), --font-mono, --space-{1,2}"
+      >
+        <Row label="Streaming feed sample">
+          <div className="w-80 bg-bg-canvas border border-border-subtle rounded-md overflow-hidden">
+            {SAMPLE_TAPE.map((t, i) => (
+              <TapeRow
+                key={i}
+                side={t.side}
+                time={t.time}
+                size={t.size}
+                price={t.price}
+                largePrint={t.largePrint}
+                sizeDigits={4}
+                priceDigits={2}
+              />
+            ))}
+          </div>
+        </Row>
+      </Section>
+
+      {/* POSITION ROW */}
+      <Section
+        title="PositionRow"
+        tokens="Table tokens + bid/ask + warn/danger; 2-click confirm only modal-equivalent in HOT"
+      >
+        <Row label="Default + states">
+          <div className="w-full bg-bg-canvas border border-border-subtle rounded-md overflow-hidden">
+            <PositionRow
+              symbol="BTC-PERP"
+              side="long"
+              size={0.0125}
+              entry={64920}
+              mark={65310}
+              unrealized={487.5}
+              margin={42.32}
+              leverage={5}
+              onClosePartial={() => {}}
+              onEditStop={() => {}}
+              onTraceCanvas={() => {}}
+            />
+            <PositionRow
+              symbol="ETH-PERP"
+              side="long"
+              size={0.42}
+              entry={3120}
+              mark={3088}
+              unrealized={-134.4}
+              margin={62.84}
+              leverage={3}
+              onClosePartial={() => {}}
+              onEditStop={() => {}}
+            />
+            <PositionRow
+              symbol="SOL-PERP"
+              side="short"
+              size={12.0}
+              entry={145.2}
+              mark={158.7}
+              unrealized={-162.0}
+              margin={75.0}
+              leverage={10}
+              state="near-liq"
+              onClosePartial={() => {}}
+            />
+            <PositionRow
+              symbol="ARB-PERP"
+              side="long"
+              size={850}
+              entry={0.812}
+              mark={0.598}
+              unrealized={-181.9}
+              margin={45.0}
+              leverage={20}
+              state="liquidating"
+              onClosePartial={() => {}}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* RISK METER */}
+      <Section
+        title="RiskMeter"
+        tokens="--color-bid-500/30, --color-warn-500/30, --color-danger-500/30, segment dividers --border-strong"
+      >
+        <Row label="By kind (full)">
+          <div className="w-72">
+            <RiskMeter kind="leverage" value={3.2} max={10} />
+          </div>
+          <div className="w-72">
+            <RiskMeter kind="portfolio-var" value={68} max={100} />
+          </div>
+          <div className="w-72">
+            <RiskMeter kind="drawdown" value={92} max={100} />
+          </div>
+        </Row>
+        <Row label="Compact (no thresholds)">
+          <div className="w-48">
+            <RiskMeter kind="concentration" value={45} max={100} compact />
+          </div>
+          <div className="w-48">
+            <RiskMeter kind="concentration" value={72} max={100} compact />
+          </div>
+          <div className="w-48">
+            <RiskMeter kind="concentration" value={95} max={100} compact />
+          </div>
+        </Row>
+      </Section>
+
+      {/* DEPTH CHART */}
+      <Section
+        title="DepthChart"
+        tokens="strokes --color-{bid,ask}-500, fills 22%→4% gradient, mid --color-neutral-400 dotted; NO gridlines per spec"
+      >
+        <Row label="Linear, ±0.5%">
+          <div className="bg-bg-canvas border border-border-subtle rounded-md p-3">
+            <DepthChart
+              bids={SAMPLE_DEPTH_BIDS}
+              asks={SAMPLE_DEPTH_ASKS}
+              width={360}
+              height={140}
+              range={0.005}
+              showMidLabel
+            />
+          </div>
+        </Row>
+        <Row label="Wider zoom, fit">
+          <div className="bg-bg-canvas border border-border-subtle rounded-md p-3">
+            <DepthChart
+              bids={SAMPLE_DEPTH_BIDS}
+              asks={SAMPLE_DEPTH_ASKS}
+              width={360}
+              height={140}
+              range="fit"
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* ORDER BOOK */}
+      <Section
+        title="OrderBook (critical-path)"
+        tokens="bid/ask 12% cumulative-fill; mid badge neutral or warn.500 when wide; ARIA grid"
+      >
+        <Row label="Split style (default)">
+          <div className="w-[420px]">
+            <OrderBook
+              bids={SAMPLE_BOOK_BIDS}
+              asks={SAMPLE_BOOK_ASKS}
+              wideSpreadBps={50}
+            />
+          </div>
+        </Row>
+        <Row label="Stacked style">
+          <div className="w-[320px]">
+            <OrderBook
+              bids={SAMPLE_BOOK_BIDS}
+              asks={SAMPLE_BOOK_ASKS}
+              style="stacked"
+              wideSpreadBps={50}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* ORDER ENTRY */}
+      <Section
+        title="OrderEntryPanel (critical-path)"
+        tokens="submit adopts side color (bid/ask); kill-switch state shows danger banner"
+      >
+        <Row label="Buy / limit (default)">
+          <div className="w-80">
+            <OrderEntryPanel
+              symbol="BTC-PERP"
+              midPrice={42318.27}
+              defaultSide="buy"
+              defaultOrderType="limit"
+              defaultSize="0.005"
+              defaultPrice="42318.27"
+              estimatedCost={211.59}
+              estimatedMargin={42.32}
+              availableSize={0.05}
+            />
+          </div>
+        </Row>
+        <Row label="Sell / market">
+          <div className="w-80">
+            <OrderEntryPanel
+              symbol="ETH-PERP"
+              midPrice={3088}
+              defaultSide="sell"
+              defaultOrderType="market"
+              defaultSize="0.42"
+              estimatedCost={1296.96}
+              estimatedMargin={129.7}
+              availableSize={1.0}
+            />
+          </div>
+        </Row>
+        <Row label="Risk-block / Kill-switch states">
+          <div className="w-80">
+            <OrderEntryPanel
+              symbol="BTC-PERP"
+              midPrice={42318.27}
+              defaultSide="buy"
+              defaultOrderType="limit"
+              defaultSize="2.5"
+              defaultPrice="42318.27"
+              state="risk-block"
+              riskBlockReason="Would exceed max position size of 1.0 BTC"
+              availableSize={0.05}
+            />
+          </div>
+          <div className="w-80">
+            <OrderEntryPanel
+              symbol="BTC-PERP"
+              midPrice={42318.27}
+              defaultSide="buy"
+              defaultOrderType="limit"
+              defaultSize="0.005"
+              defaultPrice="42318.27"
+              state="kill-switch-armed"
+              availableSize={0.05}
+            />
+          </div>
+        </Row>
+      </Section>
+
       {/* MODE-SCOPED PREVIEW */}
       <Section
         title="Mode preview (HOT vs. COOL vs. CALM)"
@@ -677,7 +956,89 @@ function FilterChipDemo() {
   );
 }
 
-interface PositionRow {
+function FlashingPnLDemo() {
+  const [val, setVal] = useState(123.45);
+  return (
+    <span className="inline-flex items-center gap-3">
+      <PnLBadge value={val} mode="absolute" currency="USDC" flashOnChange />
+      <Button
+        size="xs"
+        intent="bid"
+        onClick={() => setVal((v) => v + Math.random() * 10)}
+      >
+        tick up
+      </Button>
+      <Button
+        size="xs"
+        intent="ask"
+        onClick={() => setVal((v) => v - Math.random() * 10)}
+      >
+        tick down
+      </Button>
+    </span>
+  );
+}
+
+const NOW = Date.UTC(2026, 4, 7, 14, 32, 18, 412);
+const SAMPLE_TAPE: Array<{
+  side: "bid" | "ask";
+  time: number;
+  size: number;
+  price: number;
+  largePrint?: boolean;
+}> = [
+  { side: "bid", time: NOW + 0, size: 0.0125, price: 42318.27 },
+  { side: "ask", time: NOW - 240, size: 0.0042, price: 42319.5 },
+  { side: "bid", time: NOW - 510, size: 0.211, price: 42317.0, largePrint: true },
+  { side: "ask", time: NOW - 814, size: 0.0182, price: 42320.25 },
+  { side: "bid", time: NOW - 1102, size: 0.005, price: 42316.8 },
+  { side: "ask", time: NOW - 1380, size: 0.0934, price: 42321.75, largePrint: true },
+  { side: "bid", time: NOW - 1650, size: 0.0094, price: 42315.0 },
+];
+
+const SAMPLE_DEPTH_BIDS: DepthLevel[] = [
+  { price: 42318.27, size: 0.5 },
+  { price: 42317.5, size: 1.2 },
+  { price: 42316.0, size: 0.8 },
+  { price: 42314.0, size: 2.5 },
+  { price: 42310.0, size: 4.1 },
+  { price: 42305.0, size: 5.2 },
+  { price: 42298.0, size: 6.8 },
+  { price: 42290.0, size: 9.0 },
+];
+
+const SAMPLE_DEPTH_ASKS: DepthLevel[] = [
+  { price: 42319.0, size: 0.4 },
+  { price: 42320.5, size: 0.9 },
+  { price: 42322.0, size: 1.1 },
+  { price: 42325.0, size: 2.0 },
+  { price: 42330.0, size: 3.5 },
+  { price: 42338.0, size: 4.7 },
+  { price: 42345.0, size: 6.2 },
+  { price: 42355.0, size: 8.1 },
+];
+
+const SAMPLE_BOOK_BIDS: OrderBookLevel[] = [
+  { price: 42318.27, size: 0.5 },
+  { price: 42317.5, size: 1.2 },
+  { price: 42316.0, size: 0.8 },
+  { price: 42314.0, size: 2.5 },
+  { price: 42310.0, size: 4.1 },
+  { price: 42305.0, size: 5.2 },
+  { price: 42298.0, size: 6.8 },
+];
+
+const SAMPLE_BOOK_ASKS: OrderBookLevel[] = [
+  { price: 42319.0, size: 0.4 },
+  { price: 42320.5, size: 0.9 },
+  { price: 42322.0, size: 1.1 },
+  { price: 42325.0, size: 2.0 },
+  { price: 42330.0, size: 3.5 },
+  { price: 42338.0, size: 4.7 },
+  { price: 42345.0, size: 6.2 },
+];
+
+interface TablePositionRow {
   symbol: string;
   side: "long" | "short";
   size: number;
@@ -687,7 +1048,7 @@ interface PositionRow {
   trend: number[];
 }
 
-const POSITIONS: PositionRow[] = [
+const POSITIONS: TablePositionRow[] = [
   { symbol: "BTC-PERP", side: "long", size: 0.0125, entry: 64920, mark: 65310, pnl: 487.5, trend: [100, 102, 99, 105, 108, 110, 112] },
   { symbol: "ETH-PERP", side: "long", size: 0.42, entry: 3120, mark: 3088, pnl: -134.4, trend: [100, 96, 94, 98, 92, 90, 87] },
   { symbol: "SOL-PERP", side: "short", size: 12.0, entry: 145.2, mark: 142.7, pnl: 30.0, trend: [100, 100.2, 99.8, 100.1, 99.9, 100.05] },
@@ -712,7 +1073,7 @@ function TableDemo() {
       : String(bv).localeCompare(String(av));
   });
 
-  const columns: TableColumn<PositionRow>[] = [
+  const columns: TableColumn<TablePositionRow>[] = [
     { key: "symbol", header: "Symbol", sortable: true },
     {
       key: "side",
