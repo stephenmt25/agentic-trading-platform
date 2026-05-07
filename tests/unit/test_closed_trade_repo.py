@@ -369,3 +369,68 @@ class TestAggregateAgentAttribution:
         assert isinstance(out[0]["avg_pnl_pct"], float)
         assert isinstance(out[0]["avg_pnl_usd"], float)
         assert isinstance(out[0]["avg_confidence_lift"], float)
+
+
+class TestAggregateRuleHeatmap:
+    @pytest.mark.asyncio
+    async def test_query_unrolls_conditions_and_builds_canonical_fingerprint(self):
+        repo, db = _make_repo()
+        await repo.aggregate_rule_heatmap(window_hours=24, min_trades=2)
+        sql, *args = db.fetch.call_args.args
+        # The condition array is unrolled with jsonb_array_elements + LATERAL.
+        assert "jsonb_array_elements(d.strategy->'conditions')" in sql
+        # Fingerprint is built sorted so any condition order produces the
+        # same fingerprint string.
+        assert "ORDER BY indicator, operator, threshold" in sql
+        assert "string_agg(" in sql
+        assert "indicator || ':' || operator || ':' || threshold" in sql
+        # min_trades is applied via HAVING so the filter happens after
+        # aggregation rather than dropping individual decisions.
+        assert "HAVING COUNT(*) >= $2" in sql
+        assert args[0] == "24"
+        assert args[1] == 2
+
+    @pytest.mark.asyncio
+    async def test_filters_by_profile_and_symbol(self):
+        repo, db = _make_repo()
+        pid = uuid.uuid4()
+        await repo.aggregate_rule_heatmap(
+            profile_id=pid,
+            symbol="ETH/USDT",
+            window_hours=72,
+            min_trades=3,
+            limit=20,
+        )
+        sql, *args = db.fetch.call_args.args
+        assert "ct.profile_id = $3" in sql
+        assert "ct.symbol = $4" in sql
+        # window, min_trades, profile_id, symbol, limit
+        assert args == ["72", 3, pid, "ETH/USDT", 20]
+
+    @pytest.mark.asyncio
+    async def test_post_processing_computes_win_rate_and_isoformat(self):
+        from decimal import Decimal as D
+        from datetime import datetime as dt, timezone as tz
+        first = dt(2026, 5, 1, 10, 0, tzinfo=tz.utc)
+        last = dt(2026, 5, 6, 16, 30, tzinfo=tz.utc)
+        db = AsyncMock()
+        db.fetch = AsyncMock(return_value=[
+            {
+                "fingerprint": "rsi:LT:50.0 | macd.histogram:GT:0.0",
+                "trade_count": 4,
+                "win_count": 3,
+                "loss_count": 1,
+                "breakeven_count": 0,
+                "avg_pnl_pct": D("0.018500"),
+                "avg_pnl_usd": D("18.50"),
+                "first_trade_at": first,
+                "last_trade_at": last,
+            },
+        ])
+        repo = ClosedTradeRepository(db)
+        out = await repo.aggregate_rule_heatmap()
+        assert out[0]["win_rate"] == 0.75
+        assert isinstance(out[0]["avg_pnl_pct"], float)
+        assert isinstance(out[0]["avg_pnl_usd"], float)
+        assert out[0]["first_trade_at"] == first.isoformat()
+        assert out[0]["last_trade_at"] == last.isoformat()

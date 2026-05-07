@@ -136,6 +136,104 @@ class ClosedTradeRepository(BaseRepository):
         )
         return dict(row) if row else None
 
+    async def aggregate_rule_heatmap(
+        self,
+        *,
+        profile_id: Optional[UUID] = None,
+        symbol: Optional[str] = None,
+        window_hours: int = 168,
+        min_trades: int = 1,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Aggregate closed-trade outcomes by rule fingerprint.
+
+        Fingerprint is the sorted tuple of ``indicator:operator:threshold``
+        from ``trade_decisions.strategy.conditions[]``, joined with ``|``.
+        Two decisions whose conditions match in any order produce the same
+        fingerprint; ``actual_value`` is intentionally excluded (it's
+        per-decision noise, not part of the rule).
+
+        Buckets with ``trade_count < min_trades`` are dropped — a single-
+        trade fingerprint isn't actionable.
+        """
+        conditions: list = ["ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
+                            "d.outcome = 'APPROVED'"]
+        params: list = [str(window_hours), min_trades]
+        idx = 3
+        if profile_id:
+            conditions.append(f"ct.profile_id = ${idx}")
+            params.append(profile_id)
+            idx += 1
+        if symbol:
+            conditions.append(f"ct.symbol = ${idx}")
+            params.append(symbol)
+            idx += 1
+        params.append(limit)
+
+        where = "WHERE " + " AND ".join(conditions)
+
+        query = f"""
+        WITH unrolled AS (
+            SELECT
+                d.event_id,
+                d.created_at,
+                cond->>'indicator' AS indicator,
+                cond->>'operator'  AS operator,
+                cond->>'threshold' AS threshold
+            FROM closed_trades ct
+            INNER JOIN trade_decisions d
+                ON d.event_id = ct.decision_event_id
+            CROSS JOIN LATERAL jsonb_array_elements(d.strategy->'conditions') AS cond
+            {where}
+        ),
+        fingerprinted AS (
+            SELECT
+                event_id,
+                created_at,
+                string_agg(
+                    indicator || ':' || operator || ':' || threshold,
+                    ' | '
+                    ORDER BY indicator, operator, threshold
+                ) AS fingerprint
+            FROM unrolled
+            GROUP BY event_id, created_at
+        )
+        SELECT
+            f.fingerprint,
+            COUNT(*)::INT                                            AS trade_count,
+            COUNT(*) FILTER (WHERE ct.outcome = 'win')::INT          AS win_count,
+            COUNT(*) FILTER (WHERE ct.outcome = 'loss')::INT         AS loss_count,
+            COUNT(*) FILTER (WHERE ct.outcome = 'breakeven')::INT    AS breakeven_count,
+            AVG(ct.realized_pnl_pct)::NUMERIC(10,6)                  AS avg_pnl_pct,
+            AVG(ct.realized_pnl)::NUMERIC(20,8)                      AS avg_pnl_usd,
+            MIN(ct.closed_at)                                        AS first_trade_at,
+            MAX(ct.closed_at)                                        AS last_trade_at
+        FROM fingerprinted f
+        INNER JOIN closed_trades ct
+            ON ct.decision_event_id = f.event_id
+        GROUP BY f.fingerprint
+        HAVING COUNT(*) >= $2
+        ORDER BY trade_count DESC, fingerprint ASC
+        LIMIT ${idx}
+        """
+        rows = await self._fetch(query, *params)
+
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            n = d["trade_count"] or 0
+            d["win_rate"] = (d["win_count"] / n) if n else None
+            for key in ("avg_pnl_pct", "avg_pnl_usd"):
+                v = d.get(key)
+                if v is not None:
+                    d[key] = float(v)
+            for key in ("first_trade_at", "last_trade_at"):
+                v = d.get(key)
+                if v is not None and hasattr(v, "isoformat"):
+                    d[key] = v.isoformat()
+            out.append(d)
+        return out
+
     async def aggregate_agent_attribution(
         self,
         *,

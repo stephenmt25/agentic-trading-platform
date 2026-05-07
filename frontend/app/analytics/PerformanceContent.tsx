@@ -6,8 +6,7 @@ import { ClosedTradesPanel } from "@/components/performance/ClosedTradesPanel";
 import { GateBlockAnalytics } from "@/components/performance/GateBlockAnalytics";
 import { WeightEvolutionChart } from "@/components/performance/WeightEvolutionChart";
 import { TradeAttributionPanel } from "@/components/performance/TradeAttributionPanel";
-import { CloseReasonPanel } from "@/components/performance/CloseReasonPanel";
-import { AgentAttributionSummary } from "@/components/performance/AgentAttributionSummary";
+import { TradeForensicsCard } from "@/components/performance/TradeForensicsCard";
 import { Loader2 } from "lucide-react";
 
 const SYMBOLS = ["BTC/USDT", "ETH/USDT"];
@@ -85,8 +84,7 @@ export default function PerformanceContent({ profileId }: PerformanceContentProp
             <GateBlockAnalytics data={gateAnalytics} />
             <WeightEvolutionChart data={weightHistory} />
           </div>
-          <CloseReasonPanel symbol={symbol} profileId={profileId ?? null} />
-          <AgentAttributionSummary symbol={symbol} profileId={profileId ?? null} />
+          <TradeForensicsCard symbol={symbol} profileId={profileId ?? null} />
           <ClosedTradesPanel symbol={symbol} limit={200} />
           <TradeAttributionPanel data={attribution} />
         </>

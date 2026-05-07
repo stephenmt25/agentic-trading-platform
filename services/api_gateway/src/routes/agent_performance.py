@@ -244,6 +244,41 @@ async def get_gate_analytics(
     }
 
 
+@router.get("/rule-heatmap/{symbol:path}")
+async def get_rule_heatmap(
+    symbol: str,
+    profile_id: Optional[str] = Query(default=None),
+    window_hours: int = Query(default=168, ge=1, le=8760),
+    min_trades: int = Query(default=1, ge=1, le=100),
+    limit: int = Query(default=50, ge=1, le=500),
+    repo: ClosedTradeRepository = Depends(get_closed_trade_repo),
+):
+    """Per-fingerprint rule outcomes (Second Brain PR2 §rule heatmap).
+
+    Aggregates closed_trades by the canonical sorted-tuple fingerprint of
+    ``trade_decisions.strategy.conditions[]``. Read-only; pure aggregation;
+    surfaces which condition combinations are actually paying off versus
+    just generating volume. ``min_trades`` filters out singleton
+    fingerprints that aren't actionable yet.
+    """
+    from uuid import UUID
+    symbol = _clean_symbol(symbol)
+    pid: Optional[UUID] = None
+    if profile_id:
+        try:
+            pid = UUID(profile_id)
+        except (ValueError, TypeError):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Invalid profile_id (expected UUID)")
+    return await repo.aggregate_rule_heatmap(
+        profile_id=pid,
+        symbol=symbol,
+        window_hours=window_hours,
+        min_trades=min_trades,
+        limit=limit,
+    )
+
+
 @router.get("/agent-attribution/{symbol:path}")
 async def get_agent_attribution_summary(
     symbol: str,

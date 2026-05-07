@@ -696,6 +696,33 @@ export const api = {
         created_at: string | null;
       }>>(`/agent-performance/attribution/${encodeURIComponent(symbol)}?limit=${limit}`),
 
+    // Per-fingerprint rule outcomes (PR2 §rule heatmap): closed trades
+    // grouped by the canonical sorted-tuple fingerprint of strategy
+    // conditions, with win rate + avg PnL per fingerprint.
+    ruleHeatmap: (
+      symbol: string,
+      params?: { profileId?: string; windowHours?: number; minTrades?: number; limit?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.profileId) qs.set("profile_id", params.profileId);
+      if (params?.windowHours) qs.set("window_hours", String(params.windowHours));
+      if (params?.minTrades) qs.set("min_trades", String(params.minTrades));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return apiRequest<Array<{
+        fingerprint: string;
+        trade_count: number;
+        win_count: number;
+        loss_count: number;
+        breakeven_count: number;
+        win_rate: number | null;
+        avg_pnl_pct: number | null;
+        avg_pnl_usd: number | null;
+        first_trade_at: string | null;
+        last_trade_at: string | null;
+      }>>(`/agent-performance/rule-heatmap/${encodeURIComponent(symbol)}${query ? `?${query}` : ""}`);
+    },
+
     // Agreement-pattern aggregate (PR2 §agent attribution): closed trades
     // bucketed by (TA, sentiment, debate) stance with realized win rate +
     // avg PnL per bucket. Companion to ``attribution`` (per-trade).
