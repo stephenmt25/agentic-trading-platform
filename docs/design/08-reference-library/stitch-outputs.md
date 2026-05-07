@@ -22,7 +22,7 @@ When you finish a Stitch run:
 
 The plan calls Profiles the calibration surface (simplest, lowest iteration cost). Steps:
 
-1. Open <https://stitch.withgoogle.com/>, switch to **Experimental Mode** (Gemini 2.5 Pro).
+1. Open <https://stitch.withgoogle.com/>. Pick **Thinking with 3.1 Pro** as the model — its deliberate reasoning is what we want for a heavily-anchored prompt with three references and a long anti-prompt. Reserve **3 Flash** for iteration tweaks after the layout is right. **Redesign** and **Ideate** are not applicable here (we're generating from scratch with anchored constraints, not reimagining or brainstorming).
 2. Configure the design system before generation:
    - Color mode: **Dark**
    - Custom color (accent): **`#6366f1`** (per ADR-014)
