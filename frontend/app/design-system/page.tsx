@@ -47,6 +47,15 @@ import {
   type AgentTraceProps,
   type DebateContribution,
 } from "@/components/agentic";
+import {
+  Node,
+  Edge,
+  NodePalette,
+  MiniMap,
+  NodeInspector,
+  RunControlBar,
+  type MiniMapNode,
+} from "@/components/canvas";
 import { AlertTriangle } from "lucide-react";
 
 /**
@@ -1108,6 +1117,357 @@ p(trending)=0.18  p(choppy)=0.71  p(reversal)=0.11`}
         </Row>
       </Section>
 
+      {/* ─── Canvas (Phase 5.5) ────────────────────────────────────── */}
+      <header className="mt-16 mb-8">
+        <h2 className="text-lg font-semibold text-fg">Canvas</h2>
+        <p className="text-sm text-fg-muted mt-1">
+          Pipeline-canvas components from{" "}
+          <code className="text-fg-secondary">
+            frontend/components/canvas/
+          </code>
+          . Per ADR-003 the canvas is the source of truth for trading
+          profiles — these components are the editor, not just a
+          visualization. All nodes are rectangles per spec; kind is
+          differentiated by icon + color accent + content, never by shape.
+        </p>
+      </header>
+
+      {/* NODE */}
+      <Section
+        title="Node"
+        tokens="--bg-panel, kind-specific border tints; running uses agent identity (collapses to accent per ADR-012)"
+      >
+        <Row label="Kinds (medium, idle)">
+          <Node
+            title="ta_agent"
+            kind="agent"
+            agent="ta"
+            inputSummary="candles 1m × 240"
+            outputSummary="signal {long|short|hold}"
+            stats="idle · last 23ms"
+          />
+          <Node
+            title="ingestion"
+            kind="data-source"
+            inputSummary="—"
+            outputSummary="market_data stream"
+            stats="streaming · 48 msg/s"
+          />
+          <Node
+            title="strategy_eval"
+            kind="decision"
+            inputSummary="signals × 3"
+            outputSummary="order intent"
+            stats="idle"
+          />
+          <Node
+            title="execution"
+            kind="sink"
+            sinkSide="bid"
+            inputSummary="order intent"
+            outputSummary="—"
+            stats="0 in flight"
+          />
+          <Node
+            title="ta_indicator"
+            kind="transform"
+            inputSummary="candles"
+            outputSummary="rsi/ema/atr"
+            stats="42ms last"
+          />
+        </Row>
+        <Row label="States">
+          <Node
+            title="ta_agent"
+            kind="agent"
+            agent="ta"
+            state="running"
+            inputSummary="candles 1m × 240"
+            outputSummary="signal {long|short|hold}"
+            stats="running · 23ms · 1.2k qps"
+          />
+          <Node
+            title="regime_hmm"
+            kind="agent"
+            agent="regime"
+            state="paused"
+            inputSummary="candles 1m × 240"
+            outputSummary="regime {trending|choppy|reversal}"
+            stats="paused"
+          />
+          <Node
+            title="slm_inference"
+            kind="agent"
+            agent="slm"
+            state="errored"
+            inputSummary="prompt"
+            outputSummary="—"
+            lastError="LLM gateway timeout after 8s"
+          />
+          <Node
+            title="strategy_eval"
+            kind="decision"
+            state="selected"
+            inputSummary="signals × 3"
+            outputSummary="order intent"
+            stats="selected"
+            onInfoClick={() => {}}
+            onMenuClick={() => {}}
+          />
+        </Row>
+        <Row label="Sizes">
+          <Node title="ta_agent" kind="agent" agent="ta" size="small" />
+          <Node
+            title="ta_agent"
+            kind="agent"
+            agent="ta"
+            size="medium"
+            inputSummary="candles 1m × 240"
+            outputSummary="signal {long|short|hold}"
+            stats="running · 23ms"
+            state="running"
+          />
+        </Row>
+      </Section>
+
+      {/* EDGE */}
+      <Section
+        title="Edge"
+        tokens="bezier curve only (NO orthogonal); 1.5px stroke; agent edges in accent at ~60% sat per ADR-012"
+      >
+        <Row label="States and kinds (live mode = animated dot)">
+          <svg
+            width={520}
+            height={180}
+            className="bg-bg-canvas rounded-md border border-border-subtle"
+            aria-label="Edge variants demo"
+          >
+            {/* Static endpoint markers */}
+            {[
+              { x: 60, y: 30 },
+              { x: 60, y: 80 },
+              { x: 60, y: 130 },
+              { x: 460, y: 30 },
+              { x: 460, y: 80 },
+              { x: 460, y: 130 },
+            ].map((p, i) => (
+              <circle
+                key={i}
+                cx={p.x}
+                cy={p.y}
+                r={3}
+                fill="var(--color-neutral-700)"
+              />
+            ))}
+            <Edge
+              source={{ x: 60, y: 30 }}
+              target={{ x: 460, y: 30 }}
+              kind="agent"
+              flowing
+            />
+            <Edge
+              source={{ x: 60, y: 80 }}
+              target={{ x: 460, y: 80 }}
+              kind="data"
+              flowing
+            />
+            <Edge
+              source={{ x: 60, y: 130 }}
+              target={{ x: 460, y: 130 }}
+              kind="decision"
+              state="selected"
+              flowing
+            />
+          </svg>
+        </Row>
+        <Row label="Errored / inactive-branch (no flow)">
+          <svg
+            width={520}
+            height={120}
+            className="bg-bg-canvas rounded-md border border-border-subtle"
+            aria-label="Edge state demo"
+          >
+            <Edge
+              source={{ x: 60, y: 40 }}
+              target={{ x: 460, y: 40 }}
+              kind="agent"
+              state="errored"
+            />
+            <Edge
+              source={{ x: 60, y: 90 }}
+              target={{ x: 460, y: 90 }}
+              kind="data"
+              state="inactive-branch"
+            />
+          </svg>
+        </Row>
+      </Section>
+
+      {/* NODE PALETTE */}
+      <Section
+        title="NodePalette"
+        tokens="--bg-panel, search via Input primitive, fixed registry order"
+      >
+        <Row label="Default registry">
+          <div className="w-72 h-[420px]">
+            <NodePalette
+              onEntryClick={() => {}}
+              onEntryDragStart={() => {}}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* MINIMAP */}
+      <Section
+        title="MiniMap"
+        tokens="160×120; --color-accent-500 at 8% (viewport rect); off-screen running/errored nodes pulse"
+      >
+        <Row label="Sample layout (drag the indigo rect)">
+          <div className="bg-bg-canvas border border-border-subtle rounded-md p-3 inline-block">
+            <MiniMapDemo />
+          </div>
+        </Row>
+        <Row label="Collapsed (chevron only)">
+          <MiniMap
+            nodes={[]}
+            viewport={{ x: 0, y: 0, width: 100, height: 100 }}
+            defaultCollapsed
+          />
+        </Row>
+      </Section>
+
+      {/* NODE INSPECTOR */}
+      <Section
+        title="NodeInspector"
+        tokens="380px right drawer; collapsible sections; primitive form controls"
+      >
+        <Row label="Static demo (drawer pinned in place)">
+          <div className="h-[520px] flex bg-bg-canvas border border-border-subtle rounded-md overflow-hidden">
+            <div className="flex-1 p-6 text-fg-muted text-sm flex items-start justify-center">
+              <span>
+                ← Inspector pinned to the right. In real Pipeline Canvas
+                use, this slides over the canvas without dimming it.
+              </span>
+            </div>
+            <NodeInspector
+              open
+              nodeTitle="regime_hmm"
+              nodeKind="agent"
+              running
+              onTitleChange={() => {}}
+              onRunningChange={() => {}}
+              inputs={[
+                {
+                  id: "candles",
+                  label: "candles",
+                  connection: "ingestion → BTC-PERP 1m",
+                },
+              ]}
+              outputs={[
+                {
+                  id: "regime",
+                  label: "regime",
+                  connection: "→ strategy_eval (canvas #4)",
+                },
+                {
+                  id: "regime",
+                  label: "regime",
+                  connection: "→ debate (round 4)",
+                },
+              ]}
+              configuration={
+                <>
+                  <Input label="Lookback bars" defaultValue="240" numeric />
+                  <Input label="Hidden states" defaultValue="3" numeric />
+                  <Input
+                    label="EM iterations"
+                    defaultValue="20"
+                    numeric
+                    density="compact"
+                  />
+                </>
+              }
+              liveActivity={
+                <KeyValue
+                  label="last 100 emissions"
+                  value="p̄(choppy) = 0.68"
+                />
+              }
+              onOpenObservatory={() => {}}
+              tests={
+                <p className="text-[12px] text-fg-muted">
+                  Sample-input runner — wire up in Phase 6.3.
+                </p>
+              }
+              onClose={() => {}}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* RUN CONTROL BAR */}
+      <Section
+        title="RunControlBar"
+        tokens="--color-bid-500 (paper-active), --color-accent-500 (live primary), warn (dirty)"
+      >
+        <Row label="Idle, saved">
+          <div className="w-full">
+            <RunControlBar
+              profileOptions={[
+                { value: "agg-v3", label: "Aggressive-v3" },
+                { value: "cons-v1", label: "Conservative-v1" },
+              ]}
+              activeProfileId="agg-v3"
+              savedAtText="saved 3m ago"
+              onRunPaper={() => {}}
+              onRunLive={() => {}}
+              onRunBacktest={() => {}}
+            />
+          </div>
+        </Row>
+        <Row label="Dirty (unsaved)">
+          <div className="w-full">
+            <RunControlBar
+              profileOptions={[{ value: "agg-v3", label: "Aggressive-v3" }]}
+              activeProfileId="agg-v3"
+              dirty
+              onSave={() => {}}
+              onRunPaper={() => {}}
+              onRunLive={() => {}}
+              onRunBacktest={() => {}}
+            />
+          </div>
+        </Row>
+        <Row label="Paper running">
+          <div className="w-full">
+            <RunControlBar
+              profileOptions={[{ value: "agg-v3", label: "Aggressive-v3" }]}
+              activeProfileId="agg-v3"
+              activity="paper-active"
+              savedAtText="saved 3m ago"
+              onRunPaper={() => {}}
+              onRunLive={() => {}}
+              onRunBacktest={() => {}}
+            />
+          </div>
+        </Row>
+        <Row label="Backtest in progress">
+          <div className="w-full">
+            <RunControlBar
+              profileOptions={[{ value: "agg-v3", label: "Aggressive-v3" }]}
+              activeProfileId="agg-v3"
+              activity="backtesting-active"
+              savedAtText="saved 3m ago"
+              onRunPaper={() => {}}
+              onRunLive={() => {}}
+              onRunBacktest={() => {}}
+              onCancelBacktest={() => {}}
+            />
+          </div>
+        </Row>
+      </Section>
+
       {/* MODE-SCOPED PREVIEW */}
       <Section
         title="Mode preview (HOT vs. COOL vs. CALM)"
@@ -1339,6 +1699,29 @@ p(reversal) = 0.11
 
 Recommend reducing trend-follower position size by 0.4× until
 volatility resumes.`;
+
+const MINIMAP_NODES: MiniMapNode[] = [
+  { id: "ing", x: 40, y: 40, width: 120, height: 60, kind: "data-source", state: "running" },
+  { id: "ta", x: 220, y: 20, width: 120, height: 60, kind: "agent", state: "running" },
+  { id: "rg", x: 220, y: 100, width: 120, height: 60, kind: "agent", state: "paused" },
+  { id: "se", x: 220, y: 180, width: 120, height: 60, kind: "agent", state: "errored" },
+  { id: "st", x: 400, y: 100, width: 120, height: 60, kind: "decision", state: "selected" },
+  { id: "ex", x: 580, y: 100, width: 120, height: 60, kind: "sink", state: "idle" },
+  { id: "lg", x: 580, y: 200, width: 120, height: 60, kind: "sink", state: "idle" },
+  // Off-screen running node — should pulse on the minimap
+  { id: "off", x: 900, y: 400, width: 120, height: 60, kind: "agent", state: "running" },
+];
+
+function MiniMapDemo() {
+  const [vp, setVp] = useState({ x: 0, y: 0 });
+  return (
+    <MiniMap
+      nodes={MINIMAP_NODES}
+      viewport={{ x: vp.x, y: vp.y, width: 360, height: 220 }}
+      onViewportChange={setVp}
+    />
+  );
+}
 
 function StreamingDemo() {
   const [text, setText] = useState("");

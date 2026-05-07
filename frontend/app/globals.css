@@ -221,6 +221,29 @@
     font-variant-numeric: tabular-nums;
     font-feature-settings: var(--font-feat-tabular);
   }
+
+  /* Praxis subtle pulse — for canvas Nodes in `running` state and
+     similar live indicators. Per canvas.md the pulse is "soft 0.06
+     opacity oscillation — present but not demanding." */
+  .animate-pulse-subtle {
+    animation: praxis-pulse-subtle 2.4s ease-in-out infinite;
+  }
+
+  /* Animated dot along an Edge curve (Pipeline Canvas). The path
+     length is normalized at the SVG layer; this just runs the offset. */
+  .animate-edge-dot {
+    animation: praxis-edge-dot var(--praxis-edge-duration, 2.2s) ease-in-out infinite;
+  }
+}
+
+@keyframes praxis-pulse-subtle {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.94; }
+}
+
+@keyframes praxis-edge-dot {
+  0%   { offset-distance: 0%; }
+  100% { offset-distance: 100%; }
 }
 
 /* ── Custom scrollbars ── */
