@@ -136,6 +136,112 @@ class ClosedTradeRepository(BaseRepository):
         )
         return dict(row) if row else None
 
+    async def aggregate_by_attribute(
+        self,
+        *,
+        dimension: str,
+        profile_id: Optional[UUID] = None,
+        symbol: Optional[str] = None,
+        window_hours: int = 168,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Bucket closed trades by a single closed_trades attribute.
+
+        ``dimension`` selects the bucket expression:
+
+        - ``side``:           BUY vs SELL
+        - ``regime``:         entry_regime (NULL → 'unknown')
+        - ``hold_duration``:  < 1h, 1–6h, 6–24h, ≥ 24h
+        - ``hour``:           night/morning/afternoon/evening (UTC)
+        - ``day_of_week``:    Mon..Sun (UTC)
+
+        Output rows: bucket label, count, win/loss/breakeven counts, win
+        rate, avg realized PnL %, avg realized PnL ($). Ordered by count
+        descending — partner-facing readers care about the heaviest
+        buckets first.
+        """
+        bucket_exprs: Dict[str, str] = {
+            "symbol": "ct.symbol",
+            "side": "ct.side",
+            "regime": "COALESCE(ct.entry_regime, 'unknown')",
+            "outcome": "ct.outcome",
+            "close_reason": "ct.close_reason",
+            "hold_duration": (
+                "CASE "
+                "WHEN ct.holding_duration_s < 3600 THEN '< 1h' "
+                "WHEN ct.holding_duration_s < 21600 THEN '1–6h' "
+                "WHEN ct.holding_duration_s < 86400 THEN '6–24h' "
+                "ELSE '≥ 24h' "
+                "END"
+            ),
+            "hour": (
+                "CASE "
+                "WHEN EXTRACT(hour FROM ct.opened_at AT TIME ZONE 'UTC') < 6  THEN 'night (00–05 UTC)' "
+                "WHEN EXTRACT(hour FROM ct.opened_at AT TIME ZONE 'UTC') < 12 THEN 'morning (06–11 UTC)' "
+                "WHEN EXTRACT(hour FROM ct.opened_at AT TIME ZONE 'UTC') < 18 THEN 'afternoon (12–17 UTC)' "
+                "ELSE 'evening (18–23 UTC)' "
+                "END"
+            ),
+            "day_of_week": (
+                "CASE EXTRACT(dow FROM ct.opened_at AT TIME ZONE 'UTC')::INT "
+                "WHEN 0 THEN 'Sun' "
+                "WHEN 1 THEN 'Mon' "
+                "WHEN 2 THEN 'Tue' "
+                "WHEN 3 THEN 'Wed' "
+                "WHEN 4 THEN 'Thu' "
+                "WHEN 5 THEN 'Fri' "
+                "WHEN 6 THEN 'Sat' "
+                "END"
+            ),
+        }
+        if dimension not in bucket_exprs:
+            raise ValueError(f"Unknown dimension: {dimension!r}")
+        bucket_expr = bucket_exprs[dimension]
+
+        conditions: list = ["ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL"]
+        params: list = [str(window_hours)]
+        idx = 2
+        if profile_id:
+            conditions.append(f"ct.profile_id = ${idx}")
+            params.append(profile_id)
+            idx += 1
+        if symbol:
+            conditions.append(f"ct.symbol = ${idx}")
+            params.append(symbol)
+            idx += 1
+        params.append(limit)
+
+        where = "WHERE " + " AND ".join(conditions)
+
+        query = f"""
+        SELECT
+            {bucket_expr} AS bucket,
+            COUNT(*)::INT                                            AS count,
+            COUNT(*) FILTER (WHERE ct.outcome = 'win')::INT          AS win_count,
+            COUNT(*) FILTER (WHERE ct.outcome = 'loss')::INT         AS loss_count,
+            COUNT(*) FILTER (WHERE ct.outcome = 'breakeven')::INT    AS breakeven_count,
+            AVG(ct.realized_pnl_pct)::NUMERIC(10,6)                  AS avg_pnl_pct,
+            AVG(ct.realized_pnl)::NUMERIC(20,8)                      AS avg_pnl_usd
+        FROM closed_trades ct
+        {where}
+        GROUP BY bucket
+        ORDER BY count DESC, bucket ASC
+        LIMIT ${idx}
+        """
+        rows = await self._fetch(query, *params)
+
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            n = d["count"] or 0
+            d["win_rate"] = (d["win_count"] / n) if n else None
+            for key in ("avg_pnl_pct", "avg_pnl_usd"):
+                v = d.get(key)
+                if v is not None:
+                    d[key] = float(v)
+            out.append(d)
+        return out
+
     async def aggregate_rule_heatmap(
         self,
         *,

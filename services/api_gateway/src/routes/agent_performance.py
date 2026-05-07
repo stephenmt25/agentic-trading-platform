@@ -244,6 +244,81 @@ async def get_gate_analytics(
     }
 
 
+@router.get("/approved-attribute/{symbol:path}")
+async def get_approved_attribute_aggregate(
+    symbol: str,
+    dimension: str = Query(..., description="One of: symbol | direction | hour | day_of_week | regime"),
+    profile_id: Optional[str] = Query(default=None),
+    window_hours: int = Query(default=168, ge=1, le=8760),
+    limit: int = Query(default=50, ge=1, le=200),
+    repo: DecisionRepository = Depends(get_decision_repo),
+):
+    """Aggregate APPROVED trade_decisions by a single attribute.
+
+    Companion to ``/trade-attribute`` but reads the decision side: which
+    kinds of decisions did the engine actually approve? Returns count +
+    percent of total per bucket. No realized-PnL columns — see the
+    Closed Trades tab for outcome-conditioned views.
+    """
+    from uuid import UUID
+    from fastapi import HTTPException
+    symbol = _clean_symbol(symbol)
+    pid: Optional[UUID] = None
+    if profile_id:
+        try:
+            pid = UUID(profile_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid profile_id (expected UUID)")
+    try:
+        return await repo.aggregate_approved_by_attribute(
+            dimension=dimension,
+            profile_id=pid,
+            symbol=symbol,
+            window_hours=window_hours,
+            limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/trade-attribute/{symbol:path}")
+async def get_trade_attribute_aggregate(
+    symbol: str,
+    dimension: str = Query(..., description="One of: side | regime | hold_duration | hour | day_of_week"),
+    profile_id: Optional[str] = Query(default=None),
+    window_hours: int = Query(default=168, ge=1, le=8760),
+    limit: int = Query(default=50, ge=1, le=200),
+    repo: ClosedTradeRepository = Depends(get_closed_trade_repo),
+):
+    """Aggregate closed trades by a single attribute dimension.
+
+    Slices the closed_trades ledger by the chosen dimension (side,
+    entry_regime, hold-duration bucket, UTC hour bucket, or day of week)
+    and returns count + realized win rate + avg PnL per bucket. Same
+    table shape as the other Trade Forensics endpoints; one new bucket
+    per row.
+    """
+    from uuid import UUID
+    from fastapi import HTTPException
+    symbol = _clean_symbol(symbol)
+    pid: Optional[UUID] = None
+    if profile_id:
+        try:
+            pid = UUID(profile_id)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid profile_id (expected UUID)")
+    try:
+        return await repo.aggregate_by_attribute(
+            dimension=dimension,
+            profile_id=pid,
+            symbol=symbol,
+            window_hours=window_hours,
+            limit=limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/rule-heatmap/{symbol:path}")
 async def get_rule_heatmap(
     symbol: str,

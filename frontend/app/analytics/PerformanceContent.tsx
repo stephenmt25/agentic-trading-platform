@@ -2,10 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api/client";
-import { ClosedTradesPanel } from "@/components/performance/ClosedTradesPanel";
 import { GateBlockAnalytics } from "@/components/performance/GateBlockAnalytics";
 import { WeightEvolutionChart } from "@/components/performance/WeightEvolutionChart";
-import { TradeAttributionPanel } from "@/components/performance/TradeAttributionPanel";
 import { TradeForensicsCard } from "@/components/performance/TradeForensicsCard";
 import { Loader2 } from "lucide-react";
 
@@ -21,20 +19,17 @@ export default function PerformanceContent({ profileId }: PerformanceContentProp
   const [error, setError] = useState<string | null>(null);
   const [gateAnalytics, setGateAnalytics] = useState<any>(null);
   const [weightHistory, setWeightHistory] = useState<any[]>([]);
-  const [attribution, setAttribution] = useState<any[]>([]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [ga, wh, attr] = await Promise.all([
+      const [ga, wh] = await Promise.all([
         api.agentPerformance.gateAnalytics(symbol, profileId ? { profileId } : undefined),
         api.agentPerformance.weightHistory(symbol, { agents: "ta,sentiment,debate", limit: 1000 }),
-        api.agentPerformance.attribution(symbol, 100),
       ]);
       setGateAnalytics(ga);
       setWeightHistory(wh);
-      setAttribution(attr);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load performance data");
     } finally {
@@ -78,15 +73,14 @@ export default function PerformanceContent({ profileId }: PerformanceContentProp
         <>
           <p className="text-[11px] text-muted-foreground">
             Current agent weights live in the Trade page · Analysis section. This drawer focuses on
-            gate efficacy, weight evolution over time, and per-trade attribution.
+            gate efficacy, weight evolution over time, and Trade Forensics — open the card below to
+            slice closed and approved trades, then open the raw tables on demand.
           </p>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <GateBlockAnalytics data={gateAnalytics} />
             <WeightEvolutionChart data={weightHistory} />
           </div>
           <TradeForensicsCard symbol={symbol} profileId={profileId ?? null} />
-          <ClosedTradesPanel symbol={symbol} limit={200} />
-          <TradeAttributionPanel data={attribution} />
         </>
       )}
     </div>

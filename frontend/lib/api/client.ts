@@ -696,6 +696,59 @@ export const api = {
         created_at: string | null;
       }>>(`/agent-performance/attribution/${encodeURIComponent(symbol)}?limit=${limit}`),
 
+    // Single-attribute slice of APPROVED trade_decisions
+    // (Trade Forensics §approved trades). Returns count + percent of
+    // total per bucket — no realized PnL since these are decision-side.
+    approvedAttribute: (
+      symbol: string,
+      dimension: "symbol" | "direction" | "regime" | "hour" | "day_of_week",
+      params?: { profileId?: string; windowHours?: number; limit?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      qs.set("dimension", dimension);
+      if (params?.profileId) qs.set("profile_id", params.profileId);
+      if (params?.windowHours) qs.set("window_hours", String(params.windowHours));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      return apiRequest<Array<{
+        bucket: string;
+        count: number;
+        percent: number | null;
+      }>>(`/agent-performance/approved-attribute/${encodeURIComponent(symbol)}?${qs.toString()}`);
+    },
+
+    // Single-attribute slice of closed_trades (Trade Forensics §closed trades).
+    // Bucket by symbol, direction, regime, outcome, close_reason,
+    // hold-duration, hour, or day-of-week.
+    tradeAttribute: (
+      symbol: string,
+      dimension:
+        | "symbol"
+        | "side"
+        | "regime"
+        | "outcome"
+        | "close_reason"
+        | "hold_duration"
+        | "hour"
+        | "day_of_week",
+      params?: { profileId?: string; windowHours?: number; limit?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      qs.set("dimension", dimension);
+      if (params?.profileId) qs.set("profile_id", params.profileId);
+      if (params?.windowHours) qs.set("window_hours", String(params.windowHours));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      return apiRequest<Array<{
+        bucket: string;
+        count: number;
+        win_count: number;
+        loss_count: number;
+        breakeven_count: number;
+        win_rate: number | null;
+        avg_pnl_pct: number | null;
+        avg_pnl_usd: number | null;
+      }>>(`/agent-performance/trade-attribute/${encodeURIComponent(symbol)}?${qs.toString()}`);
+    },
+
     // Per-fingerprint rule outcomes (PR2 §rule heatmap): closed trades
     // grouped by the canonical sorted-tuple fingerprint of strategy
     // conditions, with win rate + avg PnL per fingerprint.

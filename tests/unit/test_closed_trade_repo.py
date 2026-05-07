@@ -434,3 +434,105 @@ class TestAggregateRuleHeatmap:
         assert isinstance(out[0]["avg_pnl_usd"], float)
         assert out[0]["first_trade_at"] == first.isoformat()
         assert out[0]["last_trade_at"] == last.isoformat()
+
+
+class TestAggregateByAttribute:
+    @pytest.mark.asyncio
+    async def test_side_dimension_uses_raw_column(self):
+        repo, db = _make_repo()
+        await repo.aggregate_by_attribute(dimension="side", window_hours=24)
+        sql, *args = db.fetch.call_args.args
+        assert "ct.side AS bucket" in sql
+        assert args[0] == "24"
+
+    @pytest.mark.asyncio
+    async def test_regime_dimension_coalesces_unknown(self):
+        repo, db = _make_repo()
+        await repo.aggregate_by_attribute(dimension="regime")
+        sql = db.fetch.call_args.args[0]
+        assert "COALESCE(ct.entry_regime, 'unknown')" in sql
+
+    @pytest.mark.asyncio
+    async def test_hold_duration_buckets(self):
+        repo, db = _make_repo()
+        await repo.aggregate_by_attribute(dimension="hold_duration")
+        sql = db.fetch.call_args.args[0]
+        assert "holding_duration_s < 3600" in sql
+        assert "'< 1h'" in sql
+        assert "'1–6h'" in sql        # en-dash matches the source
+        assert "'≥ 24h'" in sql
+
+    @pytest.mark.asyncio
+    async def test_hour_dimension_uses_utc(self):
+        repo, db = _make_repo()
+        await repo.aggregate_by_attribute(dimension="hour")
+        sql = db.fetch.call_args.args[0]
+        assert "AT TIME ZONE 'UTC'" in sql
+        assert "'morning (06–11 UTC)'" in sql
+
+    @pytest.mark.asyncio
+    async def test_day_of_week_uses_dow(self):
+        repo, db = _make_repo()
+        await repo.aggregate_by_attribute(dimension="day_of_week")
+        sql = db.fetch.call_args.args[0]
+        assert "EXTRACT(dow FROM ct.opened_at AT TIME ZONE 'UTC')" in sql
+        assert "'Mon'" in sql
+        assert "'Sun'" in sql
+
+    @pytest.mark.asyncio
+    async def test_unknown_dimension_raises(self):
+        repo, _ = _make_repo()
+        with pytest.raises(ValueError, match="Unknown dimension"):
+            await repo.aggregate_by_attribute(dimension="garbage")
+
+    @pytest.mark.asyncio
+    async def test_filters_by_profile_and_symbol(self):
+        repo, db = _make_repo()
+        pid = uuid.uuid4()
+        await repo.aggregate_by_attribute(
+            dimension="side",
+            profile_id=pid,
+            symbol="BTC/USDT",
+            window_hours=24,
+            limit=10,
+        )
+        sql, *args = db.fetch.call_args.args
+        assert "ct.profile_id = $2" in sql
+        assert "ct.symbol = $3" in sql
+        assert args == ["24", pid, "BTC/USDT", 10]
+
+    @pytest.mark.asyncio
+    async def test_post_processing_computes_win_rate(self):
+        from decimal import Decimal as D
+        db = AsyncMock()
+        db.fetch = AsyncMock(return_value=[
+            {
+                "bucket": "BUY",
+                "count": 10,
+                "win_count": 7,
+                "loss_count": 3,
+                "breakeven_count": 0,
+                "avg_pnl_pct": D("0.025"),
+                "avg_pnl_usd": D("12.50"),
+            },
+        ])
+        repo = ClosedTradeRepository(db)
+        out = await repo.aggregate_by_attribute(dimension="side")
+        assert out[0]["win_rate"] == 0.7
+        assert isinstance(out[0]["avg_pnl_pct"], float)
+        assert isinstance(out[0]["avg_pnl_usd"], float)
+
+    @pytest.mark.parametrize(
+        "dimension,fragment",
+        [
+            ("symbol", "ct.symbol AS bucket"),
+            ("outcome", "ct.outcome AS bucket"),
+            ("close_reason", "ct.close_reason AS bucket"),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_new_dimensions_added(self, dimension, fragment):
+        repo, db = _make_repo()
+        await repo.aggregate_by_attribute(dimension=dimension)
+        sql = db.fetch.call_args.args[0]
+        assert fragment in sql
