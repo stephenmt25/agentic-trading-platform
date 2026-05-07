@@ -4,7 +4,8 @@ Log of Stitch runs against the prompts in `06-stitch-prompts/`. Each entry captu
 
 | Date | Surface | Prompt file | Figma URL | Notes |
 |------|---------|-------------|-----------|-------|
-| 2026-05-07 | Profiles & Settings (calibration v1) | `06-stitch-prompts/06-profiles.prompt.md` | _HTML output, no Figma export_ | Iteration #1 — see audit below. Structure right, color/icon systems drifted to Material Design defaults, paused cards abbreviated. Iteration prompt staged below. |
+| 2026-05-07 | Profiles & Settings (calibration v1) | `06-stitch-prompts/06-profiles.prompt.md` | _HTML output, no Figma export_ | Iteration #1 — structure right, color/icon systems drifted to Material Design defaults, paused cards abbreviated. Audit + v2 prompt below. |
+| 2026-05-07 | Profiles & Settings (calibration v2) | _refinement of v1 — see "Iteration #2 — refinement prompt" below_ | _HTML output_ | 10/12 fixes landed. Calibration complete and fit for visual grounding. Two minor drifts (help icon vs keyboard, missing kill-switch tooltip) — see v2 audit. |
 
 ---
 
@@ -116,6 +117,33 @@ Do not introduce new sections. Do not add empty-state illustrations or hero bann
 ```
 
 After applying, re-export and update the table at the top of this file with the v2 result + a fresh audit row.
+
+---
+
+## Calibration v2 — audit (2026-05-07)
+
+**Verdict:** calibration complete. 10 of 12 v2 fix items landed cleanly. The remaining drifts are cosmetic (one icon swap) and behavioral (a tooltip best implemented in code). v2 is suitable as visual grounding for Phase 5/6 component generation.
+
+**Fixed in v2 (vs. v1):**
+1. Accent strict `#6366f1` — Tailwind config now emits `primary: #6366f1`; ghost button hover and active-tab underline both use the literal hex. (Old MD3 tones `primary-fixed-dim`, `primary-container` still appear in the config but are unused — harmless leftover.)
+2. Card 1 "Open in canvas" is now ghost; all three buttons share identical ghost styling on every card.
+3. All Material Symbols replaced with Lucide line icons (`data-lucide="..."` + `lucide.createIcons()` script).
+4. Left rail has all six surface icons in spec order (zap / cpu / git-merge / bar-chart-2 / shield / settings).
+5. Tabular font is IBM Plex Mono (JetBrains Mono is loaded as a leftover but not referenced in any class).
+6. Cards 2 and 3 each show three KeyValue metrics with em-dash `—` for paused values.
+7. All three cards show three action buttons; "Run backtest" → "Resume" on paused cards is the only delta per the spec.
+8. Settings nav is exactly the 8 items in spec; the v1 "Security" item is removed.
+9. Top chrome header (breadcrumb + notifications + avatar) removed; surface starts at the page header.
+10. LIVE pill dot and positive PnL value both use `#10b981` exactly.
+11. Card hover state adds `shadow-[0_4px_12px_rgba(0,0,0,0.4)]` alongside the border darken.
+
+**Remaining drifts (cosmetic / behavioral, not blocking):**
+
+1. **Bottom-rail utilities — Help icon instead of keyboard reference.** The v2 prompt asked for keyboard reference (`?`) + session switcher (user). The output emits `help-circle` + `user`. Swap `help-circle` for `command` or `keyboard` in code; in Stitch, this is a one-line tweak: "replace the bottom help-circle icon with the keyboard icon and re-label the title to 'Keyboard reference (⌘K)'".
+
+2. **Edit-settings kill-switch tooltip removed.** v1 had this tooltip; v2 stripped it during the refinement (the prompt didn't restate it explicitly). Spec said: "near 'Edit settings' on the active profile, a small icon or note saying '(some changes require disarming kill switch)'". This is a critical-UX rule per the spec, not decoration. Best implemented in code (the tooltip is reactive to the killSwitchStore state anyway), so I'd accept this drift in the visual reference and carry the requirement into the component spec when it's built.
+
+**Decision:** accept v2 as the visual reference for Phase 5/6 component work. Take a final screenshot of the rendered HTML and drop it under `images/stitch-01-profiles-v2.png` so future component-generation prompts can reference it. Skip a v3 unless we want to also trial the export-to-Figma path for downstream tooling.
 
 ---
 
