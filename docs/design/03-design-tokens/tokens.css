@@ -1,0 +1,212 @@
+/*
+ * Praxis — design tokens as CSS custom properties.
+ * Generated equivalent of tokens.json; safe to import directly.
+ * The Tailwind config (tailwind.preview.js) reads from this same surface.
+ *
+ * Mode-scoped semantic vars are exposed via [data-mode="hot|cool|calm"]
+ * on a parent element (typically <html> or <body>). Default is hot.
+ */
+
+:root {
+  /* === neutral ramp ============================================ */
+  --color-neutral-0:    #ffffff;
+  --color-neutral-50:   #f7f7f8;
+  --color-neutral-100:  #ededef;
+  --color-neutral-200:  #d4d4d8;
+  --color-neutral-300:  #a1a1aa;
+  --color-neutral-400:  #71717a;
+  --color-neutral-500:  #52525b;
+  --color-neutral-600:  #3f3f46;
+  --color-neutral-700:  #27272a;
+  --color-neutral-800:  #18181b;
+  --color-neutral-900:  #0f0f12;
+  --color-neutral-950:  #0b0b0d;
+  --color-neutral-1000: #000000;
+
+  /* === bid (positive PnL / own buys / liquidity in) ============ */
+  --color-bid-50:  #ecfdf5;
+  --color-bid-100: #d1fae5;
+  --color-bid-200: #a7f3d0;
+  --color-bid-300: #6ee7b7;
+  --color-bid-400: #34d399;
+  --color-bid-500: #10b981;
+  --color-bid-600: #059669;
+  --color-bid-700: #047857;
+  --color-bid-800: #065f46;
+  --color-bid-900: #064e3b;
+  --color-bid-tick-flash: rgba(16, 185, 129, 0.18);
+
+  /* === ask (negative PnL / own sells / liquidity out) ========== */
+  --color-ask-50:  #fef2f2;
+  --color-ask-100: #fee2e2;
+  --color-ask-200: #fecaca;
+  --color-ask-300: #fca5a5;
+  --color-ask-400: #f87171;
+  --color-ask-500: #ef4444;
+  --color-ask-600: #dc2626;
+  --color-ask-700: #b91c1c;
+  --color-ask-800: #991b1b;
+  --color-ask-900: #7f1d1d;
+  --color-ask-tick-flash: rgba(239, 68, 68, 0.18);
+
+  /* === accent (the single brand-voice hue) ==================== */
+  --color-accent-50:  #eef2ff;
+  --color-accent-100: #e0e7ff;
+  --color-accent-200: #c7d2fe;
+  --color-accent-300: #a5b4fc;
+  --color-accent-400: #818cf8;
+  --color-accent-500: #6366f1;
+  --color-accent-600: #4f46e5;
+  --color-accent-700: #4338ca;
+  --color-accent-800: #3730a3;
+  --color-accent-900: #312e81;
+
+  /* === warn (advisory amber) =================================== */
+  --color-warn-400: #fbbf24;
+  --color-warn-500: #f59e0b;
+  --color-warn-600: #d97706;
+  --color-warn-700: #b45309;
+
+  /* === danger (kill-switch / hard violations) ================== */
+  --color-danger-500: #dc2626;
+  --color-danger-600: #b91c1c;
+  --color-danger-700: #991b1b;
+  --color-danger-armed-bg: rgba(220, 38, 38, 0.06);
+
+  /* === agent identities ========================================
+   * Per ADR-012 all six agents alias to --color-accent-500.
+   * Chromatic differentiation rejected; agents differentiate by
+   * glyph + label + column position. */
+  --color-agent-ta:        var(--color-accent-500);
+  --color-agent-regime:    var(--color-accent-500);
+  --color-agent-sentiment: var(--color-accent-500);
+  --color-agent-slm:       var(--color-accent-500);
+  --color-agent-debate:    var(--color-accent-500);
+  --color-agent-analyst:   var(--color-accent-500);
+
+  /* === typography ==============================================
+   * Per ADR-011: IBM Plex Sans for prose/UI, IBM Plex Mono for
+   * tabular numerics, code, IDs. Both are loaded via next/font in
+   * frontend/app/layout.tsx. */
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --font-tabular: var(--font-mono);
+  --font-feat-tabular: "tnum" 1;
+
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  --size-10: 10px; --size-11: 11px; --size-12: 12px; --size-13: 13px;
+  --size-14: 14px; --size-15: 15px; --size-16: 16px; --size-18: 18px;
+  --size-20: 20px; --size-24: 24px; --size-30: 30px; --size-36: 36px;
+  --size-48: 48px;
+
+  /* === spacing (4px base) ====================================== */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-0_5: 2px;
+  --space-1: 4px;
+  --space-1_5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+
+  /* === radius ================================================= */
+  --radius-none: 0;
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* === shadows (dark-mode tuned) ============================== */
+  --shadow-none: none;
+  --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 2px 4px -1px rgba(0, 0, 0, 0.4), 0 4px 8px -2px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 8px 16px -4px rgba(0, 0, 0, 0.5), 0 16px 32px -8px rgba(0, 0, 0, 0.35);
+  --shadow-popover: 0 4px 8px -2px rgba(0, 0, 0, 0.6), 0 12px 24px -6px rgba(0, 0, 0, 0.45);
+
+  /* === motion ================================================== */
+  --duration-instant: 0ms;
+  --duration-tick: 120ms;
+  --duration-snap: 180ms;
+  --duration-ease: 220ms;
+  --duration-slow: 320ms;
+  --easing-linear: linear;
+  --easing-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --easing-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* === z-index =================================================*/
+  --z-base: 0;
+  --z-rise: 10;
+  --z-drawer: 20;
+  --z-popover: 40;
+  --z-modal: 50;
+  --z-toast: 60;
+  --z-kill-overlay: 100;
+}
+
+/* === mode-scoped semantic vars =============================== */
+/* Default mode is HOT (the platform boots into the cockpit). */
+:root,
+[data-mode="hot"] {
+  --bg-canvas:    var(--color-neutral-950);
+  --bg-panel:     var(--color-neutral-900);
+  --bg-raised:    var(--color-neutral-800);
+  --bg-row-hover: var(--color-neutral-800);
+
+  --fg-primary:   var(--color-neutral-50);
+  --fg-secondary: var(--color-neutral-300);
+  --fg-muted:     var(--color-neutral-400);
+  --fg-disabled:  var(--color-neutral-600);
+
+  --border-subtle: var(--color-neutral-800);
+  --border-strong: var(--color-neutral-700);
+
+  --motion-default: var(--duration-snap);
+}
+
+[data-mode="cool"] {
+  --bg-canvas:    var(--color-neutral-950);
+  --bg-panel:     var(--color-neutral-900);
+  --bg-raised:    var(--color-neutral-800);
+
+  --fg-primary:   var(--color-neutral-50);
+  --fg-secondary: var(--color-neutral-200);
+  --fg-muted:     var(--color-neutral-400);
+
+  --motion-default: var(--duration-ease);
+}
+
+[data-mode="calm"] {
+  --bg-canvas:    var(--color-neutral-900);
+  --bg-panel:     var(--color-neutral-800);
+  --bg-raised:    var(--color-neutral-700);
+
+  --fg-primary:   var(--color-neutral-50);
+  --fg-secondary: var(--color-neutral-200);
+  --fg-muted:     var(--color-neutral-400);
+
+  --motion-default: var(--duration-slow);
+}
+
+/* === kill-switch armed overlay =============================== */
+[data-kill-switch="hard"] body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: var(--color-danger-armed-bg);
+  pointer-events: none;
+  z-index: var(--z-kill-overlay);
+}
