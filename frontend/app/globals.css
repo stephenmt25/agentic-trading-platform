@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "./design-tokens.css";
 @plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
@@ -88,6 +89,99 @@
   --radius-4xl: calc(var(--radius) * 2.6);
 }
 
+/*
+ * Praxis design tokens — Tailwind v4 surface for the redesign.
+ * These coexist with the shadcn-shaped tokens above during Phase 2-4.
+ * Existing components keep using --background/--primary/etc.; new
+ * components target the Praxis tokens. The two surfaces collapse at
+ * cutover (Phase 9). Per ADR-011/012/014.
+ */
+@theme inline {
+  /* neutral ramp */
+  --color-neutral-0:    var(--color-neutral-0);
+  --color-neutral-50:   var(--color-neutral-50);
+  --color-neutral-100:  var(--color-neutral-100);
+  --color-neutral-200:  var(--color-neutral-200);
+  --color-neutral-300:  var(--color-neutral-300);
+  --color-neutral-400:  var(--color-neutral-400);
+  --color-neutral-500:  var(--color-neutral-500);
+  --color-neutral-600:  var(--color-neutral-600);
+  --color-neutral-700:  var(--color-neutral-700);
+  --color-neutral-800:  var(--color-neutral-800);
+  --color-neutral-900:  var(--color-neutral-900);
+  --color-neutral-950:  var(--color-neutral-950);
+  --color-neutral-1000: var(--color-neutral-1000);
+
+  /* bid (positive PnL / own buys) */
+  --color-bid-50:  var(--color-bid-50);
+  --color-bid-100: var(--color-bid-100);
+  --color-bid-200: var(--color-bid-200);
+  --color-bid-300: var(--color-bid-300);
+  --color-bid-400: var(--color-bid-400);
+  --color-bid-500: var(--color-bid-500);
+  --color-bid-600: var(--color-bid-600);
+  --color-bid-700: var(--color-bid-700);
+  --color-bid-800: var(--color-bid-800);
+  --color-bid-900: var(--color-bid-900);
+
+  /* ask (negative PnL / own sells) */
+  --color-ask-50:  var(--color-ask-50);
+  --color-ask-100: var(--color-ask-100);
+  --color-ask-200: var(--color-ask-200);
+  --color-ask-300: var(--color-ask-300);
+  --color-ask-400: var(--color-ask-400);
+  --color-ask-500: var(--color-ask-500);
+  --color-ask-600: var(--color-ask-600);
+  --color-ask-700: var(--color-ask-700);
+  --color-ask-800: var(--color-ask-800);
+  --color-ask-900: var(--color-ask-900);
+
+  /* accent (indigo, the brand voice — ADR-014) */
+  --color-accent-50:  var(--color-accent-50);
+  --color-accent-100: var(--color-accent-100);
+  --color-accent-200: var(--color-accent-200);
+  --color-accent-300: var(--color-accent-300);
+  --color-accent-400: var(--color-accent-400);
+  --color-accent-500: var(--color-accent-500);
+  --color-accent-600: var(--color-accent-600);
+  --color-accent-700: var(--color-accent-700);
+  --color-accent-800: var(--color-accent-800);
+  --color-accent-900: var(--color-accent-900);
+
+  /* warn (advisory amber) */
+  --color-warn-400: var(--color-warn-400);
+  --color-warn-500: var(--color-warn-500);
+  --color-warn-600: var(--color-warn-600);
+  --color-warn-700: var(--color-warn-700);
+
+  /* danger (kill-switch / hard violations) */
+  --color-danger-500: var(--color-danger-500);
+  --color-danger-600: var(--color-danger-600);
+  --color-danger-700: var(--color-danger-700);
+
+  /* agent identities — all alias to accent per ADR-012 */
+  --color-agent-ta:        var(--color-agent-ta);
+  --color-agent-regime:    var(--color-agent-regime);
+  --color-agent-sentiment: var(--color-agent-sentiment);
+  --color-agent-slm:       var(--color-agent-slm);
+  --color-agent-debate:    var(--color-agent-debate);
+  --color-agent-analyst:   var(--color-agent-analyst);
+
+  /* mode-scoped semantic surfaces (resolve via [data-mode="..."]) */
+  --color-bg-canvas:    var(--bg-canvas);
+  --color-bg-panel:     var(--bg-panel);
+  --color-bg-raised:    var(--bg-raised);
+  --color-bg-rowhover:  var(--bg-row-hover);
+
+  --color-fg:           var(--fg-primary);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-muted:     var(--fg-muted);
+  --color-fg-disabled:  var(--fg-disabled);
+
+  --color-border-subtle: var(--border-subtle);
+  --color-border-strong: var(--border-strong);
+}
+
 /* ── Fixed type scale ── */
 @layer base {
   * {
@@ -118,6 +212,14 @@
   /* Tabular numbers for financial data */
   .tabular-nums {
     font-variant-numeric: tabular-nums;
+  }
+
+  /* Praxis tabular numerics — IBM Plex Mono with tnum feature.
+     Per ADR-008 every numeric display uses this. */
+  .num-tabular {
+    font-family: var(--font-tabular);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: var(--font-feat-tabular);
   }
 }
 
