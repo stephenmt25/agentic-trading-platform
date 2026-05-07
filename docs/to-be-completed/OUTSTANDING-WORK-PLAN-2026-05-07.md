@@ -74,9 +74,14 @@ debate transcripts) before Phase 1 begins. That probe has not been run.
 - Phase 3 `min_bars_between_trades` — compiler / `strategy_eval` changes
 
 ### SECOND-BRAIN-ROADMAP.md / SECOND-BRAIN-PRS-REMAINING.md
-**Done:** PR1 audit chain (shipped); PR2 gate-efficacy MVP (`960a572`)
+**Done:**
+- PR1 audit chain (shipped)
+- PR2 gate-efficacy MVP (`960a572`)
+- **PR2.1 close-reason taxonomy (2026-05-07, `5b8648e`)**
+- **PR2.2 agent attribution (2026-05-07, `57afce3`)**
+- **PR2.3 rule heatmap + Trade Forensics disclosure card (2026-05-07, `c8f5ec2`)**
+
 **Outstanding:**
-- PR2 remainder — agent attribution, rule heatmap, close-reason taxonomy, frontend panels, migrations for `rule_fingerprint_outcomes`
 - PR3 entire — weight tuner, gate calibrator, reversibility UI + migration 020 `config_provenance`
 - PR4 entire + migration 021 `profile_suggestions`
 - PR5 entire + migration 022 `trade_postmortems` / `period_summaries`
@@ -95,33 +100,51 @@ debate transcripts) before Phase 1 begins. That probe has not been run.
 
 ## Top of the queue (ordered by what unblocks downstream)
 
-1. **Track B.1 — pipeline editor live state + gate toggle**
+> **Updated 2026-05-07:** PR2 fully complete — items 3 from the original
+> queue are now shipped. Second Brain track focus is now **PR3 (adaptive
+> weights)**. Decision recorded: PR3 gate calibrator runs in **HITL mode**
+> (proposals require dashboard approval).
+
+1. **Second Brain PR3 weight tuner**
+   *Source:* `SECOND-BRAIN-PRS-REMAINING.md` PR3 §1
+   First writeback; ~3–4 days; reads agent_score_history × closed_trades
+   over a rolling 30-day window, EWMA-derives target weights with ±5%
+   per-cycle cap, requires ≥50 closed trades before any change.
+
+2. **Second Brain PR3 gate calibrator (HITL mode)**
+   *Source:* `SECOND-BRAIN-PRS-REMAINING.md` PR3 §2
+   Reads PR2 gate-efficacy reports; proposes threshold relaxations to
+   `config_changes` with `status='proposed'`. Frontend Apply/Dismiss
+   buttons live in the config-history panel. ~3–4 days.
+
+3. **Second Brain PR3 reversibility UI**
+   *Source:* `SECOND-BRAIN-PRS-REMAINING.md` PR3 §3
+   `GET /agent-config/history`, `POST /agent-config/revert/{change_id}`,
+   git-log-style frontend panel. ~2 days.
+
+4. **Track B.1 — pipeline editor live state + gate toggle**
    *Source:* `EXECUTION-PLAN-TRACK-B.md` §3
-   Last outstanding Track-B item; explicitly deferred 2026-05-07; small (~1–2 days); isolates UI + one new endpoint pair. Closes the autonomous-execution brief's first phase.
+   Last outstanding Track-B item; explicitly deferred 2026-05-07; small
+   (~1–2 days). Independent of Second Brain; pick up if context-switching
+   away from PR3.
 
-2. **Race-and-Cooldown Phase 1 — `cooldown_s` on `RiskLimits`**
+5. **Race-and-Cooldown Phase 1 — `cooldown_s` on `RiskLimits`**
    *Source:* `EXECUTION-PLAN-RACE-AND-COOLDOWN-2026-05-05.md` Phase 1
-   ½-day, low blast radius, addresses a live race that triggered the plan; unblocks Phases 2–3 (each independent ½-day items).
+   ½-day, low blast radius, addresses a live race; unblocks Phases 2–3.
 
-3. **D.PR2 close-reason taxonomy + agent attribution**
-   *Source:* `SECOND-BRAIN-PRS-REMAINING.md` PR2 §2–4
-   Gate-efficacy MVP is in; remaining 3 metric classes are mostly SQL + thin endpoints and unblock PR3 (which needs PR2 metrics) and PR4 (rule heatmap).
-
-4. **Verify A.1 debate hydration ≥80 % non-`Failed%`**
+6. **Verify A.1 debate hydration ≥80 % non-`Failed%`**
    *Source:* `EXECUTION-PLAN-D-PR5.md` §1 honesty hooks
    Cheap probe; gates whether D.PR5 Phase 1 can begin at all.
 
-5. **Generate the missing `docs/ML-VALIDATION-2026-*.md`**
+7. **Generate the missing `docs/ML-VALIDATION-2026-*.md`**
    *Source:* `AUTONOMOUS-EXECUTION-BRIEF.md` Item A.4
-   Script `39fb722` exists but no report file landed — claimed-done unverified; quick to close.
+   Script `39fb722` exists but no report file landed — claimed-done
+   unverified; quick to close.
 
-6. **D.PR3 weight tuner alone**
-   *Source:* `SECOND-BRAIN-PRS-REMAINING.md` PR3 §1
-   Smallest writeback; 3–4 days; requires only PR2 gate-efficacy data (already populated) and shadow-flag data (already shipped).
-
-7. **Analysis chart Increment 1 (markers) + Option B onboarding**
+8. **Analysis chart Increment 1 (markers) + Option B onboarding**
    *Source:* `ANALYSIS-CHART-ENHANCEMENTS-PLAN.md`
-   ~2.5 h combined; highest signal-to-effort frontend win for the partner-facing demo surface.
+   ~2.5 h combined; highest signal-to-effort frontend win for the
+   partner-facing demo surface.
 
 ---
 
