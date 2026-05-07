@@ -135,3 +135,71 @@ class ClosedTradeRepository(BaseRepository):
             decision_event_id,
         )
         return dict(row) if row else None
+
+    async def aggregate_close_reasons(
+        self,
+        *,
+        profile_id: Optional[UUID] = None,
+        symbol: Optional[str] = None,
+        regime: Optional[str] = None,
+        window_hours: int = 168,
+        group_by_regime: bool = False,
+    ) -> List[Dict[str, Any]]:
+        """Return per-close_reason aggregates for the most recent ``window_hours``.
+
+        Output rows include count, win/loss/breakeven counts, win rate,
+        average realized PnL %, and median holding duration. When
+        ``group_by_regime`` is True, rows are split by ``entry_regime`` as
+        well — the regime bucket is NULL for trades that closed without a
+        recorded regime, which is preserved as the literal string
+        ``"unknown"`` so the frontend doesn't have to special-case it.
+        """
+        conditions: list = ["closed_at >= NOW() - ($1 || ' hours')::INTERVAL"]
+        params: list = [str(window_hours)]
+        idx = 2
+        if profile_id:
+            conditions.append(f"profile_id = ${idx}")
+            params.append(profile_id)
+            idx += 1
+        if symbol:
+            conditions.append(f"symbol = ${idx}")
+            params.append(symbol)
+            idx += 1
+        if regime:
+            conditions.append(f"COALESCE(entry_regime, 'unknown') = ${idx}")
+            params.append(regime)
+            idx += 1
+
+        where = "WHERE " + " AND ".join(conditions)
+        regime_select = ", COALESCE(entry_regime, 'unknown') AS regime" if group_by_regime else ""
+        regime_group = ", COALESCE(entry_regime, 'unknown')" if group_by_regime else ""
+        order_extra = ", regime" if group_by_regime else ""
+
+        query = f"""
+        SELECT
+            close_reason
+            {regime_select},
+            COUNT(*)::INT AS count,
+            COUNT(*) FILTER (WHERE outcome = 'win')::INT       AS win_count,
+            COUNT(*) FILTER (WHERE outcome = 'loss')::INT      AS loss_count,
+            COUNT(*) FILTER (WHERE outcome = 'breakeven')::INT AS breakeven_count,
+            AVG(realized_pnl_pct)::NUMERIC(10,6)               AS avg_pnl_pct,
+            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY holding_duration_s)::INT
+                                                               AS median_holding_s
+        FROM closed_trades
+        {where}
+        GROUP BY close_reason{regime_group}
+        ORDER BY count DESC{order_extra}
+        """
+        rows = await self._fetch(query, *params)
+
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            n = d["count"] or 0
+            d["win_rate"] = (d["win_count"] / n) if n else None
+            # Decimal → float for JSON; absent rows already None.
+            if d.get("avg_pnl_pct") is not None:
+                d["avg_pnl_pct"] = float(d["avg_pnl_pct"])
+            out.append(d)
+        return out

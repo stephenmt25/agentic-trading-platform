@@ -195,3 +195,93 @@ class TestQueries:
         sql, *args = db.fetchrow.call_args.args
         assert "WHERE decision_event_id = $1" in sql
         assert args[0] == eid
+
+
+class TestAggregateCloseReasons:
+    @pytest.mark.asyncio
+    async def test_no_filters_groups_by_close_reason_only(self):
+        repo, db = _make_repo()
+        await repo.aggregate_close_reasons(window_hours=24)
+        sql, *args = db.fetch.call_args.args
+        assert "GROUP BY close_reason" in sql
+        assert "regime" not in sql.split("GROUP BY")[1]  # no regime grouping
+        assert "AVG(realized_pnl_pct)" in sql
+        assert "PERCENTILE_CONT(0.5)" in sql
+        assert "FILTER (WHERE outcome = 'win')" in sql
+        assert args[0] == "24"
+
+    @pytest.mark.asyncio
+    async def test_group_by_regime_adds_regime_column(self):
+        repo, db = _make_repo()
+        await repo.aggregate_close_reasons(window_hours=168, group_by_regime=True)
+        sql, _ = db.fetch.call_args.args
+        assert "COALESCE(entry_regime, 'unknown') AS regime" in sql
+        assert "GROUP BY close_reason, COALESCE(entry_regime, 'unknown')" in sql
+
+    @pytest.mark.asyncio
+    async def test_filters_by_profile_symbol_regime(self):
+        repo, db = _make_repo()
+        pid = uuid.uuid4()
+        await repo.aggregate_close_reasons(
+            profile_id=pid,
+            symbol="BTC/USDT",
+            regime="TRENDING_UP",
+            window_hours=72,
+        )
+        sql, *args = db.fetch.call_args.args
+        assert "profile_id = $2" in sql
+        assert "symbol = $3" in sql
+        assert "COALESCE(entry_regime, 'unknown') = $4" in sql
+        assert args == ["72", pid, "BTC/USDT", "TRENDING_UP"]
+
+    @pytest.mark.asyncio
+    async def test_post_processing_computes_win_rate_and_floats(self):
+        from decimal import Decimal as D
+        db = AsyncMock()
+        db.fetch = AsyncMock(return_value=[
+            {
+                "close_reason": "stop_loss",
+                "count": 19,
+                "win_count": 0,
+                "loss_count": 19,
+                "breakeven_count": 0,
+                "avg_pnl_pct": D("-0.096767"),
+                "median_holding_s": 19009,
+            },
+            {
+                "close_reason": "take_profit",
+                "count": 14,
+                "win_count": 14,
+                "loss_count": 0,
+                "breakeven_count": 0,
+                "avg_pnl_pct": D("0.095932"),
+                "median_holding_s": 149538,
+            },
+        ])
+        repo = ClosedTradeRepository(db)
+        out = await repo.aggregate_close_reasons()
+        assert out[0]["win_rate"] == 0.0
+        assert out[1]["win_rate"] == 1.0
+        # Decimal converted to float for JSON serialisation
+        assert isinstance(out[0]["avg_pnl_pct"], float)
+        assert out[1]["avg_pnl_pct"] == pytest.approx(0.095932)
+
+    @pytest.mark.asyncio
+    async def test_empty_count_yields_null_win_rate(self):
+        """Defensive: zero-count row (theoretical) shouldn't divide-by-zero."""
+        db = AsyncMock()
+        db.fetch = AsyncMock(return_value=[
+            {
+                "close_reason": "manual",
+                "count": 0,
+                "win_count": 0,
+                "loss_count": 0,
+                "breakeven_count": 0,
+                "avg_pnl_pct": None,
+                "median_holding_s": None,
+            },
+        ])
+        repo = ClosedTradeRepository(db)
+        out = await repo.aggregate_close_reasons()
+        assert out[0]["win_rate"] is None
+        assert out[0]["avg_pnl_pct"] is None

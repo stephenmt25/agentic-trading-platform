@@ -99,6 +99,33 @@ async def list_closed_trades(
     return [_serialize_row(r) for r in rows]
 
 
+@router.get("/close-reasons")
+async def aggregate_close_reasons(
+    profile_id: Optional[str] = Query(default=None),
+    symbol: Optional[str] = Query(default=None),
+    regime: Optional[str] = Query(default=None),
+    window_hours: int = Query(default=168, ge=1, le=8760),
+    group_by_regime: bool = Query(default=False),
+    repo: ClosedTradeRepository = Depends(get_closed_trade_repo),
+):
+    """Per-close_reason aggregates over the closed_trades ledger.
+
+    Implements PR2 §close-reason taxonomy from SECOND-BRAIN-PRS-REMAINING.md.
+    Read-only; pure aggregation; one row per close_reason (× regime when
+    ``group_by_regime`` is set). ``win_rate`` is null when the bucket is
+    empty — rare but possible at narrow window/profile combos.
+    """
+    pid = _parse_uuid(profile_id, "profile_id") if profile_id else None
+    rows = await repo.aggregate_close_reasons(
+        profile_id=pid,
+        symbol=symbol,
+        regime=regime,
+        window_hours=window_hours,
+        group_by_regime=group_by_regime,
+    )
+    return [_serialize_row(r) for r in rows]
+
+
 @router.get("/closed-trades/by-position/{position_id}")
 async def get_closed_trade_by_position(
     position_id: str,

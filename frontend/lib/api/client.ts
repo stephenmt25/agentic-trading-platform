@@ -763,6 +763,37 @@ export const api = {
         position: Record<string, unknown> | null;
         closed_trade: Record<string, unknown> | null;
       }>(`/audit/chain/${encodeURIComponent(decisionEventId)}`),
+
+    // Close-reason taxonomy aggregation (PR2 §close-reason taxonomy).
+    // Read-only group-by over closed_trades; one row per close_reason
+    // (× regime when groupByRegime). Win rate is null when a bucket is
+    // empty (rare).
+    closeReasons: (params?: {
+      symbol?: string;
+      profileId?: string;
+      windowHours?: number;
+      groupByRegime?: boolean;
+      regime?: string;
+    }) => {
+      const qs = new URLSearchParams();
+      if (params?.symbol) qs.set("symbol", params.symbol);
+      if (params?.profileId) qs.set("profile_id", params.profileId);
+      if (params?.windowHours) qs.set("window_hours", String(params.windowHours));
+      if (params?.groupByRegime) qs.set("group_by_regime", "true");
+      if (params?.regime) qs.set("regime", params.regime);
+      const query = qs.toString();
+      return apiRequest<Array<{
+        close_reason: string;
+        regime?: string;
+        count: number;
+        win_count: number;
+        loss_count: number;
+        breakeven_count: number;
+        win_rate: number | null;
+        avg_pnl_pct: number | null;
+        median_holding_s: number | null;
+      }>>(`/audit/close-reasons${query ? `?${query}` : ""}`);
+    },
   },
 
   agentConfig: {
