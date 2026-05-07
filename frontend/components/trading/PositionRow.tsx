@@ -164,10 +164,14 @@ export const PositionRow = forwardRef<HTMLDivElement, PositionRowProps>(
         data-side={side}
         aria-label={`${symbol} ${side} position, size ${fmtSize(size, sizeDigits)}, unrealized ${unrealized}`}
         className={cn(
-          "relative grid items-center gap-3 px-3",
+          "relative grid items-center gap-x-4 px-3",
           rowHeight,
-          // 9 columns: symbol, side, size, entry, mark, unrealized, margin, lev, actions
-          "grid-cols-[120px_72px_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_minmax(0,1fr)_72px_minmax(160px,auto)]",
+          // 9 columns: symbol, side, size, entry, mark, unrealized, margin, lev, actions.
+          // Minimums sized for typical mid-cap perp values; the row asserts its
+          // own width and the parent should overflow-x-auto if narrower than
+          // the content. Right-aligned numeric content otherwise visually bleeds
+          // into adjacent cells when columns crush below content width.
+          "grid-cols-[100px_60px_minmax(72px,1fr)_minmax(80px,1fr)_minmax(80px,1fr)_minmax(140px,1.4fr)_minmax(80px,1fr)_56px_minmax(140px,auto)]",
           "text-[13px] num-tabular",
           "border-b border-border-subtle",
           "bg-bg-canvas hover:bg-bg-rowhover transition-colors",
@@ -188,22 +192,25 @@ export const PositionRow = forwardRef<HTMLDivElement, PositionRowProps>(
         )}
 
         {/* Symbol */}
-        <span className="text-fg font-medium truncate" role="cell">
+        <span className="text-fg font-medium truncate min-w-0" role="cell">
           {symbol}
         </span>
 
         {/* Side */}
-        <span role="cell">
+        <span role="cell" className="min-w-0 overflow-hidden">
           <Tag intent={side === "long" ? "bid" : "ask"}>{side}</Tag>
         </span>
 
         {/* Size */}
-        <span className="text-right text-fg" role="cell">
+        <span className="text-right text-fg min-w-0 overflow-hidden" role="cell">
           {fmtSize(size, sizeDigits)}
         </span>
 
         {/* Entry */}
-        <span className="text-right text-fg-secondary" role="cell">
+        <span
+          className="text-right text-fg-secondary min-w-0 overflow-hidden"
+          role="cell"
+        >
           {fmtPrice(entry, priceDigits)}
         </span>
 
@@ -211,7 +218,7 @@ export const PositionRow = forwardRef<HTMLDivElement, PositionRowProps>(
         <span
           role="cell"
           className={cn(
-            "text-right",
+            "text-right min-w-0 overflow-hidden",
             state === "near-liq" ? "text-warn-500" : "text-fg-secondary",
             state === "near-liq" && "bg-warn-500/10 rounded-sm px-1 -mx-1"
           )}
@@ -220,7 +227,10 @@ export const PositionRow = forwardRef<HTMLDivElement, PositionRowProps>(
         </span>
 
         {/* Unrealized PnL */}
-        <span className="text-right" role="cell">
+        <span
+          className="text-right min-w-0 overflow-hidden flex justify-end"
+          role="cell"
+        >
           <PnLBadge
             value={unrealized}
             currency={quoteCurrency}
@@ -231,12 +241,18 @@ export const PositionRow = forwardRef<HTMLDivElement, PositionRowProps>(
         </span>
 
         {/* Margin */}
-        <span className="text-right text-fg-secondary" role="cell">
+        <span
+          className="text-right text-fg-secondary min-w-0 overflow-hidden"
+          role="cell"
+        >
           {fmtPrice(margin, priceDigits)}
         </span>
 
         {/* Leverage */}
-        <span className="text-right text-fg-muted" role="cell">
+        <span
+          className="text-right text-fg-muted min-w-0 overflow-hidden"
+          role="cell"
+        >
           {leverage.toLocaleString()}x
         </span>
 

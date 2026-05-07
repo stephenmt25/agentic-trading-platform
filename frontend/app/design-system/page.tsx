@@ -538,7 +538,7 @@ export default function DesignSystemPage() {
         tokens="Table tokens + bid/ask + warn/danger; 2-click confirm only modal-equivalent in HOT"
       >
         <Row label="Default + states">
-          <div className="w-full bg-bg-canvas border border-border-subtle rounded-md overflow-hidden">
+          <div className="w-full bg-bg-canvas border border-border-subtle rounded-md overflow-x-auto">
             <PositionRow
               symbol="BTC-PERP"
               side="long"
