@@ -35,6 +35,18 @@ import {
   type DepthLevel,
   type OrderBookLevel,
 } from "@/components/trading";
+import {
+  AgentAvatar,
+  ConfidenceBar,
+  ToolCall,
+  ReasoningStream,
+  AgentTrace,
+  DebatePanel,
+  AgentSummaryPanel,
+  type AgentKind,
+  type AgentTraceProps,
+  type DebateContribution,
+} from "@/components/agentic";
 import { AlertTriangle } from "lucide-react";
 
 /**
@@ -740,6 +752,362 @@ export default function DesignSystemPage() {
         </Row>
       </Section>
 
+      {/* ─── Agentic (Phase 5.4) ───────────────────────────────────── */}
+      <header className="mt-16 mb-8">
+        <h2 className="text-lg font-semibold text-fg">Agentic</h2>
+        <p className="text-sm text-fg-muted mt-1">
+          Domain components from{" "}
+          <code className="text-fg-secondary">
+            frontend/components/agentic/
+          </code>
+          . Per ADR-012 all six agent identities alias to accent — visual
+          differentiation is by glyph + label + position only. Trace bodies
+          stay neutral so multiple traces coexist on screen without becoming
+          a Christmas tree.
+        </p>
+      </header>
+
+      {/* AGENT AVATAR */}
+      <Section
+        title="AgentAvatar"
+        tokens="--color-agent-{ta,regime,sentiment,slm,debate,analyst} (all alias to --color-accent-500 per ADR-012)"
+      >
+        <Row label="Six agent glyphs (md)">
+          {(["ta", "regime", "sentiment", "slm", "debate", "analyst"] as const).map(
+            (k) => (
+              <AgentAvatar key={k} kind={k} size="md" withName="below" />
+            )
+          )}
+        </Row>
+        <Row label="Sizes">
+          <AgentAvatar kind="ta" size="sm" />
+          <AgentAvatar kind="ta" size="md" />
+          <AgentAvatar kind="ta" size="lg" />
+        </Row>
+        <Row label="With status dots">
+          <AgentAvatar kind="ta" status="live" />
+          <AgentAvatar kind="regime" status="idle" />
+          <AgentAvatar kind="sentiment" status="errored" />
+          <AgentAvatar kind="slm" status="silenced" />
+        </Row>
+        <Row label="With name (inline)">
+          <AgentAvatar kind="debate" status="live" withName />
+          <AgentAvatar kind="analyst" status="idle" withName />
+        </Row>
+      </Section>
+
+      {/* CONFIDENCE BAR */}
+      <Section
+        title="ConfidenceBar"
+        tokens="bid/neutral/ask for direction outputs; accent shades for multi-modal regime outputs (ADR-012)"
+      >
+        <Row label="Direction (long/neutral/short)">
+          <div className="w-80">
+            <ConfidenceBar
+              title="Direction prediction"
+              subtitle="ta_agent · 14:32:01"
+              segments={[
+                { label: "long", probability: 0.62, tone: "bid" },
+                { label: "neutral", probability: 0.18, tone: "neutral" },
+                { label: "short", probability: 0.2, tone: "ask" },
+              ]}
+            />
+          </div>
+        </Row>
+        <Row label="Regime (3 accent shades)">
+          <div className="w-80">
+            <ConfidenceBar
+              title="Regime distribution"
+              subtitle="regime_hmm · 14:32:01"
+              segments={[
+                { label: "trending", probability: 0.18, tone: "accent-weak" },
+                { label: "choppy", probability: 0.71, tone: "accent" },
+                { label: "reversal", probability: 0.11, tone: "accent-strong" },
+              ]}
+            />
+          </div>
+        </Row>
+        <Row label="Compact (legend below)">
+          <div className="w-80">
+            <ConfidenceBar
+              density="compact"
+              segments={[
+                { label: "long", probability: 0.45, tone: "bid" },
+                { label: "neutral", probability: 0.3, tone: "neutral" },
+                { label: "short", probability: 0.25, tone: "ask" },
+              ]}
+            />
+          </div>
+        </Row>
+        <Row label="With historic (1h ago, faded backdrop)">
+          <div className="w-80">
+            <ConfidenceBar
+              title="Direction (with historic backdrop)"
+              segments={[
+                { label: "long", probability: 0.62, tone: "bid" },
+                { label: "neutral", probability: 0.18, tone: "neutral" },
+                { label: "short", probability: 0.2, tone: "ask" },
+              ]}
+              historic={[
+                { label: "long", probability: 0.4, tone: "bid" },
+                { label: "neutral", probability: 0.35, tone: "neutral" },
+                { label: "short", probability: 0.25, tone: "ask" },
+              ]}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* TOOL CALL */}
+      <Section
+        title="ToolCall"
+        tokens="--bg-raised, scale.caption mono, --color-bid-500 (success), --color-ask-500 (error)"
+      >
+        <Row label="States">
+          <div className="w-96 flex flex-col gap-2">
+            <ToolCall
+              toolName="query_market_data"
+              status="complete"
+              durationMs={23}
+              args={{ symbol: "BTC-PERP", lookback: "1h" }}
+              result={{ rows: 3600, latest: 42318.27 }}
+              defaultCollapsed={false}
+            />
+            <ToolCall
+              toolName="run_strategy_eval"
+              status="pending"
+              args={{
+                profile: "aggressive-v3",
+                features: ["rsi", "macd", "atr"],
+              }}
+            />
+            <ToolCall
+              toolName="commit_order"
+              status="errored"
+              durationMs={812}
+              args={{ side: "buy", size: 0.005, type: "limit" }}
+              error="ValidationError: order size below minimum (0.001)"
+              defaultCollapsed={false}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* REASONING STREAM */}
+      <Section
+        title="ReasoningStream"
+        tokens="scale.body-dense, --font-sans (prose) / --font-mono (json), cursor --color-accent-500"
+      >
+        <Row label="Streaming demo (live cursor)">
+          <StreamingDemo />
+        </Row>
+        <Row label="JSON mode (done)">
+          <div className="w-96">
+            <ReasoningStream
+              mode="json"
+              state="done"
+              meta="0.4s · 47 tokens · sonnet-4-6"
+              content={`{
+  "regime": "choppy",
+  "p_trending": 0.18,
+  "p_choppy": 0.71,
+  "p_reversal": 0.11,
+  "decision_horizon_s": 30
+}`}
+            />
+          </div>
+        </Row>
+        <Row label="With thinking (xml-tags)">
+          <div className="w-[28rem]">
+            <ReasoningStream
+              mode="xml-tags"
+              state="done"
+              content={`<thinking>
+The 1m candles show 240 bars; 2-state HMM converged at iter 7.
+Probability of choppy at 0.71 vs trending 0.18 vs reversal 0.11.
+</thinking>
+
+regime: choppy
+p(trending)=0.18  p(choppy)=0.71  p(reversal)=0.11`}
+              meta="1.1s · 312 tokens · sonnet-4-6"
+            />
+          </div>
+        </Row>
+        <Row label="Inline (Hot Trading Cmd+K result)">
+          <ReasoningStream
+            inline
+            state="streaming"
+            content="checking liquidity at the 42,300 level"
+          />
+        </Row>
+        <Row label="Errored">
+          <div className="w-96">
+            <ReasoningStream
+              state="errored"
+              content={"...the model timed out before"}
+              error="LLM gateway timeout after 8s — retry or fall back to cached"
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* AGENT TRACE */}
+      <Section
+        title="AgentTrace"
+        tokens="--color-accent-500 (avatar ring + section header underline); body neutral"
+      >
+        <Row label="Standard density (default)">
+          <div className="w-[34rem]">
+            <AgentTrace
+              agent="regime"
+              emittedAt={Date.UTC(2026, 4, 7, 14, 32, 1, 234)}
+              state="complete"
+              input={
+                <span className="font-mono text-[11px]">
+                  candles: BTC-PERP 1m × 240 · features: returns, rv
+                </span>
+              }
+              reasoning={
+                <span className="font-mono text-[11px] text-fg-muted">
+                  ▸ probability shift detected: trending → choppy
+                </span>
+              }
+              output={
+                <span className="font-mono text-[11px]">
+                  regime: choppy · p(trending)=0.18 · p(choppy)=0.71 ·
+                  p(reversal)=0.11
+                </span>
+              }
+              downstream={[
+                { label: "strategy_eval (canvas node #4)" },
+                { label: "debate (next round)" },
+              ]}
+              linkable
+            />
+          </div>
+        </Row>
+        <Row label="Streaming + Errored states">
+          <div className="w-[34rem] flex flex-col gap-2">
+            <AgentTrace
+              agent="ta"
+              emittedAt={Date.UTC(2026, 4, 7, 14, 32, 5, 12)}
+              state="streaming"
+              input={<span className="font-mono text-[11px]">… reading</span>}
+              output={
+                <span className="font-mono text-[11px]">
+                  trend: up · momentum: positive · confidence: 0.62
+                </span>
+              }
+            />
+            <AgentTrace
+              agent="slm"
+              emittedAt={Date.UTC(2026, 4, 7, 14, 32, 9, 482)}
+              state="errored"
+              input={
+                <span className="font-mono text-[11px]">
+                  prompt: classify_market_state @ 1m
+                </span>
+              }
+              output={null}
+              error="LLM gateway timeout after 8s"
+            />
+          </div>
+        </Row>
+        <Row label="Compact density (Hot Trading inline)">
+          <div className="w-[34rem]">
+            <AgentTrace
+              agent="sentiment"
+              emittedAt={Date.UTC(2026, 4, 7, 14, 31, 58, 901)}
+              state="complete"
+              density="compact"
+              output={
+                <span className="font-mono text-[11px]">
+                  sentiment: +0.32 (weak) · sources: 1,422 · novelty: 0.04
+                </span>
+              }
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* DEBATE PANEL */}
+      <Section
+        title="DebatePanel"
+        tokens="stance colors: for=bid.400, against=ask.400, neutral=neutral.400, synthesis=accent.300"
+      >
+        <Row label="Live debate (round 3/5)">
+          <div className="w-[40rem]">
+            <DebatePanel
+              topic="should we open BTC-PERP long now?"
+              round={3}
+              totalRounds={5}
+              state="live"
+              decisionDelaySec={3}
+              contributions={SAMPLE_DEBATE}
+              onOpenRound={() => {}}
+              onPause={() => {}}
+              onOverride={() => {}}
+            />
+          </div>
+        </Row>
+        <Row label="Embedded (compact for Hot Trading)">
+          <div className="w-80">
+            <DebatePanel
+              topic="should we open BTC-PERP long now?"
+              round={3}
+              totalRounds={5}
+              state="live"
+              embedded
+              decisionDelaySec={3}
+              contributions={SAMPLE_DEBATE}
+              onOverride={() => {}}
+            />
+          </div>
+        </Row>
+      </Section>
+
+      {/* AGENT SUMMARY PANEL */}
+      <Section
+        title="AgentSummaryPanel"
+        tokens="composite — composes AgentTrace (compact) + embedded DebatePanel; ≤300px tall"
+      >
+        <Row label="Default (3 traces + 1 debate)">
+          <div className="w-[28rem]">
+            <AgentSummaryPanel
+              traces={SAMPLE_RECENT_TRACES}
+              debate={{
+                topic: "BTC-PERP long?",
+                round: 3,
+                totalRounds: 5,
+                state: "live",
+                contributions: SAMPLE_DEBATE.slice(0, 3),
+                interventionEnabled: false,
+              }}
+              onSeeAll={() => {}}
+            />
+          </div>
+        </Row>
+        <Row label="Empty">
+          <div className="w-80">
+            <AgentSummaryPanel
+              traces={[]}
+              state="empty"
+              onSeeAll={() => {}}
+            />
+          </div>
+        </Row>
+        <Row label="Service degraded">
+          <div className="w-80">
+            <AgentSummaryPanel
+              traces={[]}
+              state="service-degraded"
+              degradedSinceText="3m ago"
+              onSeeAll={() => {}}
+            />
+          </div>
+        </Row>
+      </Section>
+
       {/* MODE-SCOPED PREVIEW */}
       <Section
         title="Mode preview (HOT vs. COOL vs. CALM)"
@@ -955,6 +1323,138 @@ function FilterChipDemo() {
     </>
   );
 }
+
+const STREAM_FULL = `Examining the 1m candles for BTC-PERP. Recent
+240 bars show declining realized vol (12.4 → 7.8 over last 30
+minutes), with returns clustering tightly around zero — classic
+ranging behavior.
+
+Probability shift detected: trending → **choppy**.
+
+\`\`\`
+p(trending) = 0.18
+p(choppy)   = 0.71
+p(reversal) = 0.11
+\`\`\`
+
+Recommend reducing trend-follower position size by 0.4× until
+volatility resumes.`;
+
+function StreamingDemo() {
+  const [text, setText] = useState("");
+  const [running, setRunning] = useState(false);
+  useEffect(() => {
+    if (!running) return;
+    let i = text.length;
+    const id = window.setInterval(() => {
+      i = Math.min(STREAM_FULL.length, i + 4);
+      setText(STREAM_FULL.slice(0, i));
+      if (i >= STREAM_FULL.length) {
+        window.clearInterval(id);
+        setRunning(false);
+      }
+    }, 30);
+    return () => window.clearInterval(id);
+  }, [running]);
+
+  const reset = () => {
+    setText("");
+    setRunning(true);
+  };
+
+  const state =
+    !running && text.length === 0
+      ? "done"
+      : running
+        ? "streaming"
+        : "done";
+
+  return (
+    <span className="inline-flex items-center gap-3 w-[34rem]">
+      <div className="flex-1">
+        <ReasoningStream
+          mode="prose"
+          state={state}
+          content={text}
+          maxHeight={180}
+          meta={
+            state === "done" && text.length > 0
+              ? `${(STREAM_FULL.length / 60).toFixed(1)}s · ${Math.round(STREAM_FULL.length / 4)} tokens · sonnet-4-6`
+              : undefined
+          }
+        />
+      </div>
+      <Button size="xs" intent="primary" onClick={reset} disabled={running}>
+        replay
+      </Button>
+    </span>
+  );
+}
+
+const SAMPLE_DEBATE: DebateContribution[] = [
+  {
+    id: "ta",
+    agent: "ta",
+    stance: "for",
+    summary: "trend confirmed on 1h, momentum positive",
+    confidence: 0.71,
+  },
+  {
+    id: "regime",
+    agent: "regime",
+    stance: "against",
+    summary: "regime is choppy; trend signals are unreliable here",
+    confidence: 0.71,
+  },
+  {
+    id: "sentiment",
+    agent: "sentiment",
+    stance: "for",
+    summary: "social sentiment +0.32, but volume thin",
+    confidence: 0.32,
+  },
+  {
+    id: "synth",
+    agent: "debate",
+    agentNameOverride: "orchestrator",
+    stance: "synthesis",
+    summary: "0.62 confidence in long; suggest reduced size (0.4x)",
+    confidence: 0.62,
+  },
+];
+
+const SAMPLE_RECENT_TRACES: AgentTraceProps[] = [
+  {
+    agent: "regime" as AgentKind,
+    emittedAt: Date.UTC(2026, 4, 7, 14, 32, 1, 234),
+    state: "complete",
+    output: (
+      <span className="font-mono text-[11px]">
+        regime: choppy · p=0.71
+      </span>
+    ),
+  },
+  {
+    agent: "ta" as AgentKind,
+    emittedAt: Date.UTC(2026, 4, 7, 14, 31, 55, 12),
+    state: "complete",
+    output: (
+      <span className="font-mono text-[11px]">
+        trend: up · momentum: +0.42
+      </span>
+    ),
+  },
+  {
+    agent: "sentiment" as AgentKind,
+    emittedAt: Date.UTC(2026, 4, 7, 14, 31, 32, 901),
+    state: "complete",
+    output: (
+      <span className="font-mono text-[11px]">
+        sentiment: +0.32 (weak)
+      </span>
+    ),
+  },
+];
 
 function FlashingPnLDemo() {
   const [val, setVal] = useState(123.45);
