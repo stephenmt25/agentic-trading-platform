@@ -7,12 +7,14 @@ from fastapi import APIRouter, Depends, Query
 from ..deps import (
     get_redis,
     get_agent_score_repo,
+    get_closed_trade_repo,
     get_decision_repo,
     get_weight_history_repo,
     get_gate_efficacy_repo,
 )
 from libs.core.agent_registry import AGENT_DEFAULTS
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
+from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
@@ -240,6 +242,41 @@ async def get_gate_analytics(
         "outcome_counts": outcome_counts,
         "gate_details": gate_details,
     }
+
+
+@router.get("/agent-attribution/{symbol:path}")
+async def get_agent_attribution_summary(
+    symbol: str,
+    profile_id: Optional[str] = Query(default=None),
+    window_hours: int = Query(default=168, ge=1, le=8760),
+    threshold: float = Query(default=0.15, ge=0.0, le=1.0),
+    limit: int = Query(default=25, ge=1, le=100),
+    repo: ClosedTradeRepository = Depends(get_closed_trade_repo),
+):
+    """Agent agreement-pattern outcomes (Second Brain PR2 §agent attribution).
+
+    Buckets each closed trade by the agreement pattern of its originating
+    decision (TA / sentiment / debate score → BULL / BEAR / NEUTRAL,
+    threshold default ±0.15) and reports realized win rate + average PnL
+    per bucket. Companion to ``/agent-performance/attribution`` — that one
+    is per-trade; this one is the realized-outcome aggregate.
+    """
+    from uuid import UUID
+    symbol = _clean_symbol(symbol)
+    pid: Optional[UUID] = None
+    if profile_id:
+        try:
+            pid = UUID(profile_id)
+        except (ValueError, TypeError):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="Invalid profile_id (expected UUID)")
+    return await repo.aggregate_agent_attribution(
+        profile_id=pid,
+        symbol=symbol,
+        window_hours=window_hours,
+        threshold=threshold,
+        limit=limit,
+    )
 
 
 @router.get("/gate-efficacy/{symbol:path}")

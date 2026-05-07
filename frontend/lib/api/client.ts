@@ -696,6 +696,35 @@ export const api = {
         created_at: string | null;
       }>>(`/agent-performance/attribution/${encodeURIComponent(symbol)}?limit=${limit}`),
 
+    // Agreement-pattern aggregate (PR2 §agent attribution): closed trades
+    // bucketed by (TA, sentiment, debate) stance with realized win rate +
+    // avg PnL per bucket. Companion to ``attribution`` (per-trade).
+    agentAttributionSummary: (
+      symbol: string,
+      params?: { profileId?: string; windowHours?: number; threshold?: number; limit?: number },
+    ) => {
+      const qs = new URLSearchParams();
+      if (params?.profileId) qs.set("profile_id", params.profileId);
+      if (params?.windowHours) qs.set("window_hours", String(params.windowHours));
+      if (params?.threshold != null) qs.set("threshold", String(params.threshold));
+      if (params?.limit) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return apiRequest<Array<{
+        pattern: string;
+        ta_bucket: string;
+        sent_bucket: string;
+        debate_bucket: string;
+        count: number;
+        win_count: number;
+        loss_count: number;
+        breakeven_count: number;
+        win_rate: number | null;
+        avg_pnl_pct: number | null;
+        avg_pnl_usd: number | null;
+        avg_confidence_lift: number | null;
+      }>>(`/agent-performance/agent-attribution/${encodeURIComponent(symbol)}${query ? `?${query}` : ""}`);
+    },
+
     weightHistory: (symbol: string, params?: { agents?: string; limit?: number }) => {
       const qs = new URLSearchParams();
       if (params?.agents) qs.set("agents", params.agents);

@@ -285,3 +285,87 @@ class TestAggregateCloseReasons:
         out = await repo.aggregate_close_reasons()
         assert out[0]["win_rate"] is None
         assert out[0]["avg_pnl_pct"] is None
+
+
+class TestAggregateAgentAttribution:
+    @pytest.mark.asyncio
+    async def test_query_buckets_each_agent_at_threshold(self):
+        repo, db = _make_repo()
+        await repo.aggregate_agent_attribution(window_hours=24, threshold=0.2)
+        sql, *args = db.fetch.call_args.args
+        # Threshold reused across the three CASE expressions via $2.
+        assert "(d.agents#>>'{ta,score}')::FLOAT > $2" in sql
+        assert "(d.agents#>>'{sentiment,score}')::FLOAT < -$2" in sql
+        assert "(d.agents#>>'{debate,score}')::FLOAT > $2" in sql
+        # Pattern composed from three buckets, ordered by count.
+        assert "ta_bucket || '+' || sent_bucket || '+' || debate_bucket" in sql
+        assert "ORDER BY count DESC" in sql
+        # First two args are window_hours (string) and threshold (float).
+        assert args[0] == "24"
+        assert args[1] == 0.2
+
+    @pytest.mark.asyncio
+    async def test_inner_join_filters_to_trades_with_decision_link(self):
+        repo, db = _make_repo()
+        await repo.aggregate_agent_attribution()
+        sql, _, _, _ = db.fetch.call_args.args
+        assert "INNER JOIN trade_decisions d" in sql
+        assert "d.event_id = ct.decision_event_id" in sql
+        assert "d.outcome = 'APPROVED'" in sql
+
+    @pytest.mark.asyncio
+    async def test_filters_by_profile_and_symbol(self):
+        repo, db = _make_repo()
+        pid = uuid.uuid4()
+        await repo.aggregate_agent_attribution(
+            profile_id=pid,
+            symbol="ETH/USDT",
+            window_hours=72,
+            threshold=0.1,
+            limit=10,
+        )
+        sql, *args = db.fetch.call_args.args
+        assert "ct.profile_id = $3" in sql
+        assert "ct.symbol = $4" in sql
+        # window, threshold, profile_id, symbol, limit
+        assert args == ["72", 0.1, pid, "ETH/USDT", 10]
+
+    @pytest.mark.asyncio
+    async def test_post_processing_computes_win_rate_and_floats(self):
+        from decimal import Decimal as D
+        db = AsyncMock()
+        db.fetch = AsyncMock(return_value=[
+            {
+                "pattern": "TA_BULL+SENT_BULL+DBT_BULL",
+                "ta_bucket": "TA_BULL",
+                "sent_bucket": "SENT_BULL",
+                "debate_bucket": "DBT_BULL",
+                "count": 8,
+                "win_count": 6,
+                "loss_count": 2,
+                "breakeven_count": 0,
+                "avg_pnl_pct": D("0.014321"),
+                "avg_pnl_usd": D("12.5678"),
+                "avg_confidence_lift": D("0.084500"),
+            },
+            {
+                "pattern": "TA_BEAR+SENT_BULL+DBT_NEUTRAL",
+                "ta_bucket": "TA_BEAR",
+                "sent_bucket": "SENT_BULL",
+                "debate_bucket": "DBT_NEUTRAL",
+                "count": 2,
+                "win_count": 0,
+                "loss_count": 2,
+                "breakeven_count": 0,
+                "avg_pnl_pct": D("-0.002728"),
+                "avg_pnl_usd": D("-12.11"),
+                "avg_confidence_lift": D("0.0699"),
+            },
+        ])
+        repo = ClosedTradeRepository(db)
+        out = await repo.aggregate_agent_attribution()
+        assert out[0]["win_rate"] == pytest.approx(0.75)
+        assert out[1]["win_rate"] == 0.0
+        assert isinstance(out[0]["avg_pnl_pct"], float)
+        assert isinstance(out[0]["avg_pnl_usd"], float)
+        assert isinstance(out[0]["avg_confidence_lift"], float)

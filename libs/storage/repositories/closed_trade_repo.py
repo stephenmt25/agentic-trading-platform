@@ -136,6 +136,113 @@ class ClosedTradeRepository(BaseRepository):
         )
         return dict(row) if row else None
 
+    async def aggregate_agent_attribution(
+        self,
+        *,
+        profile_id: Optional[UUID] = None,
+        symbol: Optional[str] = None,
+        window_hours: int = 168,
+        threshold: float = 0.15,
+        limit: int = 25,
+    ) -> List[Dict[str, Any]]:
+        """Bucket closed trades by the agreement pattern of TA / sentiment / debate.
+
+        For each closed trade we look up the originating decision's per-agent
+        score and bucket the score into BULL (> +threshold), BEAR
+        (< -threshold), or NEUTRAL. The 3-tuple of buckets is the "agreement
+        pattern" — e.g. ``TA_BULL+SENT_BULL+DBT_NEUTRAL`` — and we aggregate
+        realized P&L over that bucket.
+
+        Output rows: pattern string, count, win/loss/breakeven counts, win
+        rate, average realized PnL %, average realized PnL (USD), and the
+        average confidence lift (``confidence_after - confidence_before``).
+        Rows ordered by count descending; truncated at ``limit`` because the
+        long tail of rare patterns isn't actionable.
+
+        Limitations: relies on ``decision_event_id`` being populated on the
+        closed_trade row (PR1 audit chain shipped this). Trades whose
+        decision row was pruned by archiver retention are silently dropped.
+        """
+        conditions: list = ["ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
+                            "d.outcome = 'APPROVED'"]
+        params: list = [str(window_hours), threshold]
+        idx = 3
+        if profile_id:
+            conditions.append(f"ct.profile_id = ${idx}")
+            params.append(profile_id)
+            idx += 1
+        if symbol:
+            conditions.append(f"ct.symbol = ${idx}")
+            params.append(symbol)
+            idx += 1
+        params.append(limit)
+
+        where = "WHERE " + " AND ".join(conditions)
+
+        # NB: $2 is the threshold, reused three times in the CASE expressions.
+        # asyncpg lets the same numbered placeholder appear multiple times.
+        query = f"""
+        WITH bucketed AS (
+            SELECT
+                CASE
+                    WHEN (d.agents#>>'{{ta,score}}')::FLOAT > $2 THEN 'TA_BULL'
+                    WHEN (d.agents#>>'{{ta,score}}')::FLOAT < -$2 THEN 'TA_BEAR'
+                    ELSE 'TA_NEUTRAL'
+                END AS ta_bucket,
+                CASE
+                    WHEN (d.agents#>>'{{sentiment,score}}')::FLOAT > $2 THEN 'SENT_BULL'
+                    WHEN (d.agents#>>'{{sentiment,score}}')::FLOAT < -$2 THEN 'SENT_BEAR'
+                    ELSE 'SENT_NEUTRAL'
+                END AS sent_bucket,
+                CASE
+                    WHEN (d.agents#>>'{{debate,score}}')::FLOAT > $2 THEN 'DBT_BULL'
+                    WHEN (d.agents#>>'{{debate,score}}')::FLOAT < -$2 THEN 'DBT_BEAR'
+                    ELSE 'DBT_NEUTRAL'
+                END AS debate_bucket,
+                COALESCE(
+                    (d.agents->>'confidence_after')::FLOAT
+                  - (d.agents->>'confidence_before')::FLOAT,
+                    0
+                ) AS confidence_lift,
+                ct.realized_pnl_pct,
+                ct.realized_pnl,
+                ct.outcome
+            FROM closed_trades ct
+            INNER JOIN trade_decisions d
+                ON d.event_id = ct.decision_event_id
+            {where}
+        )
+        SELECT
+            ta_bucket || '+' || sent_bucket || '+' || debate_bucket  AS pattern,
+            ta_bucket,
+            sent_bucket,
+            debate_bucket,
+            COUNT(*)::INT                                            AS count,
+            COUNT(*) FILTER (WHERE outcome = 'win')::INT             AS win_count,
+            COUNT(*) FILTER (WHERE outcome = 'loss')::INT            AS loss_count,
+            COUNT(*) FILTER (WHERE outcome = 'breakeven')::INT       AS breakeven_count,
+            AVG(realized_pnl_pct)::NUMERIC(10,6)                     AS avg_pnl_pct,
+            AVG(realized_pnl)::NUMERIC(20,8)                         AS avg_pnl_usd,
+            AVG(confidence_lift)::NUMERIC(10,6)                      AS avg_confidence_lift
+        FROM bucketed
+        GROUP BY ta_bucket, sent_bucket, debate_bucket
+        ORDER BY count DESC
+        LIMIT ${idx}
+        """
+        rows = await self._fetch(query, *params)
+
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            n = d["count"] or 0
+            d["win_rate"] = (d["win_count"] / n) if n else None
+            for key in ("avg_pnl_pct", "avg_pnl_usd", "avg_confidence_lift"):
+                v = d.get(key)
+                if v is not None:
+                    d[key] = float(v)
+            out.append(d)
+        return out
+
     async def aggregate_close_reasons(
         self,
         *,
