@@ -23,7 +23,7 @@ This is the navigation map for the design portfolio that drives the Praxis front
 ## Full file map
 
 ```
-design research/
+docs/design/
 │
 ├── 00-INDEX.md                          ← this file
 ├── 01-design-philosophy.md              ← principles, modes, vibe

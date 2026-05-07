@@ -59,7 +59,7 @@ You don't need ALL of them to start — the highest-leverage are 01, 03, 05, 08,
 
 When generating a component, prefix prompts with:
 ```
-Look at design research/08-reference-library/images/01-hyperliquid-trading.png and 03-linear-app.png — these are the density and typography references. Generate the component to fit.
+Look at docs/design/08-reference-library/images/01-hyperliquid-trading.png and 03-linear-app.png — these are the density and typography references. Generate the component to fit.
 ```
 
 Claude Code's multimodal capability will use the images as visual grounding alongside the textual specs in `04-component-specs/`.
