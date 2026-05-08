@@ -1366,12 +1366,12 @@ p(trending)=0.18  p(choppy)=0.71  p(reversal)=0.11`}
               ]}
               outputs={[
                 {
-                  id: "regime",
+                  id: "regime-to-strategy",
                   label: "regime",
                   connection: "→ strategy_eval (canvas #4)",
                 },
                 {
-                  id: "regime",
+                  id: "regime-to-debate",
                   label: "regime",
                   connection: "→ debate (round 4)",
                 },
