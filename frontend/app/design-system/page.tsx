@@ -32,8 +32,10 @@ import {
   DepthChart,
   OrderBook,
   OrderEntryPanel,
+  PriceChart,
   type DepthLevel,
   type OrderBookLevel,
+  type PriceChartCandle,
 } from "@/components/trading";
 import {
   AgentAvatar,
@@ -638,6 +640,44 @@ export default function DesignSystemPage() {
           </div>
           <div className="w-48">
             <RiskMeter kind="concentration" value={95} max={100} compact />
+          </div>
+        </Row>
+      </Section>
+
+      {/* PRICE CHART */}
+      <Section
+        title="PriceChart"
+        tokens="up=--color-bid-500, down=--color-ask-500; volume @ 50% sat overlay; --bg-panel; lightweight-charts engine"
+      >
+        <Row label="Standard density, live (1h)">
+          <div className="w-[640px]">
+            <PriceChart
+              candles={SAMPLE_PRICECHART_CANDLES}
+              symbol="BTC-PERP"
+              timeframe="1h"
+            />
+          </div>
+        </Row>
+        <Row label="Compact density, replay">
+          <div className="w-[640px]">
+            <PriceChart
+              candles={SAMPLE_PRICECHART_CANDLES}
+              symbol="BTC-PERP"
+              timeframe="15m"
+              mode="replay"
+              density="compact"
+              withDrawingTools={false}
+            />
+          </div>
+        </Row>
+        <Row label="Empty + Pending DepthChart strip">
+          <div className="w-[640px]">
+            <PriceChart
+              candles={[]}
+              symbol="ETH-PERP"
+              timeframe="5m"
+              withDepthChart
+            />
           </div>
         </Row>
       </Section>
@@ -1920,6 +1960,36 @@ const SAMPLE_BOOK_ASKS: OrderBookLevel[] = [
   { price: 42338.0, size: 4.7 },
   { price: 42345.0, size: 6.2 },
 ];
+
+// Deterministic synthetic candles for the catalog (no Math.random — keep
+// SSR / client renders identical so hydration doesn't drift).
+const SAMPLE_PRICECHART_CANDLES: PriceChartCandle[] = (() => {
+  const out: PriceChartCandle[] = [];
+  const start = Date.UTC(2026, 4, 7, 0, 0, 0);
+  let price = 42_000;
+  for (let i = 0; i < 96; i++) {
+    const wave = Math.sin(i / 7) * 80;
+    const noise = Math.sin(i * 1.7) * 40 + Math.cos(i * 0.91) * 25;
+    const drift = wave + noise;
+    const open = price;
+    const close = open + drift;
+    const wickUp = Math.abs(Math.cos(i * 0.5)) * 80;
+    const wickDown = Math.abs(Math.sin(i * 0.6)) * 80;
+    const high = Math.max(open, close) + wickUp;
+    const low = Math.min(open, close) - wickDown;
+    const volume = 1.2 + Math.abs(Math.sin(i / 3)) * 1.4;
+    out.push({
+      time: start + i * 60 * 60 * 1000,
+      open,
+      high,
+      low,
+      close,
+      volume,
+    });
+    price = close;
+  }
+  return out;
+})();
 
 interface TablePositionRow {
   symbol: string;

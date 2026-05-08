@@ -30,3 +30,11 @@ export {
   type OrderType,
   type OrderEntryState,
 } from "./OrderEntryPanel";
+export {
+  PriceChart,
+  type PriceChartProps,
+  type PriceChartCandle,
+  type PriceChartTimeframe,
+  type PriceChartMode,
+  type PriceChartDensity,
+} from "./PriceChart";
