@@ -35,15 +35,21 @@ interface PillBase extends VariantProps<typeof pill> {
   children: ReactNode;
 }
 
-interface StaticPillProps extends Omit<HTMLAttributes<HTMLSpanElement>, "color">, PillBase {
+interface StaticPillProps
+  extends Omit<HTMLAttributes<HTMLSpanElement>, "color" | "children">,
+    PillBase {
   as?: "static";
 }
 
-interface ClickablePillProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "color">, PillBase {
+interface ClickablePillProps
+  extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "color" | "children">,
+    PillBase {
   as: "clickable";
 }
 
-interface RemovablePillProps extends Omit<HTMLAttributes<HTMLSpanElement>, "color">, PillBase {
+interface RemovablePillProps
+  extends Omit<HTMLAttributes<HTMLSpanElement>, "color" | "children">,
+    PillBase {
   as: "removable";
   onRemove: () => void;
 }

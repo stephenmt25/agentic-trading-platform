@@ -22,86 +22,86 @@ const tag = cva(
         danger: "",
         agent: "",
       },
-      style: { solid: "", subtle: "" },
+      appearance: { solid: "", subtle: "" },
     },
     compoundVariants: [
       {
         intent: "neutral",
-        style: "solid",
+        appearance: "solid",
         className: "bg-neutral-700 text-fg border-transparent",
       },
       {
         intent: "neutral",
-        style: "subtle",
+        appearance: "subtle",
         className: "bg-neutral-800 text-fg-secondary border-border-subtle",
       },
       {
         intent: "accent",
-        style: "solid",
+        appearance: "solid",
         className: "bg-accent-500 text-white border-transparent",
       },
       {
         intent: "accent",
-        style: "subtle",
+        appearance: "subtle",
         className:
           "bg-accent-900/40 text-accent-300 border-accent-700/50",
       },
       {
         intent: "bid",
-        style: "solid",
+        appearance: "solid",
         className: "bg-bid-500 text-neutral-950 border-transparent",
       },
       {
         intent: "bid",
-        style: "subtle",
+        appearance: "subtle",
         className: "bg-bid-900/40 text-bid-300 border-bid-700/50",
       },
       {
         intent: "ask",
-        style: "solid",
+        appearance: "solid",
         className: "bg-ask-500 text-white border-transparent",
       },
       {
         intent: "ask",
-        style: "subtle",
+        appearance: "subtle",
         className: "bg-ask-900/40 text-ask-300 border-ask-700/50",
       },
       {
         intent: "warn",
-        style: "solid",
+        appearance: "solid",
         className: "bg-warn-500 text-neutral-950 border-transparent",
       },
       {
         intent: "warn",
-        style: "subtle",
+        appearance: "subtle",
         className:
           "bg-warn-700/30 text-warn-400 border-warn-700/50",
       },
       {
         intent: "danger",
-        style: "solid",
+        appearance: "solid",
         className: "bg-danger-500 text-white border-transparent",
       },
       {
         intent: "danger",
-        style: "subtle",
+        appearance: "subtle",
         className:
           "bg-danger-700/30 text-danger-500 border-danger-700/50",
       },
       // agent intent — per ADR-012 aliases to accent
       {
         intent: "agent",
-        style: "solid",
+        appearance: "solid",
         className: "bg-accent-500 text-white border-transparent",
       },
       {
         intent: "agent",
-        style: "subtle",
+        appearance: "subtle",
         className:
           "bg-accent-900/40 text-accent-300 border-accent-700/50",
       },
     ],
-    defaultVariants: { intent: "neutral", style: "subtle" },
+    defaultVariants: { intent: "neutral", appearance: "subtle" },
   }
 );
 
@@ -116,12 +116,16 @@ export interface TagProps
 /**
  * Tag / Badge per primitives.md. Fixed 20px height, 11px num-tabular
  * label. Six chromatic intents + agent (which aliases to accent per
- * ADR-012). subtle is the default style; solid is for emphasis.
+ * ADR-012). subtle is the default appearance; solid is for emphasis.
+ *
+ * The CVA variant is named `appearance` (not `style`) to avoid colliding
+ * with React's standard `style` prop on HTMLAttributes — see
+ * docs/design/REPLICATION-PLAYBOOK.md §6.2.
  */
 export const Tag = forwardRef<HTMLSpanElement, TagProps>(
-  ({ intent, style, dot, onDismiss, children, className, ...props }, ref) => {
+  ({ intent, appearance, dot, onDismiss, children, className, ...props }, ref) => {
     return (
-      <span ref={ref} className={cn(tag({ intent, style }), className)} {...props}>
+      <span ref={ref} className={cn(tag({ intent, appearance }), className)} {...props}>
         {dot && <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />}
         <span>{children}</span>
         {onDismiss && (

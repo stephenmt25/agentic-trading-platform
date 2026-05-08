@@ -274,22 +274,22 @@ export default function DesignSystemPage() {
           <Tag intent="agent">Agent</Tag>
         </Row>
         <Row label="Solid">
-          <Tag intent="neutral" style="solid">
+          <Tag intent="neutral" appearance="solid">
             Neutral
           </Tag>
-          <Tag intent="accent" style="solid">
+          <Tag intent="accent" appearance="solid">
             Accent
           </Tag>
-          <Tag intent="bid" style="solid">
+          <Tag intent="bid" appearance="solid">
             Bid
           </Tag>
-          <Tag intent="ask" style="solid">
+          <Tag intent="ask" appearance="solid">
             Ask
           </Tag>
-          <Tag intent="warn" style="solid">
+          <Tag intent="warn" appearance="solid">
             Warn
           </Tag>
-          <Tag intent="danger" style="solid">
+          <Tag intent="danger" appearance="solid">
             Danger
           </Tag>
         </Row>
@@ -1530,7 +1530,7 @@ function ModePreviewBlock({ mode }: { mode: "hot" | "cool" | "calm" }) {
         <p className="text-[11px] uppercase tracking-widest text-fg-muted num-tabular">
           {mode}
         </p>
-        <Tag intent={mode === "hot" ? "ask" : mode === "cool" ? "accent" : "neutral"} style="subtle">
+        <Tag intent={mode === "hot" ? "ask" : mode === "cool" ? "accent" : "neutral"} appearance="subtle">
           {mode === "hot" ? "cockpit" : mode === "cool" ? "laboratory" : "office"}
         </Tag>
       </div>
@@ -1946,8 +1946,8 @@ function TableDemo() {
 
   const sortedData = [...POSITIONS].sort((a, b) => {
     if (!sortKey) return 0;
-    const av = (a as Record<string, unknown>)[sortKey];
-    const bv = (b as Record<string, unknown>)[sortKey];
+    const av = (a as unknown as Record<string, unknown>)[sortKey];
+    const bv = (b as unknown as Record<string, unknown>)[sortKey];
     if (typeof av === "number" && typeof bv === "number") {
       return sortDir === "asc" ? av - bv : bv - av;
     }
@@ -1963,7 +1963,7 @@ function TableDemo() {
       header: "Side",
       sortable: true,
       render: (row) => (
-        <Tag intent={row.side === "long" ? "bid" : "ask"} style="subtle">
+        <Tag intent={row.side === "long" ? "bid" : "ask"} appearance="subtle">
           {row.side}
         </Tag>
       ),

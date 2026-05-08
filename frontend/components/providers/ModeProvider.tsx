@@ -28,6 +28,20 @@ function modeForPath(pathname: string | null): Mode {
 
 const ModeContext = createContext<Mode>(MODE_DEFAULT);
 
+/**
+ * Wire `data-mode` on `<html>` based on the current route. Per the
+ * execution plan §4.2.
+ *
+ * Known limitation: SSR renders `<html data-mode="hot">` (the static
+ * default in app/layout.tsx) regardless of route, so non-HOT routes
+ * paint once with HOT tokens before this effect runs and swaps to
+ * COOL/CALM. The fix is route-aware SSR via middleware that sets
+ * `data-mode` on the response — defer until a flash regression is
+ * observed in user testing.
+ *
+ * Per-page `<div data-mode="...">` overrides remain valid for
+ * sectional overrides (e.g., a CALM modal inside a COOL surface).
+ */
 export function ModeProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const mode = useMemo(() => modeForPath(pathname), [pathname]);
