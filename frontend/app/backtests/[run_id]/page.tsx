@@ -15,10 +15,11 @@ import {
 import { Button, Tag } from "@/components/primitives";
 import {
   KeyValue,
-  Sparkline,
+  Chart,
   Pill,
   StatusDot,
   Table,
+  type ChartSeries,
   type SortDirection,
   type TableColumn,
 } from "@/components/data-display";
@@ -537,51 +538,65 @@ function EquityCurveSection({
   roi: number | null;
 }) {
   const hasData = equity.length >= 2;
+
+  // equity_curve is `number[]` with no timestamps; xType="numeric" with
+  // synthetic index positions until the backend emits paired (t, equity)
+  // tuples (handoff §"Things to be aware of").
+  const series: ChartSeries[] = useMemo(
+    () => [
+      {
+        id: "equity",
+        label: "Equity",
+        shape: "area",
+        tone: roi != null && roi >= 0 ? "bid" : "ask",
+        baseline: "min",
+        data: equity.map((y, i) => ({ x: i, y })),
+      },
+    ],
+    [equity, roi]
+  );
+
+  const start = hasData ? equity[0] : 0;
+  const end = hasData ? equity[equity.length - 1] : 0;
+
   return (
     <section className="rounded-md border border-border-subtle bg-bg-panel">
       <header className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border-subtle">
         <h2 className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
           Equity curve
         </h2>
-        <div className="flex items-center gap-2">
-          <Tag intent="warn">Chart pending</Tag>
-        </div>
+        <Tag intent="warn">Per-tick timestamps pending</Tag>
       </header>
       <div className="px-4 py-5">
         {hasData ? (
           <div className="flex flex-col gap-3">
-            <Sparkline
-              values={equity}
-              width={920}
-              height={120}
-              area
-              tone={roi != null && roi >= 0 ? "bid" : "ask"}
-              className="w-full h-[120px]"
+            <Chart
+              series={series}
+              xType="numeric"
+              yScale="linear"
+              density="standard"
+              axes="both"
+              gridLines="horizontal"
+              tableFallback
+              downsample={1500}
+              ariaLabel={`Equity curve from ${start.toFixed(2)} to ${end.toFixed(2)} over ${equity.length} samples.`}
+              formatX={(v) => `#${typeof v === "number" ? v.toFixed(0) : v}`}
             />
-            <div className="flex items-center justify-between text-[11px] text-fg-muted num-tabular">
+            <div className="flex items-center justify-between text-[11px] text-fg-muted num-tabular border-t border-border-subtle pt-2.5">
               <span>
                 start{" "}
                 <span className="text-fg-secondary">
-                  {equity[0].toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {start.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </span>
               </span>
-              <span>
-                {equity.length} samples
-              </span>
+              <span>{equity.length} samples</span>
               <span>
                 end{" "}
                 <span className="text-fg-secondary">
-                  {equity[equity.length - 1].toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  {end.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                 </span>
               </span>
             </div>
-            <p className="text-[11px] text-fg-muted leading-relaxed border-t border-border-subtle pt-3">
-              Sparkline placeholder while the Chart primitive
-              (<code className="font-mono text-[11px] text-fg-secondary">docs/design/04-component-specs/chart.md</code>)
-              awaits implementation. Drawdown overlay, axis labels, crosshair
-              tooltip, and per-tick timestamps unlock when Chart lands —
-              the equity-curve usage is the canonical first integration.
-            </p>
           </div>
         ) : (
           <p className="text-[12px] text-fg-muted">No equity samples in this run.</p>
