@@ -102,11 +102,14 @@ class WebSocketClient {
                     case 'pubsub:orderbook':
                         if (data.symbol && Array.isArray(data.bids) && Array.isArray(data.asks)) {
                             // Decimal values arrive as strings via msgpack default=str.
+                            // Normalize CCXT's "BTC/USDT" to URL-safe "BTC-USDT" so it
+                            // matches the symbol shape used by /hot/[symbol] routes.
+                            const symbol = String(data.symbol).replace('/', '-').toUpperCase();
                             const ts = data.trade_ts_ms || data.timestamp_us
                                 ? Math.floor((data.timestamp_us ?? 0) / 1000) || data.trade_ts_ms
                                 : Date.now();
                             useOrderBookStore.getState().ingest(
-                                data.symbol,
+                                symbol,
                                 data.exchange ?? 'BINANCE',
                                 data.bids,
                                 data.asks,
@@ -116,8 +119,9 @@ class WebSocketClient {
                         break;
                     case 'pubsub:trades':
                         if (data.symbol && (data.side === 'bid' || data.side === 'ask')) {
+                            const symbol = String(data.symbol).replace('/', '-').toUpperCase();
                             useTapeStore.getState().ingest({
-                                symbol: data.symbol,
+                                symbol,
                                 exchange: data.exchange ?? 'BINANCE',
                                 side: data.side,
                                 price: data.price,

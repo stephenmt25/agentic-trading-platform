@@ -253,11 +253,12 @@ export default function HotTradingPage() {
   );
 
   // ----- Symbol switcher --------------------------------------------------
+  // Mirrors the symbols ingestion currently publishes
+  // (services/ingestion/src/main.py:47). Add new symbols there first.
   const symbolOptions = useMemo(
     () => [
-      { value: "BTC-PERP", label: "BTC-PERP" },
-      { value: "ETH-PERP", label: "ETH-PERP" },
-      { value: "SOL-PERP", label: "SOL-PERP" },
+      { value: "BTC-USDT", label: "BTC-USDT" },
+      { value: "ETH-USDT", label: "ETH-USDT" },
     ],
     []
   );
