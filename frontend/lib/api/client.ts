@@ -951,6 +951,37 @@ export const api = {
         median_holding_s: number | null;
       }>>(`/audit/close-reasons${query ? `?${query}` : ""}`);
     },
+
+    // User-action audit log (Settings → Audit log surface). Read-only
+    // aggregator. Today's source: kill-switch transitions from Redis.
+    // available_types lists the event types that the backend can emit
+    // right now; pending_types is everything in the spec that doesn't
+    // have a source yet. The shape is stable so the UI can wire by type.
+    userEvents: (params?: {
+      type?: "all" | "kill_switch" | "profile" | "api_key" | "override" | "auth_fail";
+      from?: number;
+      to?: number;
+      limit?: number;
+    }) => {
+      const qs = new URLSearchParams();
+      if (params?.type && params.type !== "all") qs.set("event_type", params.type);
+      if (params?.from !== undefined) qs.set("from", String(params.from));
+      if (params?.to !== undefined) qs.set("to", String(params.to));
+      if (params?.limit !== undefined) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return apiRequest<{
+        events: Array<{
+          id: string;
+          type: string;
+          description: string;
+          actor: string;
+          timestamp_ms: number;
+        }>;
+        available_types: string[];
+        pending_types: string[];
+        fetched_at: string;
+      }>(`/audit/user-events${query ? `?${query}` : ""}`);
+    },
   },
 
   agentConfig: {
