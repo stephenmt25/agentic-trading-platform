@@ -2,6 +2,7 @@
 
 import {
   forwardRef,
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -124,7 +125,7 @@ interface RowProps {
   rowIndex: number;
 }
 
-function BookRow({
+function BookRowImpl({
   level,
   side,
   priceDigits,
@@ -190,6 +191,11 @@ function BookRow({
     </div>
   );
 }
+
+// Memoized so a parent re-render (every store update) doesn't re-render
+// every BookRow when its level / focus / flash state hasn't changed.
+// Critical-path: parent updates at up to 100Hz under live load.
+const BookRow = memo(BookRowImpl);
 
 export const OrderBook = forwardRef<HTMLDivElement, OrderBookProps>(
   (
@@ -290,6 +296,18 @@ export const OrderBook = forwardRef<HTMLDivElement, OrderBookProps>(
       return [...visualAsks, ...visualBids];
     }, [askCum.rows, bidCum.rows]);
 
+    // Precomputed price → globalIdx lookup so each render isn't doing
+    // O(n) findIndex per row. At 25 levels × 2 sides × ~10Hz this saves
+    // ~250 lookups/sec; under the Phase 8.4 100-update/s budget it
+    // saves 5000 lookups/sec.
+    const keyboardIndex = useMemo(() => {
+      const m = new Map<string, number>();
+      allLevelsForKeyboard.forEach((x, i) => {
+        m.set(`${x.side}-${x.l.price}`, i);
+      });
+      return m;
+    }, [allLevelsForKeyboard]);
+
     const [focusIdx, setFocusIdx] = useState(0);
     const handleKey = useCallback(
       (e: KeyboardEvent<HTMLDivElement>) => {
@@ -323,9 +341,7 @@ export const OrderBook = forwardRef<HTMLDivElement, OrderBookProps>(
           <Virtuoso
             data={visualOrder}
             itemContent={(_idx, level) => {
-              const globalIdx = allLevelsForKeyboard.findIndex(
-                (x) => x.side === "ask" && x.l.price === level.price
-              );
+              const globalIdx = keyboardIndex.get(`ask-${level.price}`) ?? 0;
               return (
                 <BookRow
                   level={level}
@@ -349,9 +365,7 @@ export const OrderBook = forwardRef<HTMLDivElement, OrderBookProps>(
         );
       }
       return visualOrder.map((level) => {
-        const globalIdx = allLevelsForKeyboard.findIndex(
-          (x) => x.side === "ask" && x.l.price === level.price
-        );
+        const globalIdx = keyboardIndex.get(`ask-${level.price}`) ?? 0;
         return (
           <BookRow
             key={`ask-${level.price}`}
@@ -378,9 +392,7 @@ export const OrderBook = forwardRef<HTMLDivElement, OrderBookProps>(
           <Virtuoso
             data={visualOrder}
             itemContent={(_idx, level) => {
-              const globalIdx = allLevelsForKeyboard.findIndex(
-                (x) => x.side === "bid" && x.l.price === level.price
-              );
+              const globalIdx = keyboardIndex.get(`bid-${level.price}`) ?? 0;
               return (
                 <BookRow
                   level={level}
@@ -404,9 +416,7 @@ export const OrderBook = forwardRef<HTMLDivElement, OrderBookProps>(
         );
       }
       return visualOrder.map((level) => {
-        const globalIdx = allLevelsForKeyboard.findIndex(
-          (x) => x.side === "bid" && x.l.price === level.price
-        );
+        const globalIdx = keyboardIndex.get(`bid-${level.price}`) ?? 0;
         return (
           <BookRow
             key={`bid-${level.price}`}

@@ -46,7 +46,7 @@ import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { useOrderBookStore } from "@/lib/stores/orderbookStore";
 import { useOrdersStore, type OptimisticOrder } from "@/lib/stores/ordersStore";
 import { usePortfolioStore } from "@/lib/stores/portfolioStore";
-import { useTapeStore } from "@/lib/stores/tapeStore";
+import { useTapeStore, type TradePrint } from "@/lib/stores/tapeStore";
 import { cn } from "@/lib/utils";
 
 /**
@@ -562,9 +562,13 @@ function OrderBookPanel({ symbol }: { symbol: string }) {
 /* -------------------------- Tape panel ---------------------------------- */
 
 const TAPE_VISIBLE = 50;
+// Stable empty-trades reference so the selector returns the same identity
+// when the symbol has no data — avoids re-rendering on every unrelated
+// store update (e.g. another symbol's trade arriving).
+const EMPTY_TRADES: TradePrint[] = [];
 
 function TapePanel({ symbol }: { symbol: string }) {
-  const trades = useTapeStore((s) => s.bySymbol[symbol] ?? []);
+  const trades = useTapeStore((s) => s.bySymbol[symbol] ?? EMPTY_TRADES);
   const visible = useMemo(() => trades.slice(0, TAPE_VISIBLE), [trades]);
 
   return (
