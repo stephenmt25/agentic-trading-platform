@@ -6,6 +6,7 @@ import { WifiOff, FlaskConical, X } from "lucide-react";
 import { LeftRail } from "./LeftRail";
 import { ChromeBar } from "./ChromeBar";
 import { CommandPalette } from "./CommandPalette";
+import { KillSwitchModal } from "./KillSwitchModal";
 import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
 
@@ -22,6 +23,7 @@ const IS_MOCK_DATA = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
  */
 export function RedesignShell({ children }: { children: React.ReactNode }) {
   const killState = useKillSwitchStore((s) => s.state);
+  const toggleKillModal = useKillSwitchStore((s) => s.toggleModal);
   const backendStatus = useConnectionStore((s) => s.backendStatus);
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
@@ -35,6 +37,20 @@ export function RedesignShell({ children }: { children: React.ReactNode }) {
       document.body.removeAttribute("data-kill-switch");
     };
   }, [killState]);
+
+  // Global Cmd/Ctrl+Shift+K — kill-switch modal toggle. Mounted here so
+  // every authenticated surface gets it without per-page wiring (closes the
+  // §8.5 accessibility gate: "kill switch ≤2 keystrokes from any surface").
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        toggleKillModal();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleKillModal]);
 
   useEffect(() => {
     if (backendStatus === "connected") setBannerDismissed(false);
@@ -112,6 +128,7 @@ export function RedesignShell({ children }: { children: React.ReactNode }) {
       </div>
 
       <CommandPalette />
+      <KillSwitchModal />
     </div>
   );
 }

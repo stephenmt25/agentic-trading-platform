@@ -4,7 +4,6 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
 } from "react";
 import Link from "next/link";
@@ -14,14 +13,10 @@ import {
   Search,
   ShieldAlert,
   Shield,
-  Loader2,
-  X,
-  Lock,
-  Unlock,
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Button, Input, Select, Tag, Tooltip } from "@/components/primitives";
+import { Select, Tag, Tooltip } from "@/components/primitives";
 import { Pill, StatusDot } from "@/components/data-display";
 import {
   PriceChart,
@@ -62,7 +57,8 @@ import { cn } from "@/lib/utils";
  *   - PriceChart: api.marketData.candles(symbol, timeframe).
  *   - Positions: api.positions.list, polled.
  *   - PnL: portfolioStore (populated by wsClient → pubsub:pnl_updates).
- *   - Kill switch: api.commands.killSwitchStatus, polled. Cmd+Shift+K modal local.
+ *   - Kill switch: api.commands.killSwitchStatus polled for chrome rendering;
+ *     modal + Cmd+Shift+K hotkey are global (RedesignShell + KillSwitchModal).
  *   - Agent summary: agentViewStore.globalFeed → up to 3 compact AgentTrace cards.
  *
  * Pending tags surface backend reality where it lags spec:
@@ -194,6 +190,7 @@ export default function HotTradingPage() {
   // ----- Data: kill switch -------------------------------------------------
   const [killStatus, setKillStatus] = useState<KillSwitchStatus | null>(null);
   const setLocalKill = useKillSwitchStore((s) => s.setState);
+  const openKillModal = useKillSwitchStore((s) => s.setModalOpen);
   const loadKill = useCallback(async () => {
     try {
       const s = await api.commands.killSwitchStatus();
@@ -234,19 +231,6 @@ export default function HotTradingPage() {
     }
     return out;
   }, [globalFeed, symbol]);
-
-  // ----- Kill-switch modal (Cmd+Shift+K) ---------------------------------
-  const [killModalOpen, setKillModalOpen] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setKillModalOpen((open) => !open);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
 
   // ----- Order entry shape ------------------------------------------------
   const lastClose = useMemo(() => {
@@ -289,7 +273,7 @@ export default function HotTradingPage() {
         profiles={profiles}
         totalNetPnl={totalNetPnl}
         killArmed={armed}
-        onOpenKillModal={() => setKillModalOpen(true)}
+        onOpenKillModal={() => openKillModal(true)}
       />
 
       <div className="flex-1 min-h-0 flex overflow-hidden">
@@ -363,13 +347,6 @@ export default function HotTradingPage() {
         </span>
       </div>
 
-      {killModalOpen && (
-        <KillSwitchModal
-          armed={armed}
-          onClose={() => setKillModalOpen(false)}
-          onChanged={loadKill}
-        />
-      )}
     </div>
   );
 }
@@ -698,141 +675,6 @@ function PendingPanel({
         <span className="text-fg">{label}</span>
       </div>
       <p className="text-fg-muted">{description}</p>
-    </div>
-  );
-}
-
-/* -------------------------- Kill switch modal --------------------------- */
-
-interface KillSwitchModalProps {
-  armed: boolean;
-  onClose: () => void;
-  onChanged: () => Promise<void>;
-}
-
-function KillSwitchModal({ armed, onClose, onChanged }: KillSwitchModalProps) {
-  const [reason, setReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const submit = useCallback(
-    async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!reason.trim()) {
-        setError("Reason is required.");
-        return;
-      }
-      setSubmitting(true);
-      setError(null);
-      try {
-        await api.commands.killSwitchToggle(!armed, reason.trim());
-        await onChanged();
-        toast.success(armed ? "Kill switch disarmed" : "Kill switch armed (soft)");
-        onClose();
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : "Could not change state";
-        setError(msg);
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [armed, reason, onChanged, onClose]
-  );
-
-  return (
-    <div
-      data-mode="calm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="hot-kill-switch-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="w-full max-w-md rounded-md border-2 border-warn-500 bg-bg-panel shadow-xl">
-        <header className="px-5 py-4 border-b border-border-subtle flex items-start justify-between gap-2">
-          <div>
-            <h2
-              id="hot-kill-switch-title"
-              className="text-[15px] font-semibold text-fg"
-            >
-              {armed ? "Disarm kill switch?" : "Arm soft kill switch?"}
-            </h2>
-            <p className="text-[12px] text-fg-muted mt-1">
-              {armed
-                ? "Trading will resume immediately for all profiles."
-                : "All new orders will be blocked across all profiles. Existing positions remain open."}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="text-fg-muted hover:text-fg"
-          >
-            <X className="w-4 h-4" strokeWidth={1.5} aria-hidden />
-          </button>
-        </header>
-        <form onSubmit={submit} className="px-5 py-4 flex flex-col gap-3">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] uppercase tracking-wider text-fg-muted num-tabular">
-              reason (required)
-            </span>
-            <Input
-              ref={inputRef}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="why are you doing this?"
-              aria-label="Reason"
-              autoComplete="off"
-            />
-          </label>
-          {error && (
-            <p className="text-[12px] text-danger-500" role="alert">
-              {error}
-            </p>
-          )}
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              intent="secondary"
-              size="sm"
-              onClick={onClose}
-              disabled={submitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              intent={armed ? "primary" : "danger"}
-              size="sm"
-              leftIcon={
-                submitting ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
-                ) : armed ? (
-                  <Unlock className="w-3.5 h-3.5" strokeWidth={1.5} />
-                ) : (
-                  <Lock className="w-3.5 h-3.5" strokeWidth={1.5} />
-                )
-              }
-              disabled={submitting}
-            >
-              {armed ? "Disarm" : "Arm soft"}
-            </Button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }

@@ -4,9 +4,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
-  type FormEvent,
 } from "react";
 import Link from "next/link";
 import {
@@ -14,14 +12,12 @@ import {
   ShieldAlert,
   AlertTriangle,
   WifiOff,
-  Loader2,
   Lock,
   Unlock,
   RefreshCw,
 } from "lucide-react";
-import { toast } from "sonner";
 
-import { Button, Input, Tag } from "@/components/primitives";
+import { Button, Tag } from "@/components/primitives";
 import { Pill, StatusDot } from "@/components/data-display";
 import { RiskMeter } from "@/components/trading";
 import {
@@ -51,10 +47,12 @@ import { cn } from "@/lib/utils";
  *
  *   Pending tags surface where backend reality lags spec:
  *     - Hard-arm vs soft-arm distinction (backend kill switch is binary).
- *     - Cmd+Shift+K *global* shortcut (only on this surface for now).
  *     - Portfolio VaR (no endpoint).
  *     - Recent violations log (no endpoint).
  *     - Auto-flatten progress on hard-arm (no backend wiring).
+ *
+ * Cmd+Shift+K is now wired globally in RedesignShell — see
+ * components/shell/KillSwitchModal.tsx.
  */
 
 const POLL_INTERVAL_MS = 10_000;
@@ -93,6 +91,7 @@ export default function RiskControlPage() {
   const [killStatus, setKillStatus] = useState<KillSwitchStatus | null>(null);
   const [killLoading, setKillLoading] = useState(true);
   const setKillState = useKillSwitchStore((s) => s.setState);
+  const openKillModal = useKillSwitchStore((s) => s.setModalOpen);
 
   const [refreshTick, setRefreshTick] = useState(0);
 
@@ -266,19 +265,6 @@ export default function RiskControlPage() {
     return rows;
   }, [profile, riskMetrics]);
 
-  // ---------- Cmd+Shift+K to toggle (local to this surface; spec wants global) ----------
-  const [killModalOpen, setKillModalOpen] = useState(false);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setKillModalOpen((open) => !open);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   return (
     <div data-mode="hot" className="flex flex-col h-full bg-bg-canvas text-fg">
       {/* Header */}
@@ -346,9 +332,7 @@ export default function RiskControlPage() {
           <KillSwitchSection
             status={killStatus}
             loading={killLoading}
-            onChanged={loadKillStatus}
-            modalOpen={killModalOpen}
-            setModalOpen={setKillModalOpen}
+            onOpenModal={() => openKillModal(true)}
           />
 
           <ExposureSection
@@ -390,17 +374,13 @@ function formatHeaderSummary(
 interface KillSwitchSectionProps {
   status: KillSwitchStatus | null;
   loading: boolean;
-  onChanged: () => Promise<void>;
-  modalOpen: boolean;
-  setModalOpen: (open: boolean) => void;
+  onOpenModal: () => void;
 }
 
 function KillSwitchSection({
   status,
   loading,
-  onChanged,
-  modalOpen,
-  setModalOpen,
+  onOpenModal,
 }: KillSwitchSectionProps) {
   const isArmed = status?.active === true;
   // "soft" vs "hard" — backend has only binary; we treat active as soft.
@@ -471,7 +451,7 @@ function KillSwitchSection({
                 intent="secondary"
                 size="md"
                 leftIcon={<Unlock className="w-3.5 h-3.5" strokeWidth={1.5} />}
-                onClick={() => setModalOpen(true)}
+                onClick={onOpenModal}
                 data-testid="kill-switch-open"
               >
                 Disarm
@@ -481,7 +461,7 @@ function KillSwitchSection({
                 intent="primary"
                 size="md"
                 leftIcon={<Lock className="w-3.5 h-3.5" strokeWidth={1.5} />}
-                onClick={() => setModalOpen(true)}
+                onClick={onOpenModal}
                 data-testid="kill-switch-open"
               >
                 Arm soft
@@ -511,149 +491,10 @@ function KillSwitchSection({
           <kbd className="px-1 py-0.5 rounded-sm bg-bg-raised border border-border-subtle font-mono text-[10px]">
             Cmd+Shift+K
           </kbd>{" "}
-          to toggle ·{" "}
-          <Tag intent="warn">Pending</Tag> global shortcut (works only on this
-          surface for now)
+          to toggle from any surface
         </p>
       </div>
-
-      {modalOpen && (
-        <KillSwitchModal
-          armed={isArmed}
-          onClose={() => setModalOpen(false)}
-          onChanged={onChanged}
-        />
-      )}
     </Section>
-  );
-}
-
-interface KillSwitchModalProps {
-  armed: boolean;
-  onClose: () => void;
-  onChanged: () => Promise<void>;
-}
-
-function KillSwitchModal({ armed, onClose, onChanged }: KillSwitchModalProps) {
-  const [reason, setReason] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    inputRef.current?.focus();
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  const handleSubmit = useCallback(
-    async (e: FormEvent) => {
-      e.preventDefault();
-      if (!reason.trim()) {
-        setError("Reason is required.");
-        return;
-      }
-      setSubmitting(true);
-      setError(null);
-      try {
-        const willActivate = !armed;
-        await api.commands.killSwitchToggle(willActivate, reason.trim());
-        await onChanged();
-        toast.success(
-          willActivate ? "Kill switch armed (soft)" : "Kill switch disarmed"
-        );
-        onClose();
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : "Could not change state";
-        setError(msg);
-      } finally {
-        setSubmitting(false);
-      }
-    },
-    [armed, reason, onChanged, onClose]
-  );
-
-  return (
-    <div
-      data-mode="calm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="kill-switch-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="w-full max-w-md rounded-md border-2 border-warn-500 bg-bg-panel shadow-xl">
-        <header className="px-5 py-4 border-b border-border-subtle">
-          <h2
-            id="kill-switch-modal-title"
-            className="text-[15px] font-semibold text-fg"
-          >
-            {armed ? "Disarm kill switch?" : "Arm soft kill switch?"}
-          </h2>
-          <p className="text-[12px] text-fg-muted mt-1">
-            {armed
-              ? "Trading will resume immediately for all profiles."
-              : "All new orders will be blocked across all profiles. Existing positions remain open."}
-          </p>
-        </header>
-
-        <form onSubmit={handleSubmit} className="px-5 py-4 flex flex-col gap-3">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-[11px] uppercase tracking-wider text-fg-muted num-tabular">
-              reason (required)
-            </span>
-            <Input
-              ref={inputRef}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="why are you doing this?"
-              aria-label="Reason"
-              autoComplete="off"
-            />
-          </label>
-
-          {error && (
-            <p className="text-[12px] text-danger-500" role="alert">
-              {error}
-            </p>
-          )}
-
-          <div className="flex items-center justify-end gap-2 pt-2">
-            <Button
-              type="button"
-              intent="secondary"
-              size="sm"
-              onClick={onClose}
-              disabled={submitting}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="submit"
-              intent={armed ? "primary" : "danger"}
-              size="sm"
-              leftIcon={
-                submitting ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
-                ) : armed ? (
-                  <Unlock className="w-3.5 h-3.5" strokeWidth={1.5} />
-                ) : (
-                  <Lock className="w-3.5 h-3.5" strokeWidth={1.5} />
-                )
-              }
-              disabled={submitting}
-            >
-              {armed ? "Disarm" : "Arm soft"}
-            </Button>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 }
 
