@@ -93,6 +93,11 @@ class OrderApprovedEvent(BaseEvent):
     quantity: Quantity
     price: Price
     decision_event_id: Optional[UUID] = None
+    # When the user submits manually via POST /orders the api_gateway
+    # pre-allocates the order_id so the HTTP response can return it before
+    # the executor consumes the event. Strategy/validation publishers leave
+    # it None and the executor mints one (uuid.uuid4) as before.
+    order_id: Optional[UUID] = None
 
 class OrderRejectedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_REJECTED] = EventType.ORDER_REJECTED

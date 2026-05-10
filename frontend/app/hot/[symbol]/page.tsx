@@ -13,6 +13,8 @@ import {
   Search,
   ShieldAlert,
   Shield,
+  Loader2,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -42,6 +44,7 @@ import {
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { useOrderBookStore } from "@/lib/stores/orderbookStore";
+import { useOrdersStore, type OptimisticOrder } from "@/lib/stores/ordersStore";
 import { usePortfolioStore } from "@/lib/stores/portfolioStore";
 import { useTapeStore } from "@/lib/stores/tapeStore";
 import { cn } from "@/lib/utils";
@@ -63,10 +66,13 @@ import { cn } from "@/lib/utils";
  *   - Agent summary: agentViewStore.globalFeed → up to 3 compact AgentTrace cards.
  *   - OrderBook: orderbookStore (populated by wsClient → pubsub:orderbook).
  *   - Tape: tapeStore (populated by wsClient → pubsub:trades).
+ *   - Order submit: api.orders.submit → ordersStore (optimistic insert with
+ *     rollback on HTTP error); reconciled against api.orders.list polling.
+ *   - Open Orders tab: api.orders.list, polled, merged with ordersStore
+ *     optimistic entries.
  *
  * Pending tags surface backend reality where it lags spec:
- *   - Order submission (no api.orders.submit endpoint exposed).
- *   - Open Orders / Fills tabs (no endpoints — only Positions is wired).
+ *   - Fills tab (no api.orders.fills or pubsub:fills channel yet).
  *   - Hard-arm kill switch state (backend is binary; same as /risk).
  *   - Drawing tools strip on PriceChart (deferred to v2 — see price-chart.md).
  *
@@ -239,17 +245,48 @@ export default function HotTradingPage() {
     return candles[candles.length - 1].close;
   }, [candles]);
 
+  const beginSubmit = useOrdersStore((s) => s.beginSubmit);
+  const confirmSubmit = useOrdersStore((s) => s.confirmSubmit);
+  const rejectSubmit = useOrdersStore((s) => s.rejectSubmit);
+
   const handleSubmit = useCallback(
-    (order: OrderEntryPayload) => {
-      // No `api.orders.submit` endpoint is exposed in the redesign yet —
-      // surface a Pending toast instead of pretending to place an order.
-      toast.info(
-        `Order entry not wired — Pending. ${order.side.toUpperCase()} ${order.size} ${
-          order.symbol
-        } at ${order.type}${order.price ? ` @ ${order.price}` : ""}`
-      );
+    async (order: OrderEntryPayload) => {
+      if (!activeProfile) {
+        toast.error("No active profile — set one in Pipeline Canvas first.");
+        return;
+      }
+      if (order.type !== "limit" && order.type !== "market") {
+        toast.error(`${order.type.toUpperCase()} orders aren't wired yet.`);
+        return;
+      }
+      const tempId = beginSubmit({
+        profileId: activeProfile.profile_id,
+        symbol: order.symbol,
+        side: order.side === "buy" ? "BUY" : "SELL",
+        type: order.type,
+        quantity: String(order.size),
+        price: order.price !== undefined ? String(order.price) : undefined,
+      });
+      try {
+        const res = await api.orders.submit({
+          profile_id: activeProfile.profile_id,
+          symbol: order.symbol,
+          side: order.side === "buy" ? "BUY" : "SELL",
+          type: order.type,
+          quantity: String(order.size),
+          price: order.price !== undefined ? String(order.price) : undefined,
+        });
+        confirmSubmit(tempId, res.order_id);
+        toast.success(
+          `${order.side.toUpperCase()} ${order.size} ${order.symbol} submitted`
+        );
+      } catch (e: unknown) {
+        const reason = e instanceof Error ? e.message : "Submit failed";
+        rejectSubmit(tempId, reason);
+        toast.error(`Order rejected: ${reason}`);
+      }
     },
-    []
+    [activeProfile, beginSubmit, confirmSubmit, rejectSubmit]
   );
 
   // ----- Symbol switcher --------------------------------------------------
@@ -303,6 +340,7 @@ export default function HotTradingPage() {
 
           {/* Bottom: Positions / Orders / Fills tabs */}
           <BottomTabs
+            symbol={symbol}
             symbolPositions={symbolPositions}
             allPositionsCount={positions.length}
           />
@@ -322,10 +360,6 @@ export default function HotTradingPage() {
               availableSize={1}
               density="compact"
             />
-            <p className="text-[10px] text-fg-muted mt-2 flex items-center gap-1.5">
-              <Tag intent="warn">Pending</Tag>
-              <span>order submission endpoint</span>
-            </p>
           </div>
           <div className="p-3 flex-1 min-h-0 overflow-hidden">
             <AgentSummaryPanel
@@ -572,13 +606,16 @@ function TapePanel({ symbol }: { symbol: string }) {
 type Position = Awaited<ReturnType<typeof api.positions.list>>[number];
 
 function BottomTabs({
+  symbol,
   symbolPositions,
   allPositionsCount,
 }: {
+  symbol: string;
   symbolPositions: Position[];
   allPositionsCount: number;
 }) {
   const [tab, setTab] = useState<BottomTab>("positions");
+  const orders = useOpenOrdersForSymbol(symbol);
   return (
     <section className="flex-[2] min-h-0 flex flex-col border-t border-border-subtle">
       <header className="flex items-center gap-0.5 px-2 h-9 border-b border-border-subtle">
@@ -590,6 +627,9 @@ function BottomTabs({
         </TabButton>
         <TabButton active={tab === "orders"} onClick={() => setTab("orders")}>
           Open orders
+          {orders.length > 0 && (
+            <span className="text-fg-muted num-tabular ml-1">({orders.length})</span>
+          )}
         </TabButton>
         <TabButton active={tab === "fills"} onClick={() => setTab("fills")}>
           Fills
@@ -600,12 +640,7 @@ function BottomTabs({
       </header>
       <div className="flex-1 min-h-0 overflow-auto">
         {tab === "positions" && <PositionsList rows={symbolPositions} />}
-        {tab === "orders" && (
-          <PendingPanel
-            label="Open orders"
-            description="No /orders endpoint is exposed in the redesign API client yet. The legacy execution log lives in services/execution; surfacing it here lands with the order-submission wiring."
-          />
-        )}
+        {tab === "orders" && <OrdersList rows={orders} />}
         {tab === "fills" && (
           <PendingPanel
             label="Fills"
@@ -614,6 +649,166 @@ function BottomTabs({
         )}
       </div>
     </section>
+  );
+}
+
+/* -------------------------- Open Orders --------------------------------- */
+
+const ORDERS_POLL_MS = 5_000;
+
+type ServerOrder = Awaited<ReturnType<typeof api.orders.list>>[number];
+
+interface OpenOrderRow {
+  /** Either the server order_id or the optimistic tempId. */
+  rowKey: string;
+  orderId: string | null;
+  symbol: string;
+  side: "BUY" | "SELL";
+  quantity: string;
+  price?: string;
+  status: string;
+  source: "optimistic" | "server";
+  rejectionReason?: string;
+  submittedAtMs: number;
+  raw?: ServerOrder;
+}
+
+const OPEN_ORDER_STATUSES = new Set(["PENDING", "SUBMITTED"]);
+
+function useOpenOrdersForSymbol(symbol: string): OpenOrderRow[] {
+  const [serverRows, setServerRows] = useState<ServerOrder[]>([]);
+  const optimistic = useOrdersStore((s) => s.optimistic);
+  const reconcile = useOrdersStore((s) => s.reconcile);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () => {
+      api.orders
+        .list({ symbol, limit: 50 })
+        .then((rows) => {
+          if (cancelled) return;
+          setServerRows(rows);
+          reconcile(new Set(rows.map((r) => r.order_id)));
+        })
+        .catch(() => {
+          // Swallow; optimistic state still surfaces what the user saw.
+        });
+    };
+    tick();
+    const id = window.setInterval(tick, ORDERS_POLL_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
+  }, [symbol, reconcile]);
+
+  return useMemo(() => {
+    const out: OpenOrderRow[] = [];
+    const claimed = new Set<string>();
+    for (const o of optimistic) {
+      if (o.symbol !== symbol) continue;
+      if (o.status === "confirmed" && o.orderId && serverRows.some((r) => r.order_id === o.orderId)) {
+        // Server already shows it — skip the optimistic shadow.
+        claimed.add(o.orderId);
+        continue;
+      }
+      out.push(toOptimisticRow(o));
+    }
+    for (const r of serverRows) {
+      if (!OPEN_ORDER_STATUSES.has(r.status)) continue;
+      if (r.symbol !== symbol) continue;
+      if (claimed.has(r.order_id)) continue;
+      out.push(toServerRow(r));
+    }
+    out.sort((a, b) => b.submittedAtMs - a.submittedAtMs);
+    return out;
+  }, [optimistic, serverRows, symbol]);
+}
+
+function toOptimisticRow(o: OptimisticOrder): OpenOrderRow {
+  return {
+    rowKey: o.tempId,
+    orderId: o.orderId,
+    symbol: o.symbol,
+    side: o.side,
+    quantity: o.quantity,
+    price: o.price,
+    status: o.status === "submitting" ? "submitting" : o.status === "rejected" ? "rejected" : "PENDING",
+    source: "optimistic",
+    rejectionReason: o.rejectionReason,
+    submittedAtMs: o.submittedAtMs,
+  };
+}
+
+function toServerRow(r: ServerOrder): OpenOrderRow {
+  return {
+    rowKey: r.order_id,
+    orderId: r.order_id,
+    symbol: r.symbol,
+    side: r.side,
+    quantity: r.quantity,
+    price: r.price,
+    status: r.status,
+    source: "server",
+    submittedAtMs: Date.parse(r.created_at) || 0,
+    raw: r,
+  };
+}
+
+function OrdersList({ rows }: { rows: OpenOrderRow[] }) {
+  const dropOptimistic = useOrdersStore((s) => s.drop);
+
+  if (rows.length === 0) {
+    return (
+      <p className="px-4 py-3 text-[12px] text-fg-muted">
+        No open orders for this symbol. Use the order entry panel on the right.
+      </p>
+    );
+  }
+  return (
+    <ul className="divide-y divide-border-subtle">
+      {rows.map((r) => (
+        <li
+          key={r.rowKey}
+          className="px-4 py-2 flex items-center gap-3 text-[12px] num-tabular"
+        >
+          <Pill intent={r.side === "BUY" ? "bid" : "ask"}>
+            {r.side}
+          </Pill>
+          <span className="font-mono text-fg">{r.quantity}</span>
+          <span className="text-fg-muted">@</span>
+          <span className="font-mono text-fg">{r.price ?? "mkt"}</span>
+          <span className="ml-auto flex items-center gap-2">
+            {r.status === "submitting" && (
+              <Pill intent="warn" icon={<Loader2 className="w-3 h-3 animate-spin" aria-hidden />}>
+                submitting
+              </Pill>
+            )}
+            {r.status === "rejected" && (
+              <>
+                <Pill intent="ask">rejected</Pill>
+                {r.rejectionReason && (
+                  <span className="text-fg-muted truncate max-w-[240px]" title={r.rejectionReason}>
+                    {r.rejectionReason}
+                  </span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => dropOptimistic(r.rowKey)}
+                  aria-label="Dismiss"
+                  className="text-fg-muted hover:text-fg p-0.5 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500"
+                >
+                  <X className="w-3 h-3" strokeWidth={1.5} aria-hidden />
+                </button>
+              </>
+            )}
+            {r.status !== "submitting" && r.status !== "rejected" && (
+              <Pill intent="neutral">{r.status.toLowerCase()}</Pill>
+            )}
+          </span>
+        </li>
+      ))}
+    </ul>
   );
 }
 

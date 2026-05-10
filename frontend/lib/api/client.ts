@@ -353,6 +353,54 @@ export const api = {
       }>(`/positions/${encodeURIComponent(positionId)}/close`, { method: "POST" }),
   },
 
+  orders: {
+    // Manual order submission from /hot. Returns 202 with the pre-allocated
+    // order_id; execution happens asynchronously and the order surfaces in
+    // GET /orders once the executor (services/execution) consumes the event.
+    submit: (req: {
+      profile_id: string;
+      symbol: string;
+      side: "BUY" | "SELL";
+      type: "market" | "limit";
+      quantity: string;
+      price?: string;
+    }) =>
+      apiRequest<{
+        order_id: string;
+        status: string;
+        submitted_at: string;
+      }>("/orders/", { method: "POST", body: req }),
+
+    list: (opts?: { status?: string; profileId?: string; symbol?: string; limit?: number }) => {
+      const params = new URLSearchParams();
+      if (opts?.status) params.set("status", opts.status);
+      if (opts?.profileId) params.set("profile_id", opts.profileId);
+      if (opts?.symbol) params.set("symbol", opts.symbol);
+      if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+      const qs = params.toString();
+      return apiRequest<Array<{
+        order_id: string;
+        profile_id: string;
+        symbol: string;
+        side: "BUY" | "SELL";
+        quantity: string;
+        price: string;
+        status: string;
+        exchange: string;
+        created_at: string;
+        filled_at?: string | null;
+        fill_price?: string | null;
+        decision_event_id?: string | null;
+      }>>(qs ? `/orders/?${qs}` : "/orders/");
+    },
+
+    cancel: (orderId: string) =>
+      apiRequest<{ status: string; order_id: string }>(
+        `/orders/${encodeURIComponent(orderId)}/cancel`,
+        { method: "POST" }
+      ),
+  },
+
   paperTrading: {
     status: () =>
       apiRequest<PaperTradingStatus>("/paper-trading/status"),
