@@ -342,6 +342,7 @@ export function PriceChart({
               type="button"
               disabled
               aria-disabled
+              aria-label="Drawing tools (Pending v2)"
               title="Drawing tools — Pending v2"
               className="w-6 h-6 flex items-center justify-center text-fg-muted cursor-not-allowed"
             >
