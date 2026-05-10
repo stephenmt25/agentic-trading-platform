@@ -4,6 +4,8 @@ import { useAlertStore } from '../stores/alertStore';
 import { useHITLStore } from '../stores/hitlStore';
 import { useConnectionStore } from '../stores/connectionStore';
 import { useAgentViewStore } from '../stores/agentViewStore';
+import { useOrderBookStore } from '../stores/orderbookStore';
+import { useTapeStore } from '../stores/tapeStore';
 import { BACKEND_DIRECT_URL } from '../api/client';
 
 function getWsUrl(): string {
@@ -95,6 +97,34 @@ class WebSocketClient {
                     case 'pubsub:agent_telemetry':
                         if (data.agent_id && data.event_type) {
                             useAgentViewStore.getState().ingestEvent(data);
+                        }
+                        break;
+                    case 'pubsub:orderbook':
+                        if (data.symbol && Array.isArray(data.bids) && Array.isArray(data.asks)) {
+                            // Decimal values arrive as strings via msgpack default=str.
+                            const ts = data.trade_ts_ms || data.timestamp_us
+                                ? Math.floor((data.timestamp_us ?? 0) / 1000) || data.trade_ts_ms
+                                : Date.now();
+                            useOrderBookStore.getState().ingest(
+                                data.symbol,
+                                data.exchange ?? 'BINANCE',
+                                data.bids,
+                                data.asks,
+                                ts
+                            );
+                        }
+                        break;
+                    case 'pubsub:trades':
+                        if (data.symbol && (data.side === 'bid' || data.side === 'ask')) {
+                            useTapeStore.getState().ingest({
+                                symbol: data.symbol,
+                                exchange: data.exchange ?? 'BINANCE',
+                                side: data.side,
+                                price: data.price,
+                                size: data.size,
+                                timestampMs: data.trade_ts_ms ?? Math.floor((data.timestamp_us ?? 0) / 1000) ?? Date.now(),
+                                tradeId: data.trade_id ?? null,
+                            });
                         }
                         break;
                 }

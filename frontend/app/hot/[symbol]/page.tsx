@@ -23,7 +23,6 @@ import {
   type PriceChartCandle,
   type PriceChartTimeframe,
   OrderBook,
-  type OrderBookLevel,
   TapeRow,
   PositionRow,
   OrderEntryPanel,
@@ -42,7 +41,9 @@ import {
 } from "@/lib/api/client";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
+import { useOrderBookStore } from "@/lib/stores/orderbookStore";
 import { usePortfolioStore } from "@/lib/stores/portfolioStore";
+import { useTapeStore } from "@/lib/stores/tapeStore";
 import { cn } from "@/lib/utils";
 
 /**
@@ -60,10 +61,10 @@ import { cn } from "@/lib/utils";
  *   - Kill switch: api.commands.killSwitchStatus polled for chrome rendering;
  *     modal + Cmd+Shift+K hotkey are global (RedesignShell + KillSwitchModal).
  *   - Agent summary: agentViewStore.globalFeed → up to 3 compact AgentTrace cards.
+ *   - OrderBook: orderbookStore (populated by wsClient → pubsub:orderbook).
+ *   - Tape: tapeStore (populated by wsClient → pubsub:trades).
  *
  * Pending tags surface backend reality where it lags spec:
- *   - OrderBook live data (no orderbook channel on the WS feed).
- *   - TapeRow live trades (no trades channel on the WS feed).
  *   - Order submission (no api.orders.submit endpoint exposed).
  *   - Open Orders / Fills tabs (no endpoints — only Positions is wired).
  *   - Hard-arm kill switch state (backend is binary; same as /risk).
@@ -295,7 +296,7 @@ export default function HotTradingPage() {
 
           {/* Mid: OrderBook | TapeRow (40% h, side-by-side) */}
           <div className="flex-[2] min-h-0 grid grid-cols-1 md:grid-cols-2 gap-3 px-3 pt-3">
-            <OrderBookPanel symbol={symbol} midPrice={lastClose} />
+            <OrderBookPanel symbol={symbol} />
             <TapePanel symbol={symbol} />
           </div>
 
@@ -472,33 +473,21 @@ function HotChrome({
 
 /* -------------------------- OrderBook panel ------------------------------ */
 
-function OrderBookPanel({
-  symbol,
-  midPrice,
-}: {
-  symbol: string;
-  midPrice?: number;
-}) {
-  // Synthesize a small static book centered on midPrice so the panel renders
-  // with believable structure. Live updates are Pending — no orderbook
-  // WebSocket channel exists in lib/ws/client.ts as of this commit.
-  const { bids, asks } = useMemo(() => {
-    if (!midPrice) return { bids: [], asks: [] };
-    const tick = midPrice * 0.0001;
-    const bidsOut: OrderBookLevel[] = [];
-    const asksOut: OrderBookLevel[] = [];
-    for (let i = 0; i < 20; i++) {
-      bidsOut.push({
-        price: midPrice - tick * (i + 1),
-        size: 0.4 + Math.abs(Math.sin(i + 1)) * 1.2,
-      });
-      asksOut.push({
-        price: midPrice + tick * (i + 1),
-        size: 0.4 + Math.abs(Math.cos(i + 1)) * 1.2,
-      });
-    }
-    return { bids: bidsOut, asks: asksOut };
-  }, [midPrice]);
+const STALE_AFTER_MS = 5_000;
+
+function OrderBookPanel({ symbol }: { symbol: string }) {
+  const snapshot = useOrderBookStore((s) => s.bySymbol[symbol]);
+  // Tick once per second to recompute the staleness indicator without
+  // re-rendering on every store update.
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const isStale =
+    snapshot !== undefined && now - snapshot.timestampMs > STALE_AFTER_MS;
+  const isEmpty = !snapshot || snapshot.bids.length === 0;
 
   return (
     <div className="rounded-md border border-border-subtle bg-bg-panel flex flex-col overflow-hidden min-h-0">
@@ -506,17 +495,29 @@ function OrderBookPanel({
         <span className="text-[10px] uppercase tracking-wider text-fg-muted num-tabular">
           order book — {symbol}
         </span>
-        <Tag intent="warn" className="ml-auto">
-          Pending live data
-        </Tag>
+        {snapshot && !isStale && (
+          <Pill intent="bid" icon={<StatusDot state="live" size={6} pulse />}>
+            live
+          </Pill>
+        )}
+        {snapshot && isStale && (
+          <Tag intent="warn" className="ml-auto">
+            stale {Math.floor((now - snapshot.timestampMs) / 1000)}s
+          </Tag>
+        )}
       </header>
       <div className="flex-1 min-h-0 overflow-hidden">
-        {bids.length === 0 ? (
+        {isEmpty ? (
           <p className="px-3 py-3 text-[12px] text-fg-muted">
             No book data — awaiting feed.
           </p>
         ) : (
-          <OrderBook bids={bids} asks={asks} depthRows={10} priceDigits={2} />
+          <OrderBook
+            bids={snapshot!.bids}
+            asks={snapshot!.asks}
+            depthRows={10}
+            priceDigits={2}
+          />
         )}
       </div>
     </div>
@@ -525,34 +526,45 @@ function OrderBookPanel({
 
 /* -------------------------- Tape panel ---------------------------------- */
 
+const TAPE_VISIBLE = 50;
+
 function TapePanel({ symbol }: { symbol: string }) {
-  // Tape feed is Pending — render empty-state per spec §7. The synthetic
-  // example row uses a stable timestamp so renders stay deterministic.
+  const trades = useTapeStore((s) => s.bySymbol[symbol] ?? []);
+  const visible = useMemo(() => trades.slice(0, TAPE_VISIBLE), [trades]);
+
   return (
     <div className="rounded-md border border-border-subtle bg-bg-panel flex flex-col overflow-hidden min-h-0">
       <header className="flex items-center gap-2 px-3 h-8 border-b border-border-subtle">
         <span className="text-[10px] uppercase tracking-wider text-fg-muted num-tabular">
           tape — {symbol}
         </span>
-        <Tag intent="warn" className="ml-auto">
-          Pending live data
-        </Tag>
+        {trades.length > 0 ? (
+          <Pill intent="bid" icon={<StatusDot state="live" size={6} pulse />}>
+            live
+          </Pill>
+        ) : null}
       </header>
-      <div className="flex-1 min-h-0 overflow-hidden">
-        <p className="px-3 py-3 text-[12px] text-fg-muted">
-          Awaiting trades — no public-trade WebSocket channel wired yet.
-        </p>
-        <div className="opacity-50 pointer-events-none">
-          <TapeRow side="bid" time={SAMPLE_TAPE_TIME} size={0.123} price={0} />
-        </div>
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {visible.length === 0 ? (
+          <p className="px-3 py-3 text-[12px] text-fg-muted">
+            Awaiting trades — no prints yet for this symbol.
+          </p>
+        ) : (
+          visible.map((t, i) => (
+            <TapeRow
+              key={`${t.tradeId ?? t.timestampMs}-${i}`}
+              side={t.side}
+              time={t.timestampMs}
+              size={t.size}
+              price={t.price}
+              density="compact"
+            />
+          ))
+        )}
       </div>
     </div>
   );
 }
-
-// Stable timestamp for the synthetic tape row example (avoids Date.now() in
-// render — react-hooks/purity rule flags impure calls inside components).
-const SAMPLE_TAPE_TIME = Date.UTC(2026, 4, 8, 14, 0, 0);
 
 /* -------------------------- Bottom tabs --------------------------------- */
 

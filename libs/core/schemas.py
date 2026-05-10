@@ -53,6 +53,31 @@ class MarketTickEvent(BaseEvent):
     price: Price
     volume: Quantity
 
+class OrderBookSnapshotEvent(BaseEvent):
+    """Top-N levels of an exchange orderbook.
+
+    bids/asks are price-sorted ([price, size] pairs):
+      bids descending price (best bid first),
+      asks ascending price (best ask first).
+    Decimal values cross the wire as strings via msgpack default=str.
+    """
+    event_type: Literal[EventType.ORDERBOOK_SNAPSHOT] = EventType.ORDERBOOK_SNAPSHOT
+    symbol: SymbolPair
+    exchange: str
+    bids: List[List[Decimal]]
+    asks: List[List[Decimal]]
+
+class TradeTickEvent(BaseEvent):
+    """A single public trade printed on the exchange tape."""
+    event_type: Literal[EventType.TRADE_TICK] = EventType.TRADE_TICK
+    symbol: SymbolPair
+    exchange: str
+    side: Literal["bid", "ask"]
+    price: Price
+    size: Quantity
+    trade_id: Optional[str] = None
+    trade_ts_ms: int
+
 class SignalEvent(BaseEvent):
     event_type: Literal[EventType.SIGNAL_GENERATED] = EventType.SIGNAL_GENERATED
     profile_id: ProfileId
