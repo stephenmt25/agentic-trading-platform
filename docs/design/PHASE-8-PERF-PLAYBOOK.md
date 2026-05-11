@@ -29,15 +29,22 @@ The local stack must be healthy before the perf session. Verify in this order:
    docker exec deploy-redis-1 redis-cli -a changeme_redis_dev SUBSCRIBE pubsub:orderbook pubsub:trades
    ```
    You should see top-25 BTC/USDT and ETH/USDT snapshots at ~10 Hz plus trade prints. If silent, ingestion is not publishing — fix before profiling.
-4. Open a **clean** Chrome window (cmd+shift+N for incognito; the perf trace is meaningless against a profile that has extensions running).
-5. Navigate to `http://localhost:3001/hot/BTC-USDT`. Confirm the page renders with live orderbook, tape ticking, and the connection pill says `live` (not `stale`).
+4. **Build the frontend in production mode and serve it on a separate port** — `run_all.sh --local-frontend` starts `next dev`, which ships ~25 unbundled per-module chunks, the unminified dev build of `lightweight-charts`, and a Turbopack HMR runtime, none of which exist in a real user's bundle. The §8.4 gates ("FCP < 1,500 ms") are derived from Lighthouse Mobile defaults which assume a production build, so measuring dev is apples-to-oranges. From `aion-trading-redesign/frontend/`:
+   ```bash
+   npm run build          # ~30-60 s
+   npx next start -p 3002 # leaves dev on :3001 untouched
+   ```
+   Use **`http://localhost:3002`** as the perf-measurement origin from here on. If `next build` fails on TS errors, fix them first — don't bypass with `typescript.ignoreBuildErrors`, because the gates assume the same code that would ship.
+5. Open a **clean** Chrome window (cmd+shift+N for incognito; the perf trace is meaningless against a profile that has extensions running).
+6. Navigate to `http://localhost:3002/hot/BTC-USDT`. Confirm the page renders with live orderbook, tape ticking, and the connection pill says `live` (not `stale`). Auth: NextAuth is OAuth-only — easiest path for a clean perf session is to inject your `next-auth.session-token` cookie (DevTools → Application → Cookies → copy from your own logged-in browser at `:3001`, paste into the perf-session origin at `:3002`; cookies on `localhost` are port-agnostic in Chrome).
 
 ---
 
-## A. FCP measurement (Lighthouse — 5 min)
+## A. FCP measurement (5 min)
 
-Goal: confirm clean-cache FCP < 1500 ms on `/hot/BTC-USDT`.
+Goal: confirm FCP < 1500 ms on `/hot/BTC-USDT` against the **prod build at `:3002`** (Pre-flight step 4). Serving prod on a fresh origin means the browser's cache for `:3002` is automatically cold — no manual cache-clearing required.
 
+**Option A1 — DevTools Lighthouse (manual)**
 1. Open DevTools (F12) → **Lighthouse** tab.
 2. Categories: check only **Performance**.
 3. Mode: **Navigation** (default).
@@ -45,8 +52,18 @@ Goal: confirm clean-cache FCP < 1500 ms on `/hot/BTC-USDT`.
 5. Click **Analyze page load**.
 6. Read the FCP value off the report. Screenshot the report card.
 
+> ⚠️ Lighthouse will hang waiting for network idle because the live WebSocket never quiets. Either (a) stop `services/ingestion` for the duration of the run, or (b) use Option A2 below which neutralises the WS via a page-init script.
+
+**Option A2 — chrome-devtools MCP (scriptable)**
+1. `emulate` viewport `360x640x2.625,mobile,touch`, network `Slow 4G`, CPU `4×`.
+2. Inject the `next-auth.session-token` cookie via `evaluate_script` (from your own logged-in browser).
+3. `performance_start_trace` with `reload: false, autoStop: false`.
+4. `navigate_page` to `http://localhost:3002/hot/BTC-USDT` with `initScript` that replaces `window.WebSocket` with a no-op stub (prevents WS-idle starvation on the trace recorder).
+5. `wait_for` page content, then `performance_stop_trace`.
+6. Read FCP from `performance.getEntriesByType('paint')` via `evaluate_script` — the MCP trace summary surfaces LCP but not FCP directly. See `docs/design/perf-traces/2026-05-11-results.md` for a worked example.
+
 **Pass condition:** Mobile FCP < 1500 ms.
-**If it fails:** capture the trace (Lighthouse export → HTML), file under `docs/design/perf-traces/2026-05-10-fcp-fail.html`, log severity HIGH in TECH-DEBT-REGISTRY. Common causes to check first: `PRAXIS_PROFILE` font loading (IBM Plex), eager-loaded `lightweight-charts` bundle, large agent feed payload at first render.
+**If it fails:** capture the trace (Lighthouse HTML or MCP JSON), file under `docs/design/perf-traces/<date>-fcp-fail.*`, log severity HIGH in TECH-DEBT-REGISTRY. Common causes to check first: `next/font/google` IBM Plex weight count (currently 4 sans + 3 mono = 7 woff2 preloads on critical path), eager-imported `lightweight-charts` in `components/trading/PriceChart.tsx` (consider `next/dynamic` if the chart isn't in the LCP element), large agent feed payload at first render.
 
 ---
 
