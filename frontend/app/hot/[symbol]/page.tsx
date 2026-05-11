@@ -15,6 +15,9 @@ import {
   Shield,
   Loader2,
   X,
+  FlaskConical,
+  Beaker,
+  AlertTriangle,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,6 +50,7 @@ import { useOrderBookStore } from "@/lib/stores/orderbookStore";
 import { useOrdersStore, type OptimisticOrder } from "@/lib/stores/ordersStore";
 import { usePortfolioStore } from "@/lib/stores/portfolioStore";
 import { useTapeStore, type TradePrint } from "@/lib/stores/tapeStore";
+import { useTradingModeStore } from "@/lib/stores/tradingModeStore";
 import { cn } from "@/lib/utils";
 
 /**
@@ -410,6 +414,18 @@ function HotChrome({
   killArmed,
   onOpenKillModal,
 }: HotChromeProps) {
+  const tradingMode = useTradingModeStore((s) => s.mode);
+  // Per Phase 8.1 GAP-3 (real-money risk class): show the active mode next
+  // to the kill-switch on /hot so a glance never misreads paper vs live.
+  // The store is bootstrap-fetched by the chrome StatusPills.
+  const modeMeta = tradingMode
+    ? tradingMode === "PAPER"
+      ? { Icon: FlaskConical, tone: "border-warn-700/50 bg-warn-700/15 text-warn-400" }
+      : tradingMode === "TESTNET"
+        ? { Icon: Beaker, tone: "border-accent-700/50 bg-accent-900/30 text-accent-400" }
+        : { Icon: AlertTriangle, tone: "border-danger-700/50 bg-danger-700/15 text-danger-500" }
+    : null;
+
   return (
     <header className="border-b border-border-subtle">
       {/* Breadcrumb row */}
@@ -493,6 +509,18 @@ function HotChrome({
           )}
           {killArmed ? "armed-soft" : "disarmed"}
         </button>
+        {modeMeta && tradingMode && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full border text-[11px] num-tabular font-medium",
+              modeMeta.tone
+            )}
+            aria-label={`Trading mode: ${tradingMode}`}
+          >
+            <modeMeta.Icon className="w-3 h-3" strokeWidth={1.5} aria-hidden />
+            {tradingMode.toLowerCase()}
+          </span>
+        )}
         <span className="text-fg-muted text-[12px] inline-flex items-center gap-1">
           <Tag intent="warn">Pending</Tag>
           <span>agent count</span>

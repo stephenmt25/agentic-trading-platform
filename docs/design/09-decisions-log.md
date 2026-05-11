@@ -287,6 +287,53 @@ Architecture-Decision-Record style log for the design choices that need explicit
 
 ---
 
+## ADR-015 — Manual daily-report generation button removed
+
+**Date:** 2026-05-11
+
+**Decision:** The legacy "manually generate today's daily report" button (`api.paperTrading.generateReport(date)`) is intentionally NOT carried into the redesign. The daemon-side scheduler is the only path to a daily report on the redesign branch.
+
+**Context:** The legacy `/trade` page surfaced a one-click "Generate daily report" button that called `POST /paper-trading/reports/generate`. The endpoint is idempotent server-side and still exists. The daemon in `services/archiver` (or equivalent) already runs the same generation every day at the configured UTC time. Phase 8.1 parity audit (`PHASE-8-PARITY-AUDIT.md`) flagged this as GAP-4 — non-blocker, ops convenience for backfilling a missed day.
+
+**Alternatives considered:**
+1. Add a small admin row in `/settings/audit` with a date picker — rejected; we have no signal that ops users have ever backfilled in production. Adds a settings surface to maintain for an unverified need.
+2. Add it under `/backtests` — rejected; conflates backtest results (synthetic data, what-if) with paper-trading reports (actual paper fills). Different mental models.
+3. Keep parity and surface it where the legacy page had it — rejected; that legacy page is being deleted at Phase 9 cutover, so the button would need a new home anyway.
+
+**Rationale:** The redesign discipline (ADR-013 "render structure, never fake") cuts the other way too: don't ship surfaces that exist mainly because a legacy app had them. When (if) an ops user needs to backfill a report, the endpoint is still there for a one-off `curl` or a future admin tool. Optimizing for a verified-recurring need instead of a hypothetical-future one keeps the surface count honest.
+
+**Consequences:**
+- `app/paper-trading/page.tsx` (legacy) will be deleted at Phase 9 cutover; no redesign equivalent of its "Generate report" button ships.
+- TECH-DEBT-REGISTRY row for GAP-4 (dated 2026-05-10) marked RESOLVED via this ADR — no code change required.
+- If ops feedback after Phase 9 surfaces a recurring backfill need, revisit by adding a small button under `/settings/audit`. Don't pre-build.
+
+---
+
+## ADR-016 — HITL approval queue lives on /agents/observatory (not a dedicated /approvals surface)
+
+**Date:** 2026-05-11
+
+**Decision:** The human-in-the-loop approval queue (`api.hitl.pending` / `api.hitl.respond`) is embedded on `/agents/observatory` as a "Pending Approvals (HITL)" section above the existing agent telemetry stream, sharing the override-flow language of the DebatePanel spec. No dedicated `/approvals` sub-route is created.
+
+**Context:** The legacy `app/approval/page.tsx` was a stand-alone surface listing pending HITL requests with Approve / Reject buttons. Phase 8.1 parity audit (`PHASE-8-PARITY-AUDIT.md`) flagged this as GAP-2 — Phase 9 cutover blocker because deleting the legacy page would leave users with no way to act on gated trades. Two reasonable redesign homes existed: (A) embed in the DebatePanel `interventionEnabled` variant on `/agents/observatory` (specced in `04-component-specs/agentic.md`), or (B) a dedicated `/approvals` surface that 1:1 ports the legacy page under the redesign chrome.
+
+**Alternatives considered:**
+1. **Option B — dedicated `/approvals` route.** Safer (smaller blast radius), more discoverable. Rejected because it adds a top-level surface for a flow that is conceptually a special case of "human overrides the agent stack," which is exactly what the observatory's DebatePanel override flow already models. Adding a new surface dilutes the IA.
+2. **A floating toast / global modal triggered by `pubsub:hitl_pending`.** Rejected because it makes the decision context (agent scores, risk metrics, trigger reason) hard to read and the approval ephemeral — a user dismissing the toast loses the request from view.
+3. **Status pill in chrome that links to /approvals when there's a pending request.** Rejected as a half-measure: still requires the dedicated surface from option B, just adds a deep link.
+
+**Rationale:** HITL approvals ARE a human-in-the-loop override of the agent debate — same semantic as the DebatePanel "override decision" footer button, just initiated from the server side instead of the client side. Co-locating them on the observatory surface keeps "I am intervening in what the agents decided" as one coherent flow rather than splitting it across two surfaces. The observatory header tag updates from `no pending approvals` (neutral) to `N pending approval(s)` (warn) to give a global indicator without needing chrome-level signaling.
+
+**Consequences:**
+- New component `components/agentic/HITLApprovalCard.tsx` ships as the unit. Composed by the observatory page into a "Pending Approvals (HITL)" section between the page header and the 3-column main layout.
+- Per-card: Approve = single-click; Reject = 2-step with an inline reason textarea (logged to audit). Both call `api.hitl.respond`; resolved cards auto-close in 3 s.
+- Page bootstrap seeds the store via `api.hitl.pending()`; the WS push handler in `lib/ws/client.ts` continues to add new requests in real time.
+- TECH-DEBT-REGISTRY row for GAP-2 (dated 2026-05-10) marked RESOLVED via this ADR + the implementation commit.
+- The legacy `app/approval/page.tsx` continues to function until Phase 9 cutover deletes it. After cutover, the only home for HITL is `/agents/observatory`.
+- If future scale (e.g. dozens of simultaneous pending approvals) makes the embedded section too dense, revisit by promoting to a dedicated `/approvals` sub-route — but stay with embedded until that need is real.
+
+---
+
 ## How to add a new ADR
 
 When the design portfolio needs a new explicit decision:

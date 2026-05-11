@@ -40,3 +40,7 @@ export {
   type AgentSummaryPanelProps,
   type AgentSummaryState,
 } from "./AgentSummaryPanel";
+export {
+  HITLApprovalCard,
+  type HITLApprovalCardProps,
+} from "./HITLApprovalCard";

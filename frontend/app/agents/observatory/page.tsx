@@ -12,10 +12,12 @@ import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 import { Button, Input, Select, Tag } from "@/components/primitives";
 import { Pill, StatusDot } from "@/components/data-display";
-import { AgentTrace } from "@/components/agentic";
+import { AgentTrace, HITLApprovalCard } from "@/components/agentic";
 import type { AgentKind } from "@/components/agentic/AgentAvatar";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
+import { useHITLStore } from "@/lib/stores/hitlStore";
+import { api } from "@/lib/api/client";
 import type { AgentTelemetryEvent } from "@/lib/types/telemetry";
 
 import { Roster, ROSTER_KINDS, KIND_TO_BACKEND } from "./_components/Roster";
@@ -56,6 +58,25 @@ export default function AgentObservatoryPage() {
   const agents = useAgentViewStore((s) => s.agents);
   const globalFeed = useAgentViewStore((s) => s.globalFeed);
   const wsConnected = useConnectionStore((s) => s.backendStatus) === "connected";
+  // HITL pending queue — per Phase 8.1 GAP-2 / ADR-016, this lives on
+  // /agents/observatory next to the DebatePanel-style override flow.
+  // The WS subscription (lib/ws/client.ts) pushes new pending requests into
+  // the store; on first paint we seed from REST so the panel isn't empty
+  // for requests that arrived before the WS reconnected.
+  const hitlRequests = useHITLStore((s) => s.pendingRequests);
+  const seedHITL = useHITLStore((s) => s.seedRequests);
+  useEffect(() => {
+    if (!wsConnected) return;
+    let cancelled = false;
+    api.hitl.pending()
+      .then((requests) => {
+        if (cancelled) return;
+        seedHITL(requests.map((r) => ({ ...r, status: "PENDING" as const })));
+      })
+      .catch(() => { /* offline — WS will catch up */ });
+    return () => { cancelled = true; };
+  }, [wsConnected, seedHITL]);
+  const pendingHITLCount = hitlRequests.filter((r) => r.status === "PENDING").length;
 
   const [enabled, setEnabled] = useState<Set<AgentKind>>(
     () => new Set(ROSTER_KINDS)
@@ -197,9 +218,38 @@ export default function AgentObservatoryPage() {
           </Pill>
         </div>
         <div className="flex items-center gap-2">
-          <Tag intent="warn">Pending overrides</Tag>
+          {pendingHITLCount > 0 ? (
+            <Tag intent="warn" data-testid="hitl-pending-tag">
+              {pendingHITLCount} pending approval{pendingHITLCount === 1 ? "" : "s"}
+            </Tag>
+          ) : (
+            <Tag intent="neutral">no pending approvals</Tag>
+          )}
         </div>
       </header>
+
+      {/* HITL approvals — per ADR-016, this is the redesign home for the
+          human-in-the-loop queue (replacing the legacy /approval surface). */}
+      {hitlRequests.length > 0 && (
+        <section
+          aria-label="Pending human-in-the-loop approvals"
+          className="border-b border-border-subtle bg-warn-700/5 px-6 py-3"
+        >
+          <header className="flex items-baseline gap-2 mb-2">
+            <h2 className="text-[12px] uppercase tracking-wider text-warn-400 font-medium">
+              Pending Approvals (HITL)
+            </h2>
+            <span className="text-[11px] text-fg-muted">
+              {pendingHITLCount} awaiting decision · resolved items auto-close in 3s
+            </span>
+          </header>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+            {hitlRequests.map((req) => (
+              <HITLApprovalCard key={req.event_id} request={req} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* Left rail */}
