@@ -1,0 +1,50 @@
+S3 — Kill-switch fail-safe probe with Redis down
+
+# Baseline (Redis up):
+22:02:00 GET /commands/kill-switch  -> 200 {"active":false,"reason":null,"activated_at":null}
+
+# Redis stopped:
+22:03:59 docker stop deploy-redis-1  -> deploy-redis-1
+
+# Post-Redis-stop probe (curl --max-time 10):
+22:04:09 GET /commands/kill-switch  -> [HTTP 000] curl exit 28 (operation timed out)
+              (waited 10s, no response — endpoint hangs)
+
+# Root cause (read from libs/storage/_redis_client.py:10):
+RedisClient.__init__ calls:
+    redis.ConnectionPool.from_url(url, max_connections=100)
+with NO socket_timeout / socket_connect_timeout.
+
+# Effect chain:
+  - Existing pool connections to dead Redis don't get a socket error → recv() blocks indefinitely
+  - KillSwitch.is_active() has the right `try/except → return True` fail-safe pattern,
+    but the await never raises because the call hangs instead. Try-block is bypassed.
+  - GET /commands/kill-switch handler awaits KillSwitch.status() → hangs forever
+  - Frontend killSwitchStore poll also hangs → UI pill stays at last known "armed: off"
+  - Execution service's hot-path tick loop deadlocks on the same await
+    → fail-safe by deadlock (no new orders), but not by explicit ACTIVE state
+
+# Per playbook severity classification:
+  - NOT CRITICAL: API did not return `off` after Redis loss
+  - NOT clean PASS: API didn't return a non-`off` state either; it hung
+  - Recommended classification: HIGH — fail-safe is implemented in code but defeated
+    by the Redis client config. Add socket_timeout to ConnectionPool.from_url so that
+    is_active()'s try/except catches the timeout exception and returns True explicitly.
+
+# Suggested fix:
+  libs/storage/_redis_client.py:10
+    redis.ConnectionPool.from_url(
+        url,
+        max_connections=100,
+        socket_timeout=5.0,             # NEW — bounded read
+        socket_connect_timeout=2.0,     # NEW — bounded reconnect attempt
+        health_check_interval=15,       # NEW — proactively detect dead conns
+    )
+
+# WS observation (api_gateway up, Redis down):
+- WS handshake to /ws still succeeds (api_gateway is up). 4 events captured client-side:
+    next-hmr open, ws://localhost:8000/ws open. No drop, no exponential backoff.
+- Server-side `pubsub.subscribe()` inside routes/ws.py listen_to_redis() likely hangs
+  too (same socket_timeout=0 root cause), but doesn't kill the outer WS connection.
+- Net: connection pill says "live", kill-switch pill says "armed: off", no data flows.
+  User-visible signal of Redis loss is absent — also part of the HIGH finding.
