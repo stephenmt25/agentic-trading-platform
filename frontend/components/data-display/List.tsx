@@ -97,8 +97,8 @@ export const ListItem = forwardRef<HTMLButtonElement, ListItemProps>(
       : ({} as Record<string, unknown>);
 
     return (
+      // @ts-expect-error — polymorphic element-type union (button | div) widens props
       <Component
-        // @ts-expect-error — element-type union
         role="listitem"
         className={cn(itemCx({ interactive, dense, withDividers }), className)}
         {...(componentProps as ButtonHTMLAttributes<HTMLButtonElement>)}

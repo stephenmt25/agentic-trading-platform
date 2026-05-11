@@ -140,6 +140,7 @@ function describeRules(rules: TemplateRules): string[] {
       lines.push(`short ${rules.match_mode_short ?? "all"}: ${rules.entry_short.map(formatSignal).join(", ")}`);
     }
   } else {
+    // @ts-expect-error — legacy template-rules schema (pre-entry_long/entry_short); runtime branch retained for back-compat
     lines.push(`${rules.direction} ${rules.match_mode}: ${rules.signals.map(formatSignal).join(", ")}`);
   }
   lines.push(`confidence: ${rules.confidence}`);
