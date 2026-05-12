@@ -18,6 +18,14 @@ PUBSUB_ALERTS = "pubsub:alerts"
 PUBSUB_SYSTEM_ALERTS = "pubsub:system_alerts"
 PUBSUB_THRESHOLD_PROXIMITY = "pubsub:threshold_proximity"
 
+# Live market microstructure for the /hot surface. Both are global (not
+# per-symbol): payload carries `symbol` and frontends filter — keeps the
+# WebSocket subscription list bounded and avoids per-symbol fan-out logic
+# in services/ingestion. Throughput is capped by CCXT's debounce inside
+# watch_order_book / watch_trades (~10Hz on Binance Spot).
+PUBSUB_ORDERBOOK = "pubsub:orderbook"
+PUBSUB_TRADES = "pubsub:trades"
+
 # Agent telemetry (real-time dashboard)
 PUBSUB_AGENT_TELEMETRY = "pubsub:agent_telemetry"
 

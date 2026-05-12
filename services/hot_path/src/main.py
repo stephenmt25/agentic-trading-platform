@@ -83,6 +83,10 @@ async def wait_for_hydration_complete(redis_client, state_cache: ProfileStateCac
 async def lifespan(app: FastAPI):
     # Initialize Core Setup
     redis_instance = RedisClient.get_instance(settings.REDIS_URL).get_connection()
+    # HITLGate's BLPOP blocks up to HITL_TIMEOUT_S (60 s by default) — must
+    # use the no-socket-timeout pool so a routine pool socket_timeout doesn't
+    # truncate human-response windows.
+    hitl_redis = RedisClient.get_long_blocking_instance(settings.REDIS_URL).get_connection()
     consumer = StreamConsumer(redis_instance)
     publisher = StreamPublisher(redis_instance)
     pubsub = PubSubBroadcaster(redis_instance)
@@ -251,6 +255,7 @@ async def lifespan(app: FastAPI):
         orders_channel=ORDERS_STREAM,
         proximity_pubsub_channel=PUBSUB_THRESHOLD_PROXIMITY,
         redis_client=redis_instance,
+        hitl_redis_client=hitl_redis,
         telemetry=telemetry,
         decision_writer=decision_writer,
     )

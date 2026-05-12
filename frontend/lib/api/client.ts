@@ -353,6 +353,54 @@ export const api = {
       }>(`/positions/${encodeURIComponent(positionId)}/close`, { method: "POST" }),
   },
 
+  orders: {
+    // Manual order submission from /hot. Returns 202 with the pre-allocated
+    // order_id; execution happens asynchronously and the order surfaces in
+    // GET /orders once the executor (services/execution) consumes the event.
+    submit: (req: {
+      profile_id: string;
+      symbol: string;
+      side: "BUY" | "SELL";
+      type: "market" | "limit";
+      quantity: string;
+      price?: string;
+    }) =>
+      apiRequest<{
+        order_id: string;
+        status: string;
+        submitted_at: string;
+      }>("/orders/", { method: "POST", body: req }),
+
+    list: (opts?: { status?: string; profileId?: string; symbol?: string; limit?: number }) => {
+      const params = new URLSearchParams();
+      if (opts?.status) params.set("status", opts.status);
+      if (opts?.profileId) params.set("profile_id", opts.profileId);
+      if (opts?.symbol) params.set("symbol", opts.symbol);
+      if (opts?.limit !== undefined) params.set("limit", String(opts.limit));
+      const qs = params.toString();
+      return apiRequest<Array<{
+        order_id: string;
+        profile_id: string;
+        symbol: string;
+        side: "BUY" | "SELL";
+        quantity: string;
+        price: string;
+        status: string;
+        exchange: string;
+        created_at: string;
+        filled_at?: string | null;
+        fill_price?: string | null;
+        decision_event_id?: string | null;
+      }>>(qs ? `/orders/?${qs}` : "/orders/");
+    },
+
+    cancel: (orderId: string) =>
+      apiRequest<{ status: string; order_id: string }>(
+        `/orders/${encodeURIComponent(orderId)}/cancel`,
+        { method: "POST" }
+      ),
+  },
+
   paperTrading: {
     status: () =>
       apiRequest<PaperTradingStatus>("/paper-trading/status"),
@@ -902,6 +950,37 @@ export const api = {
         avg_pnl_pct: number | null;
         median_holding_s: number | null;
       }>>(`/audit/close-reasons${query ? `?${query}` : ""}`);
+    },
+
+    // User-action audit log (Settings → Audit log surface). Read-only
+    // aggregator. Today's source: kill-switch transitions from Redis.
+    // available_types lists the event types that the backend can emit
+    // right now; pending_types is everything in the spec that doesn't
+    // have a source yet. The shape is stable so the UI can wire by type.
+    userEvents: (params?: {
+      type?: "all" | "kill_switch" | "profile" | "api_key" | "override" | "auth_fail";
+      from?: number;
+      to?: number;
+      limit?: number;
+    }) => {
+      const qs = new URLSearchParams();
+      if (params?.type && params.type !== "all") qs.set("event_type", params.type);
+      if (params?.from !== undefined) qs.set("from", String(params.from));
+      if (params?.to !== undefined) qs.set("to", String(params.to));
+      if (params?.limit !== undefined) qs.set("limit", String(params.limit));
+      const query = qs.toString();
+      return apiRequest<{
+        events: Array<{
+          id: string;
+          type: string;
+          description: string;
+          actor: string;
+          timestamp_ms: number;
+        }>;
+        available_types: string[];
+        pending_types: string[];
+        fetched_at: string;
+      }>(`/audit/user-events${query ? `?${query}` : ""}`);
     },
   },
 

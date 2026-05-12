@@ -101,7 +101,7 @@ A v1 issue resolved in this draft is **not** listed here — see commit history 
 **Issue:** The portfolio enforces token discipline by convention. There's no automated check that catches a generated component using a hex color that's not in the palette.
 
 **v1.1 plan:** Either:
-(a) ESLint rule that bans hex colors in `frontend/src/components/**` (must use Tailwind class or var)
+(a) ESLint rule that bans hex colors in `frontend/components/**` (must use Tailwind class or var)
 (b) Style Dictionary build step that compiles tokens.json and exports a list of permitted tokens for runtime validation
 (c) Pre-commit hook similar to the `edit-validator.sh` in CLAUDE.md §6, but for design
 

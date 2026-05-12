@@ -20,6 +20,10 @@ logger = get_logger("backtesting")
 async def lifespan(app: FastAPI):
     # Connections
     redis_instance = RedisClient.get_instance(settings.REDIS_URL).get_connection()
+    # Job-runner xreadgroup uses block=5000 — right at the default pool's
+    # socket_timeout boundary, which produces spurious TimeoutErrors. Give
+    # the worker its own no-socket-timeout pool.
+    job_redis = RedisClient.get_long_blocking_instance(settings.REDIS_URL).get_connection()
     timescale_client = TimescaleClient(settings.DATABASE_URL)
     await timescale_client.init_pool()
 
@@ -34,7 +38,7 @@ async def lifespan(app: FastAPI):
     runner = JobRunner(
         consumer, publisher, loader,
         backtest_repo=backtest_repo,
-        redis_client=redis_instance,
+        redis_client=job_redis,
     )
 
     # Loop

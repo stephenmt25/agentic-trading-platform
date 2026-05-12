@@ -38,6 +38,7 @@ class HotPathProcessor:
         orders_channel: str,
         proximity_pubsub_channel: str,
         redis_client=None,
+        hitl_redis_client=None,
         telemetry: TelemetryPublisher = None,
         decision_writer: Optional[DecisionTraceWriter] = None,
     ):
@@ -60,8 +61,10 @@ class HotPathProcessor:
         # Sprint 9.5: Agent modifier for TA + sentiment scores
         self._agent_modifier = AgentModifier(redis_client) if redis_client else None
 
-        # Phase 3: HITL execution gate
-        self._hitl_gate = HITLGate(redis_client, pubsub) if redis_client else None
+        # Phase 3: HITL execution gate. Uses a separate Redis client with no
+        # socket_timeout so the 60 s BLPOP for human response isn't truncated
+        # by the default-pool's 5 s socket_timeout.
+        self._hitl_gate = HITLGate(hitl_redis_client or redis_client, pubsub) if redis_client else None
 
     async def run(self):
         logger.info("HotPath Processor started consuming loop.")

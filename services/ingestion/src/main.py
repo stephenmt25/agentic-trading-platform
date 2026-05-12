@@ -6,12 +6,14 @@ import uvicorn
 from fastapi import FastAPI
 
 from libs.config import settings
-from libs.core.schemas import MarketTickEvent
+from libs.core.schemas import MarketTickEvent, OrderBookSnapshotEvent, TradeTickEvent
 from libs.exchange import get_adapter
 from libs.exchange.backfill import fill_gaps
 from libs.messaging import (
     MARKET_DATA_STREAM,
+    PUBSUB_ORDERBOOK,
     PUBSUB_PRICE_TICKS,
+    PUBSUB_TRADES,
     PubSubBroadcaster,
     StreamPublisher,
 )
@@ -88,6 +90,38 @@ async def handle_candle(candle):
     await candle_aggregator.handle_candle(candle)
 
 
+async def handle_orderbook(book):
+    """Top-N depth → broadcast on PUBSUB_ORDERBOOK for the /hot UI.
+
+    The frontend filters by symbol — keeps the WS subscription list bounded.
+    """
+    event = OrderBookSnapshotEvent(
+        symbol=book.symbol,
+        exchange=book.exchange,
+        bids=[list(level) for level in book.bids],
+        asks=[list(level) for level in book.asks],
+        timestamp_us=int(book.timestamp_ms) * 1000,
+        source_service="ingestion",
+    )
+    await pubsub_broadcaster.publish(PUBSUB_ORDERBOOK, event)
+
+
+async def handle_trade(trade):
+    """Public-trade prints → broadcast on PUBSUB_TRADES for the /hot UI tape."""
+    event = TradeTickEvent(
+        symbol=trade.symbol,
+        exchange=trade.exchange,
+        side=trade.side,
+        price=trade.price,
+        size=trade.size,
+        trade_id=trade.trade_id,
+        trade_ts_ms=int(trade.timestamp_ms),
+        timestamp_us=int(trade.timestamp_ms) * 1000,
+        source_service="ingestion",
+    )
+    await pubsub_broadcaster.publish(PUBSUB_TRADES, event)
+
+
 async def _backfill_on_startup():
     """Fill the gap between max(bucket) in DB and now, for every tracked pair.
 
@@ -110,7 +144,12 @@ async def lifespan(app: FastAPI):
     await _backfill_on_startup()
 
     logger.info("Starting Ingestion Agent...")
-    await ws_manager.start(handle_tick, handle_candle)
+    await ws_manager.start(
+        handle_tick,
+        handle_candle,
+        orderbook_callback=handle_orderbook,
+        trade_callback=handle_trade,
+    )
     await telemetry.start_health_loop()
     yield
 

@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Callable, Coroutine, Dict, List, Any
 import ccxt.pro as ccxt
 import time
-from ._base import ExchangeAdapter, OrderResult
+from ._base import ExchangeAdapter, NormalisedOrderBook, NormalisedTrade, OrderResult
 from ._normaliser import normalise_binance_tick
 from libs.core.types import ProfileId, SymbolPair, Quantity, Price
 from libs.core.enums import OrderSide, OrderStatus
@@ -132,6 +132,104 @@ class BinanceAdapter(ExchangeAdapter):
                     break
                 except Exception as e:
                     print(f"[{self.name}] candle unexpected error ({symbol}): {e}")
+                    await self._handle_reconnect()
+
+        await asyncio.gather(*(_watch_one(s) for s in symbols))
+
+    async def stream_orderbook(
+        self,
+        symbols: List[SymbolPair],
+        callback: Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]],
+        depth: int = 25,
+    ):
+        """Top-N orderbook snapshots via CCXT watch_order_book.
+
+        CCXT debounces internally — Binance Spot delivers ~10Hz updates per
+        symbol, well within Redis pubsub headroom. Each loop yields a fresh
+        dict; we trim to `depth` levels per side and emit one snapshot per
+        change.
+        """
+        self.is_connected = True
+
+        async def _watch_one(symbol: str):
+            while self.is_connected:
+                try:
+                    ob = await self.exchange.watch_order_book(symbol, limit=depth)
+                    bids = [(Decimal(str(p)), Decimal(str(s))) for p, s in (ob.get("bids") or [])[:depth]]
+                    asks = [(Decimal(str(p)), Decimal(str(s))) for p, s in (ob.get("asks") or [])[:depth]]
+                    ts_ms = int(ob.get("timestamp") or 0)
+                    if not ts_ms:
+                        ts_ms = int(time.time() * 1000)
+                    if not bids and not asks:
+                        continue
+                    await callback(
+                        NormalisedOrderBook(
+                            symbol=symbol,
+                            exchange=self.name,
+                            bids=bids,
+                            asks=asks,
+                            timestamp_ms=ts_ms,
+                        )
+                    )
+                    self.reconnect_delay = 1.0
+                except ccxt.NetworkError as e:
+                    print(f"[{self.name}] orderbook NetworkError ({symbol}): {e}")
+                    await self._handle_reconnect()
+                except ccxt.ExchangeClosedByUser:
+                    break
+                except Exception as e:
+                    print(f"[{self.name}] orderbook unexpected error ({symbol}): {e}")
+                    await self._handle_reconnect()
+
+        await asyncio.gather(*(_watch_one(s) for s in symbols))
+
+    async def stream_trades(
+        self,
+        symbols: List[SymbolPair],
+        callback: Callable[[NormalisedTrade], Coroutine[Any, Any, None]],
+    ):
+        """Public trade prints via CCXT watch_trades.
+
+        Each call returns the trades that occurred since the last poll; we
+        emit one NormalisedTrade per row. CCXT canonicalises Binance's
+        'buy' / 'sell' to lowercase 'buy'/'sell'; we map to bid/ask
+        (taker side: a buy lifts the ask, a sell hits the bid).
+        """
+        self.is_connected = True
+
+        async def _watch_one(symbol: str):
+            while self.is_connected:
+                try:
+                    trades = await self.exchange.watch_trades(symbol)
+                    for t in trades:
+                        ccxt_side = (t.get("side") or "").lower()
+                        side = "ask" if ccxt_side == "buy" else "bid"
+                        ts = t.get("timestamp")
+                        ts_ms = int(ts) if ts else int(time.time() * 1000)
+                        try:
+                            price = Decimal(str(t.get("price")))
+                            size = Decimal(str(t.get("amount")))
+                        except Exception:
+                            continue
+                        await callback(
+                            NormalisedTrade(
+                                symbol=symbol,
+                                exchange=self.name,
+                                side=side,
+                                price=price,
+                                size=size,
+                                timestamp_ms=ts_ms,
+                                trade_id=str(t.get("id")) if t.get("id") is not None else None,
+                            )
+                        )
+                    self.reconnect_delay = 1.0
+                except ccxt.NetworkError as e:
+                    print(f"[{self.name}] trades NetworkError ({symbol}): {e}")
+                    await self._handle_reconnect()
+                except ccxt.ExchangeClosedByUser:
+                    break
+                except Exception as e:
+                    print(f"[{self.name}] trades unexpected error ({symbol}): {e}")
                     await self._handle_reconnect()
 
         await asyncio.gather(*(_watch_one(s) for s in symbols))

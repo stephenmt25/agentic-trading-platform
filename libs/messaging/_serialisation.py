@@ -1,6 +1,6 @@
 import msgpack
 from typing import Any, Dict
-from libs.core.schemas import BaseEvent, MarketTickEvent, SignalEvent, OrderApprovedEvent, OrderRejectedEvent, OrderExecutedEvent, ValidationRequestEvent, ValidationResponseEvent, PnlUpdateEvent, CircuitBreakerEvent, AlertEvent, ThresholdProximityEvent
+from libs.core.schemas import BaseEvent, MarketTickEvent, SignalEvent, OrderApprovedEvent, OrderRejectedEvent, OrderExecutedEvent, ValidationRequestEvent, ValidationResponseEvent, PnlUpdateEvent, CircuitBreakerEvent, AlertEvent, ThresholdProximityEvent, OrderBookSnapshotEvent, TradeTickEvent
 from libs.core.exceptions import SchemaVersionMismatchError
 
 EVENT_MAP = {
@@ -17,6 +17,8 @@ EVENT_MAP = {
     "ALERT_RED": AlertEvent,
     "SYSTEM_ALERT": AlertEvent,
     "THRESHOLD_PROXIMITY": ThresholdProximityEvent,
+    "ORDERBOOK_SNAPSHOT": OrderBookSnapshotEvent,
+    "TRADE_TICK": TradeTickEvent,
 }
 
 # Add explicitly validation event schemas that share same enum name but different types
@@ -64,7 +66,9 @@ def decode_event(data: bytes) -> BaseEvent:
         "PnlUpdateEvent": PnlUpdateEvent,
         "CircuitBreakerEvent": CircuitBreakerEvent,
         "AlertEvent": AlertEvent,
-        "ThresholdProximityEvent": ThresholdProximityEvent
+        "ThresholdProximityEvent": ThresholdProximityEvent,
+        "OrderBookSnapshotEvent": OrderBookSnapshotEvent,
+        "TradeTickEvent": TradeTickEvent,
     }
 
     if event_type_str not in models:

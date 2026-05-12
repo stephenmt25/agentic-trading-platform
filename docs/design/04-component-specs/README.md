@@ -8,7 +8,9 @@ This folder defines every reusable building block in Praxis. Each component spec
 |---|---|
 | `primitives.md` | Button, Input, Select, Checkbox, Toggle, Tag/Badge, Kbd, Tooltip, Avatar |
 | `data-display.md` | Table (dense), List, KeyValue, Sparkline, Pill, StatusDot |
-| `trading-specific.md` | OrderBook, DepthChart, TapeRow, PnLBadge, RiskMeter, OrderEntryPanel, PositionRow |
+| `chart.md` | Chart (line / area / bar XY chart for COOL-mode analytics; not OHLC) |
+| `price-chart.md` | PriceChart (OHLC + volume, lightweight-charts wrapper for HOT-mode price view) |
+| `trading-specific.md` | OrderBook, DepthChart, TapeRow, PnLBadge, RiskMeter, OrderEntryPanel, PositionRow (PriceChart spec lives in `price-chart.md`) |
 | `agentic.md` | AgentTrace, ReasoningStream, ToolCall, DebatePanel, ConfidenceBar, AgentAvatar |
 | `canvas.md` | Node, Edge, NodePalette, MiniMap, NodeInspector, RunControlBar |
 

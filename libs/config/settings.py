@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     # to allow Vercel frontend through a tunnel
     # REST calls go through Vercel rewrite (same-origin, no CORS needed).
     # CORS is only needed for: local dev and direct WebSocket connections.
-    CORS_ORIGINS: List[str] = Field(default=["http://localhost:3000", "https://frontend-seven-khaki-13.vercel.app"])
+    CORS_ORIGINS: List[str] = Field(default=["http://localhost:3001", "http://localhost:3000", "http://localhost:3002", "https://frontend-seven-khaki-13.vercel.app"])
 
     # Connection pool settings
     DB_POOL_MIN_SIZE: int = Field(default=5)

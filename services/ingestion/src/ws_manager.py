@@ -1,8 +1,9 @@
 import asyncio
-from typing import Any, Callable, Coroutine, Dict, List
+from typing import Any, Callable, Coroutine, Dict, List, Optional
 
 from libs.core.models import NormalisedCandle, NormalisedTick
 from libs.exchange import ExchangeAdapter
+from libs.exchange._base import NormalisedOrderBook, NormalisedTrade
 
 
 class WebSocketManager:
@@ -13,25 +14,36 @@ class WebSocketManager:
         self._tasks: List[asyncio.Task] = []
         self._tick_cb: Callable[[NormalisedTick], Coroutine[Any, Any, None]] = None
         self._candle_cb: Callable[[NormalisedCandle], Coroutine[Any, Any, None]] = None
+        self._orderbook_cb: Optional[Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]]] = None
+        self._trade_cb: Optional[Callable[[NormalisedTrade], Coroutine[Any, Any, None]]] = None
 
     async def start(
         self,
         tick_callback: Callable[[NormalisedTick], Coroutine[Any, Any, None]],
         candle_callback: Callable[[NormalisedCandle], Coroutine[Any, Any, None]] = None,
+        orderbook_callback: Optional[Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]]] = None,
+        trade_callback: Optional[Callable[[NormalisedTrade], Coroutine[Any, Any, None]]] = None,
     ):
         """Start one concurrent task per adapter per stream.
 
-        The tick stream (live pricing) and the candle stream (authoritative
-        OHLCV) run independently; a failure in one does not affect the other.
-        `candle_callback` is optional so existing single-stream deployments keep
-        working.
+        Streams (live pricing, candles, orderbook, trades) run independently;
+        a failure in one does not affect the others. Optional callbacks are
+        no-ops when omitted, so adapters that don't implement orderbook or
+        trades simply don't spawn those tasks (the base class raises
+        NotImplementedError, which we catch and log per stream).
         """
         self._tick_cb = tick_callback
         self._candle_cb = candle_callback
+        self._orderbook_cb = orderbook_callback
+        self._trade_cb = trade_callback
         for adapter in self.adapters:
             self._tasks.append(asyncio.create_task(self._run_ticks(adapter)))
             if candle_callback is not None:
                 self._tasks.append(asyncio.create_task(self._run_candles(adapter)))
+            if orderbook_callback is not None:
+                self._tasks.append(asyncio.create_task(self._run_orderbook(adapter)))
+            if trade_callback is not None:
+                self._tasks.append(asyncio.create_task(self._run_trades(adapter)))
 
     async def _run_ticks(self, adapter: ExchangeAdapter):
         while True:
@@ -49,6 +61,29 @@ class WebSocketManager:
                 break
             except Exception:
                 if not await self._should_retry(adapter, stream="candles"):
+                    break
+
+    async def _run_orderbook(self, adapter: ExchangeAdapter):
+        while True:
+            try:
+                await adapter.stream_orderbook(self.symbols, self._orderbook_cb)
+                break
+            except NotImplementedError:
+                # Adapter doesn't expose depth — skip silently rather than retry.
+                return
+            except Exception:
+                if not await self._should_retry(adapter, stream="orderbook"):
+                    break
+
+    async def _run_trades(self, adapter: ExchangeAdapter):
+        while True:
+            try:
+                await adapter.stream_trades(self.symbols, self._trade_cb)
+                break
+            except NotImplementedError:
+                return
+            except Exception:
+                if not await self._should_retry(adapter, stream="trades"):
                     break
 
     async def _should_retry(self, adapter: ExchangeAdapter, stream: str) -> bool:

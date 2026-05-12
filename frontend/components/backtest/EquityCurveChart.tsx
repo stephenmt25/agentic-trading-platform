@@ -87,9 +87,9 @@ const EquityCurveChartInner: React.FC<EquityCurveChartProps> = ({ series, active
               fontFamily: 'monospace',
             }}
             labelFormatter={(idx) => `Candle #${idx}`}
-            formatter={(value: number | undefined, name: string) => {
+            formatter={(value: number | undefined, name: string | undefined) => {
               const s = series.find((x) => x.id === name);
-              return [`${(value ?? 0).toFixed(2)}%`, s?.label ?? name];
+              return [`${(value ?? 0).toFixed(2)}%`, s?.label ?? name ?? ""];
             }}
           />
           {series.length > 1 && (

@@ -168,53 +168,12 @@ Two columns (split style) or stacked (single-column with mid in middle). Each ro
 
 ---
 
-### Chart
+### PriceChart
 **Used on:** Hot Trading (primary), Backtesting (replay)
 
-A wrapper around an external chart library — **not** a bespoke component. Praxis uses [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/) as the rendering engine; this component is the Praxis-themed wrapper around it.
+OHLC + volume chart. Full spec lives in [`price-chart.md`](./price-chart.md) — split out because OHLC concerns (wicks, gap rules, live-tick flash, volume sub-pane, time-axis at the millisecond grain) diverge from the line/area/bar `Chart` primitive in `chart.md`.
 
-**Anatomy:**
-```
-┌── timeframe tabs   [1m][5m][15m][1h][4h][1d]  │  symbol selector  │  status pills ──┐
-│  ┌──┐                                                                                  │
-│  │  │   ← drawing tools strip (left, inside)                                          │
-│  │ ✎│       pencil, line, fibonacci, eraser                                            │
-│  │  │                                                                                  │
-│  │↕ │   candles                                                                        │
-│  │  │                                                                                  │
-│  └──┘                                                                                  │
-│  volume histogram (thin strip, bottom of candles)                                      │
-│  ┌──────────────────────────────────────────────────────────────────────────────────┐ │
-│  │   depth chart (optional, when withDepthChart=true)                              │ │
-│  └──────────────────────────────────────────────────────────────────────────────────┘ │
-└──────────────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Tokens:**
-- chart bg: `--bg-panel`
-- candle up: `--color-bid-500`, candle down: `--color-ask-500`
-- volume bars: same bid/ask, at 50% saturation
-- crosshair: `--color-neutral-400`, dashed
-- price scale labels: `scale.caption`, `--fg-muted`
-- timeframe tab: `scale.label`, active uses `--fg-primary` + bottom border `--color-accent-500`
-
-**Variants:**
-- `withDepthChart`: bool — adds DepthChart strip below candles
-- `withDrawingTools`: bool — left-side strip with pencil/line/fib/eraser (default true on Hot Trading, false on Backtesting replay)
-- `replay`: bool — when true, hides drawing tools, shows playback controls instead
-
-**Integration notes for the harness:**
-- Use TradingView Lightweight Charts (npm: `lightweight-charts`); their licensing covers our use.
-- Theme via `applyOptions` with the token values from `tokens.css` — pass them as a JS object derived from `getComputedStyle(document.documentElement)`.
-- Real-time tick updates via the `update()` method on the candle series; do NOT recreate the series on each tick.
-- The drawing tools and timeframe tabs are CUSTOM (Praxis-built), not the TradingView shipping toolbar — we want our own iconography.
-
-**Don't:**
-- Embed the full TradingView widget (their hosted iframe). It's branded, has features we don't want, and breaks our token system.
-- Render multi-pane indicator panels by default — that's a v1.1 surface.
-- Support light theme (the chart wrapper assumes dark only at v1).
-
-**Reference:** TradingView Lightweight Charts examples; Hyperliquid's chart presentation.
+PriceChart wraps [TradingView Lightweight Charts](https://www.tradingview.com/lightweight-charts/) (`lightweight-charts` on npm) with Praxis tokens applied via `applyOptions`. Timeframe tabs and drawing tools are Praxis-built (not TV's shipping toolbar). See `price-chart.md` for the deferred-to-v2 list (drawing tools, multi-pane indicators, replay playback strip, range selection brush, keyboard candle nav).
 
 ---
 

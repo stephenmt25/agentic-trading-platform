@@ -7,13 +7,15 @@ Surfaces:
   - GET /debate                                 → recent debate cycles
   - GET /debate/{cycle_id}                      → cycle + full transcript
   - GET /chain/{decision_event_id}              → full decision → close lineage
+  - GET /user-events                            → user-action audit log (kill switch, etc.)
 
 All endpoints are read-only and authenticated via the shared verify_token_dep.
 """
 
 import json
+from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -23,6 +25,7 @@ from libs.storage.repositories.debate_repo import DebateRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.storage.repositories.order_repo import OrderRepository
 from libs.storage.repositories.position_repo import PositionRepository
+from services.hot_path.src.kill_switch import KILL_SWITCH_LOG_KEY
 
 from ..deps import (
     get_closed_trade_repo,
@@ -30,6 +33,7 @@ from ..deps import (
     get_decision_repo,
     get_order_repo,
     get_position_repo,
+    get_redis,
 )
 
 router = APIRouter()
@@ -213,4 +217,109 @@ async def get_decision_chain(
         "order": _serialize_row(order),
         "position": _serialize_row(position),
         "closed_trade": _serialize_row(closed_trade),
+    }
+
+
+# ---------------------------------------------------------------------------
+# User-action audit log (Settings → Audit log surface)
+# ---------------------------------------------------------------------------
+
+# Event-type tags surfaced by the audit log UI. Source spec:
+# docs/design/05-surface-specs/06-profiles-settings.md §10.
+USER_EVENT_TYPES = ("kill_switch", "profile", "api_key", "override", "auth_fail")
+
+
+def _kill_switch_log_to_events(raw_entries: List[Any]) -> List[Dict[str, Any]]:
+    """Convert Redis kill-switch log entries to the unified audit shape.
+
+    Each Redis entry is a JSON object with action / reason / timestamp +
+    actor field (activated_by or deactivated_by). We project to a flat
+    {id, type, description, actor, timestamp_ms} record.
+    """
+    events: List[Dict[str, Any]] = []
+    for i, entry in enumerate(raw_entries or []):
+        try:
+            data = json.loads(entry) if isinstance(entry, (bytes, str)) else entry
+            if not isinstance(data, dict):
+                continue
+            action = data.get("action", "UNKNOWN")
+            reason = data.get("reason") or "manual"
+            actor = data.get("activated_by") or data.get("deactivated_by") or "system"
+            ts = data.get("timestamp")
+            timestamp_ms = int(float(ts) * 1000) if ts else 0
+            descr = (
+                f"Kill switch {action.lower()} — {reason}"
+                if action != "UNKNOWN"
+                else reason
+            )
+            events.append(
+                {
+                    "id": f"ks-{timestamp_ms}-{i}",
+                    "type": "kill_switch",
+                    "description": descr,
+                    "actor": actor,
+                    "timestamp_ms": timestamp_ms,
+                }
+            )
+        except (ValueError, TypeError, json.JSONDecodeError):
+            continue
+    return events
+
+
+@router.get("/user-events")
+async def list_user_audit_events(
+    event_type: Optional[str] = Query(default=None, description="Filter by type tag"),
+    from_ts: Optional[int] = Query(default=None, alias="from", description="ms epoch lower bound (inclusive)"),
+    to_ts: Optional[int] = Query(default=None, alias="to", description="ms epoch upper bound (inclusive)"),
+    limit: int = Query(default=200, ge=1, le=1000),
+    redis=Depends(get_redis),
+):
+    """Read-only feed of significant user actions for the Settings → Audit
+    log surface.
+
+    Aggregates from the sources that emit user-action events today:
+      - kill_switch: praxis:kill_switch:log Redis list (last 100 entries).
+
+    Profile changes, API key rotations, agent overrides, and failed
+    sign-ins are documented event types in the surface spec but their
+    sources don't emit yet — when they land, they'll be added here and
+    the response shape stays the same.
+    """
+    if event_type and event_type != "all" and event_type not in USER_EVENT_TYPES:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown event_type. Valid: {', '.join(USER_EVENT_TYPES)}",
+        )
+
+    events: List[Dict[str, Any]] = []
+
+    # --- kill_switch ---
+    if event_type in (None, "all", "kill_switch"):
+        try:
+            raw = await redis.lrange(KILL_SWITCH_LOG_KEY, 0, 99)
+        except Exception:
+            raw = []
+        events.extend(_kill_switch_log_to_events(raw))
+
+    # Future sources land here with the same shape:
+    #   if event_type in (None, "all", "profile"): events.extend(...)
+    #   if event_type in (None, "all", "api_key"): events.extend(...)
+    #   if event_type in (None, "all", "override"): events.extend(...)
+    #   if event_type in (None, "all", "auth_fail"): events.extend(...)
+
+    if from_ts is not None:
+        events = [e for e in events if e["timestamp_ms"] >= from_ts]
+    if to_ts is not None:
+        events = [e for e in events if e["timestamp_ms"] <= to_ts]
+
+    events.sort(key=lambda e: e["timestamp_ms"], reverse=True)
+    events = events[:limit]
+
+    # Track which event types are currently emitted vs. defined-but-empty
+    # so the UI can correctly tag which Pending notes still apply.
+    return {
+        "events": events,
+        "available_types": ["kill_switch"],
+        "pending_types": ["profile", "api_key", "override", "auth_fail"],
+        "fetched_at": datetime.now(timezone.utc).isoformat(),
     }

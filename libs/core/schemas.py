@@ -53,6 +53,31 @@ class MarketTickEvent(BaseEvent):
     price: Price
     volume: Quantity
 
+class OrderBookSnapshotEvent(BaseEvent):
+    """Top-N levels of an exchange orderbook.
+
+    bids/asks are price-sorted ([price, size] pairs):
+      bids descending price (best bid first),
+      asks ascending price (best ask first).
+    Decimal values cross the wire as strings via msgpack default=str.
+    """
+    event_type: Literal[EventType.ORDERBOOK_SNAPSHOT] = EventType.ORDERBOOK_SNAPSHOT
+    symbol: SymbolPair
+    exchange: str
+    bids: List[List[Decimal]]
+    asks: List[List[Decimal]]
+
+class TradeTickEvent(BaseEvent):
+    """A single public trade printed on the exchange tape."""
+    event_type: Literal[EventType.TRADE_TICK] = EventType.TRADE_TICK
+    symbol: SymbolPair
+    exchange: str
+    side: Literal["bid", "ask"]
+    price: Price
+    size: Quantity
+    trade_id: Optional[str] = None
+    trade_ts_ms: int
+
 class SignalEvent(BaseEvent):
     event_type: Literal[EventType.SIGNAL_GENERATED] = EventType.SIGNAL_GENERATED
     profile_id: ProfileId
@@ -68,6 +93,11 @@ class OrderApprovedEvent(BaseEvent):
     quantity: Quantity
     price: Price
     decision_event_id: Optional[UUID] = None
+    # When the user submits manually via POST /orders the api_gateway
+    # pre-allocates the order_id so the HTTP response can return it before
+    # the executor consumes the event. Strategy/validation publishers leave
+    # it None and the executor mints one (uuid.uuid4) as before.
+    order_id: Optional[UUID] = None
 
 class OrderRejectedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_REJECTED] = EventType.ORDER_REJECTED

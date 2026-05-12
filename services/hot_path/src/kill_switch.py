@@ -82,11 +82,17 @@ class KillSwitch:
     async def status(redis_client) -> dict:
         """Return current kill switch status and recent log."""
         active = await KillSwitch.is_active(redis_client)
-        log_raw = await redis_client.lrange(KILL_SWITCH_LOG_KEY, 0, 9)
         log = []
-        for entry in (log_raw or []):
-            try:
-                log.append(json.loads(entry))
-            except (json.JSONDecodeError, TypeError):
-                pass
+        try:
+            log_raw = await redis_client.lrange(KILL_SWITCH_LOG_KEY, 0, 9)
+            for entry in (log_raw or []):
+                try:
+                    log.append(json.loads(entry))
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        except Exception as e:
+            # Redis unreachable — is_active already returned True (fail-safe).
+            # Don't let a follow-on lrange failure 500 the endpoint; operators
+            # need to see active=true cleanly.
+            logger.error("Kill switch log fetch failed — returning empty log", error=str(e))
         return {"active": active, "recent_log": log}

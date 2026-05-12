@@ -175,4 +175,28 @@ If a hook blocks you with exit 2, the reason string explains what to fix.
 
 ---
 
+## 7 · Design (frontend redesign branch only)
+
+This section applies on `redesign/frontend-v2`. The main branch UI predates the redesign and follows `frontend/DESIGN-SYSTEM.legacy.md`.
+
+The frontend on the redesign branch follows the design portfolio at [`docs/design/`](docs/design/). The single load-bearing file is [`frontend/DESIGN.md`](frontend/DESIGN.md) — read it before generating or modifying any frontend component. The full portfolio (component specs, surface specs, tokens, ADRs) is at `docs/design/`:
+
+- `docs/design/01-design-philosophy.md` — eight principles, three modes (HOT/COOL/CALM), vibe
+- `docs/design/02-information-architecture.md` — six surfaces, IA graph
+- `docs/design/03-design-tokens/` — canonical tokens (`tokens.json`, `tokens.css`, `tailwind.preview.js`); the in-tree copy is `frontend/app/design-tokens.css`
+- `docs/design/04-component-specs/` — primitives, data-display, trading-specific, agentic, canvas
+- `docs/design/05-surface-specs/` — one per top-level surface
+- `docs/design/09-decisions-log.md` — ADRs (the audit trail)
+- `docs/design/11-redesign-execution-plan.md` — phase-by-phase plan
+
+**Authority boundary.** When this CLAUDE.md and `docs/design/01-design-philosophy.md` disagree, the design portfolio wins on visual/IA topics; CLAUDE.md wins on architecture, security, codebase conventions, and financial-precision rules. ADR-001 through ADR-014 frame the decisions made before any code on this branch.
+
+**Token contract.** Components on this branch consume the Praxis token surface (`bg-bg-canvas`, `text-fg`, `bg-bid-500`, `text-accent-500`, `border-border-subtle`, etc.). Hex literals in `frontend/components/**/*.tsx` are a regression — use Tailwind utilities mapped to tokens. The shadcn-shaped tokens (`--background`, `--primary`, etc.) coexist during Phase 2–4 but are deprecated on this branch and are replaced per-component during the rewrite.
+
+**Mode contract.** Every surface declares `data-mode="hot|cool|calm"` on its root. Default is HOT until the `ModeProvider` (Phase 4.2) lands. Components reference semantic aliases (`bg-canvas`, `fg`, `border-subtle`) rather than raw color tokens.
+
+**When the portfolio doesn't answer a question, ASK** — don't invent. Ambiguity is a documentation bug. Update the portfolio in the same commit when reality diverges from spec (see ADR-013 Consequences and the working stance in the redesign plan).
+
+---
+
 *General engineering framework (species classification, decomposition, verification protocol, self-critique, todo-tracking rules, effort allocation) is archived in [`docs/AGENT-FRAMEWORK.md`](docs/AGENT-FRAMEWORK.md). Invoke it by reference when a task genuinely benefits.*

@@ -62,7 +62,7 @@ export function DecisionFeed({ profileId }: { profileId?: string | null } = {}) 
             time: Math.floor(new Date(d.created_at).getTime() / 1000),
             symbol: d.symbol,
             outcome: d.outcome,
-            direction: d.strategy.direction,
+            direction: d.strategy.direction as "BUY" | "SELL",
         });
     };
 

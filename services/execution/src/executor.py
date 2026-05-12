@@ -173,7 +173,10 @@ class OrderExecutor:
                 if self._telemetry:
                     await self._telemetry.emit("input_received", {"symbol": ev.symbol, "side": str(ev.side), "message_type": "order_approved"}, source_agent="hot_path")
 
-                order_id = uuid.uuid4()
+                # Honor a pre-allocated order_id from the api_gateway (manual /orders
+                # submission) so the HTTP response and the persisted Order row share
+                # the same id. Strategy/validation publishers leave it None.
+                order_id = ev.order_id if ev.order_id else uuid.uuid4()
 
                 # 1. Resolve exchange adapter using profile's stored keys
                 adapter, exchange_name = await self._resolve_adapter(str(ev.profile_id))

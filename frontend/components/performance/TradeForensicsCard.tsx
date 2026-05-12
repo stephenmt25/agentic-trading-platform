@@ -172,7 +172,7 @@ export function TradeForensicsCard({ symbol, profileId }: Props) {
             <>
               <TradeAttributesPanel symbol={symbol} profileId={profileId} />
               <RawTableToggle label="closed trades table">
-                <ClosedTradesPanel symbol={symbol} limit={200} />
+                {symbol && <ClosedTradesPanel symbol={symbol} limit={200} />}
               </RawTableToggle>
             </>
           )}
