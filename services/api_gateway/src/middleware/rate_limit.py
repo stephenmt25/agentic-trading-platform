@@ -1,7 +1,10 @@
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
 from libs.storage._redis_client import RedisClient
+from libs.observability import get_logger
 import time
+
+logger = get_logger("api-gateway.rate-limit")
 
 
 class RateLimiterMiddleware:
@@ -36,16 +39,24 @@ class RateLimiterMiddleware:
         window_ms = self._window * 1000
         min_time = now_ms - window_ms
 
-        # Check count first before adding the current request
-        pipe = self._redis.pipeline()
-        pipe.zremrangebyscore(key, 0, min_time)
-        pipe.zcard(key)
-        results = await pipe.execute()
-
-        current_count = results[1]
+        # Fail-OPEN on Redis errors. Without this, a Redis outage 500s every
+        # endpoint behind this middleware — including /commands/kill-switch,
+        # which is exactly the endpoint operators need during a Redis outage.
+        try:
+            pipe = self._redis.pipeline()
+            pipe.zremrangebyscore(key, 0, min_time)
+            pipe.zcard(key)
+            results = await pipe.execute()
+            current_count = results[1]
+        except Exception as e:
+            logger.warning("Rate limiter Redis unreachable — failing open", error=str(e))
+            return await call_next(request)
 
         if current_count >= current_limit:
-            oldest = await self._redis.zrange(key, 0, 0, withscores=True)
+            try:
+                oldest = await self._redis.zrange(key, 0, 0, withscores=True)
+            except Exception:
+                oldest = None
             retry_after_sec = 1
             if oldest:
                 oldest_ts = int(oldest[0][1])
@@ -58,10 +69,13 @@ class RateLimiterMiddleware:
             )
 
         # Only record the request if not rate-limited
-        pipe = self._redis.pipeline()
-        pipe.zadd(key, {str(now_ms): now_ms})
-        pipe.expire(key, self._window)
-        await pipe.execute()
+        try:
+            pipe = self._redis.pipeline()
+            pipe.zadd(key, {str(now_ms): now_ms})
+            pipe.expire(key, self._window)
+            await pipe.execute()
+        except Exception:
+            pass  # Best-effort — request was already permitted above
 
         response = await call_next(request)
         return response
