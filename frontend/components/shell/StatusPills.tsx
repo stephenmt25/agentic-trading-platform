@@ -83,12 +83,16 @@ export function StatusPills() {
     ? "warn"
     : backendStatus === "connected"
       ? "ok"
-      : "danger";
+      : backendStatus === "degraded"
+        ? "warn"
+        : "danger";
   const liveLabel = IS_MOCK_DATA
     ? "mock"
     : backendStatus === "connected"
       ? "live"
-      : "offline";
+      : backendStatus === "degraded"
+        ? "degraded"
+        : "offline";
 
   const ksTone: PillTone =
     killState === "off" ? "neutral" : killState === "soft" ? "warn" : "danger";

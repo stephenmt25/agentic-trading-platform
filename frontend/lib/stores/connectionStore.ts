@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 
-export type BackendStatus = 'connected' | 'disconnected' | 'checking';
+// ADR-017: poll /ready (not /health). /health is intentionally static for
+// k8s liveness; /ready does the Redis + Postgres checks. The chrome pill is
+// a UX signal, not a k8s probe, so it should reflect downstream health.
+// A 503 from /ready is a definitive "I am degraded" signal — distinct from
+// "I can't reach the backend at all" (which still maps to disconnected).
+export type BackendStatus = 'connected' | 'degraded' | 'disconnected' | 'checking';
 
 interface ConnectionState {
   backendStatus: BackendStatus;
@@ -9,6 +14,7 @@ interface ConnectionState {
   failCount: number;
 
   setConnected: () => void;
+  setDegraded: () => void;
   setDisconnected: () => void;
   recordFailure: () => void;
   recordSuccess: () => void;
@@ -31,9 +37,13 @@ let healthPollTimer: ReturnType<typeof setInterval> | null = null;
 
 async function pollHealth() {
   try {
-    const res = await fetch(`${HEALTH_BASE_URL}/health`, { signal: AbortSignal.timeout(5000) });
+    const res = await fetch(`${HEALTH_BASE_URL}/ready`, { signal: AbortSignal.timeout(5000) });
     if (res.ok) {
       useConnectionStore.getState().recordSuccess();
+    } else if (res.status === 503) {
+      // /ready returns 503 when Redis or Postgres is down — backend is up
+      // and responding, but downstream is unhealthy. Distinct from offline.
+      useConnectionStore.getState().setDegraded();
     } else {
       useConnectionStore.getState().recordFailure();
     }
@@ -61,6 +71,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   setConnected: () =>
     set({ backendStatus: 'connected', lastChecked: Date.now(), failCount: 0 }),
+
+  setDegraded: () =>
+    set({ backendStatus: 'degraded', lastChecked: Date.now(), failCount: 0 }),
 
   setDisconnected: () =>
     set({ backendStatus: 'disconnected', lastChecked: Date.now() }),

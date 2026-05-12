@@ -334,6 +334,32 @@ Architecture-Decision-Record style log for the design choices that need explicit
 
 ---
 
+## ADR-017 — Chrome connection pill polls `/ready`, not `/health`; 503 is a third "degraded" tone
+
+**Date:** 2026-05-12
+
+**Decision:** `frontend/lib/stores/connectionStore.ts` polls `GET /ready` (not `/health`). A 503 response maps to a new third `BackendStatus = 'degraded'` state with a `warn`-tone pill labelled "degraded". 200 → connected, 503 → degraded, network error / non-2xx-non-503 → existing `recordFailure` path (disconnected after 3 failures).
+
+**Context:** During Phase 8.3 S3 (Redis stopped, api_gateway up), the chrome connection pill stayed green — there was no chrome-level signal that downstream dependencies were degraded. Users learned about it only via individual operations hanging (e.g. the kill-switch poll). Backend already exposes two endpoints with different contracts: `services/api_gateway/src/routes/health.py:11` returns a static `{"status":"healthy"}` (intended for k8s liveness — must NOT depend on downstream services, otherwise k8s would kill healthy pods during transient Redis blips), and lines 15-45's `/ready` performs Redis + Postgres checks and returns 503 on failure (intended for k8s readiness gating).
+
+The chrome pill is a UX signal for operators, not a k8s probe. Its question is "can I trade right now?" — which is exactly what `/ready` already answers.
+
+**Alternatives considered:**
+1. **(B)** Keep `/health` static for k8s and introduce a separate endpoint that drives a degraded-state poll/banner. Rejected: adds a new endpoint and a parallel signalling path for a question `/ready` already answers correctly. The frontend isn't a k8s probe and doesn't need to share `/health`'s liveness semantics.
+2. **(C)** Make `/health` itself dependency-aware. Rejected: would break the k8s liveness contract — a Redis blip would cause k8s to kill pods that are perfectly capable of recovering on their own when Redis returns.
+3. Two pills (one for connection, one for downstream). Rejected: visually noisy; the user mental model is unitary ("is the backend usable right now?") so one pill with three states is the right axis.
+
+**Rationale:** `/ready` already exists, already does the right work, and already has the right return codes. The cost of switching the frontend poll to it is ~15 LOC of frontend code plus one new tone on the connection pill. It's a strict improvement: operators see the degraded state during Redis/Postgres outages instead of learning about them via hanging API calls. The k8s liveness contract on `/health` is preserved.
+
+**Consequences:**
+- `frontend/lib/stores/connectionStore.ts` polls `/ready`. Added a `BackendStatus = 'degraded'` variant and a `setDegraded()` action that fires on 503 responses. The existing `failCount`-based flapping protection still applies to network errors and non-503 non-2xx responses, but a 503 is a definitive signal (not a flap) and bypasses the threshold.
+- `frontend/components/shell/StatusPills.tsx` renders `degraded` as a warn-toned pill labelled "degraded" between "live" (ok) and "offline" (danger).
+- The `/ready` endpoint runs a Redis `ping` and a Postgres `health_check` every 30s per polling chrome — additional load on those services is negligible.
+- `/health` remains untouched as the k8s liveness probe target. Pod-level health on a Redis blip stays unaffected.
+- TECH-DEBT-REGISTRY row 34 (dated 2026-05-11) RESOLVED via this ADR + the implementation commit.
+
+---
+
 ## How to add a new ADR
 
 When the design portfolio needs a new explicit decision:
