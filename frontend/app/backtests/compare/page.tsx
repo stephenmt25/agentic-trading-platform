@@ -252,7 +252,13 @@ export default function BacktestCompareePage() {
               intent="secondary"
               size="sm"
               leftIcon={<Plus className="w-3.5 h-3.5" />}
-              onClick={() => router.push("/backtests")}
+              onClick={() => {
+                // Carry the existing comparison set forward so the list
+                // page can pre-select these and let the user extend the
+                // comparison instead of replacing it.
+                const carry = runIds.map((id) => encodeURIComponent(id)).join(",");
+                router.push(carry ? `/backtests?compare=${carry}` : "/backtests");
+              }}
               title="Pick another run from the list"
             >
               Add run

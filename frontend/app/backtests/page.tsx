@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
   Search,
@@ -140,6 +140,7 @@ const POLL_MS = 2500;
  */
 export default function BacktestsListPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
 
   const [runs, setRuns] = useState<RunRow[]>([]);
   const [liveRuns, setLiveRuns] = useState<RunRow[]>([]);
@@ -160,7 +161,22 @@ export default function BacktestsListPage() {
   const [sortKey, setSortKey] = useState<string>("createdAt");
   const [sortDir, setSortDir] = useState<SortDirection>("desc");
 
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Seed `selectedIds` from the `?compare=A,B,…` query param so the compare
+  // page's "Add run" button can hand the existing comparison set back to
+  // the list, preserving the user's prior selection. Without this seeding,
+  // navigating back from /compare loses the comparison and the new
+  // selection replaces the old one rather than extending it.
+  const initialSelectedIds = useMemo<Set<string>>(() => {
+    const raw = searchParams.get("compare");
+    if (!raw) return new Set();
+    return new Set(
+      raw
+        .split(",")
+        .map((s) => decodeURIComponent(s.trim()))
+        .filter(Boolean)
+    );
+  }, [searchParams]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(initialSelectedIds);
   const [showNewDialog, setShowNewDialog] = useState(false);
 
   const profileNameFor = useCallback(
