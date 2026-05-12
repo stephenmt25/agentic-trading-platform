@@ -322,8 +322,9 @@ export default function HotTradingPage() {
       <div className="flex-1 min-h-0 flex overflow-hidden">
         {/* CENTER COLUMN ----------------------------------------------- */}
         <section className="flex-1 min-w-0 flex flex-col">
-          {/* Top: PriceChart (60% h) */}
-          <div className="flex-[3] min-h-0 px-3 pt-3">
+          {/* Top: PriceChart (60% h) — fluid so the chart follows the flex
+              allocation instead of overflowing on smaller viewports. */}
+          <div className="flex-[3] min-h-0 px-3 pt-3 flex flex-col">
             <PriceChart
               candles={candles}
               symbol={symbol}
@@ -332,7 +333,8 @@ export default function HotTradingPage() {
               loading={candlesLoading}
               error={candlesError ?? undefined}
               withDrawingTools
-              density="standard"
+              fluid
+              className="flex-1 min-h-0"
             />
           </div>
 

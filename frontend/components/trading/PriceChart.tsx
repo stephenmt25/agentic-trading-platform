@@ -100,6 +100,12 @@ export interface PriceChartProps
   /** Hook for the future depth-chart strip; v1 surfaces as Pending if true. */
   withDepthChart?: boolean;
   density?: PriceChartDensity;
+  /** When true, the chart fills its parent's available height instead of
+   *  using the fixed `density` pixel height. The parent must have a
+   *  defined height (e.g. `flex-1 min-h-0` inside a flex column). Used by
+   *  /hot/[symbol] where the chart shares vertical space proportionally
+   *  with the orderbook+tape row. */
+  fluid?: boolean;
   loading?: boolean;
   error?: string;
   emptyMessage?: string;
@@ -124,6 +130,7 @@ export function PriceChart({
   withDrawingTools = true,
   withDepthChart = false,
   density = "standard",
+  fluid = false,
   loading,
   error,
   emptyMessage = "No candles for this range.",
@@ -156,12 +163,15 @@ export function PriceChart({
     chartRef.current = { chart, candle, volume };
     setReady(true);
 
-    // Resize handling.
+    // Resize handling. In fluid mode the chart tracks its container's
+    // measured height (which follows the parent's flex allocation); in
+    // fixed mode it uses the density-derived pixel height.
     const resize = () => {
       if (!container || !chartRef.current) return;
+      const h = fluid ? (container.clientHeight || plotHeight) : plotHeight;
       chartRef.current.chart.applyOptions({
         width: container.clientWidth,
-        height: plotHeight,
+        height: h,
       });
     };
     resize();
@@ -183,8 +193,9 @@ export function PriceChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ---- React to density changes (height only) ----
+  // ---- React to density changes (height only, fixed mode only) ----
   useEffect(() => {
+    if (fluid) return;
     if (!chartRef.current) return;
     const { chart } = chartRef.current;
     chart.applyOptions({ height: plotHeight });
@@ -229,10 +240,20 @@ export function PriceChart({
       candles[0].time <= last &&
       lastIncoming.time >= last;
 
+    const tokens = readTokens();
     if (!isAppendOnly) {
       // Full replace.
-      candle.setData(toCandleData(candles));
-      if (volume) volume.setData(toVolumeData(candles));
+      const cdata = toCandleData(candles);
+      candle.setData(cdata);
+      if (volume) volume.setData(toVolumeData(candles, tokens));
+      // Force the visible range to the loaded data — without this an
+      // uninitialized chart's default viewport may not include the data's
+      // time range, leaving axes responsive on hover but no bars painted.
+      // Guarded because the unit-test mock for lightweight-charts doesn't
+      // expose timeScale().
+      try {
+        chartRef.current.chart.timeScale?.().fitContent?.();
+      } catch { /* mock or partial chart instance — safe to skip */ }
       lastTimeRef.current = lastIncoming.time;
       return;
     }
@@ -244,7 +265,7 @@ export function PriceChart({
     for (const bar of tail) {
       candle.update(toCandleDatum(bar));
       if (volume && bar.volume !== undefined) {
-        volume.update(toVolumeDatum(bar));
+        volume.update(toVolumeDatum(bar, tokens));
       }
     }
     lastTimeRef.current = lastIncoming.time;
@@ -334,8 +355,11 @@ export function PriceChart({
         </div>
       </header>
 
-      {/* Plot area */}
-      <div className="relative" style={{ height: plotHeight }}>
+      {/* Plot area — fixed pixel height in fixed mode, flex-fill in fluid mode. */}
+      <div
+        className={cn("relative", fluid && "flex-1 min-h-0")}
+        style={fluid ? undefined : { height: plotHeight }}
+      >
         {withDrawingTools && (
           <div className="absolute top-2 left-2 z-10 flex flex-col items-center gap-1.5 rounded-sm border border-border-subtle bg-bg-canvas/80 backdrop-blur-sm p-1.5">
             <button
@@ -412,21 +436,43 @@ function readTokens(): ChartTokens {
   const cs = window.getComputedStyle(root);
   const get = (v: string) => cs.getPropertyValue(v).trim();
 
-  // The token CSS is OKLCH-based; lightweight-charts wants color strings it
-  // can parse — modern browsers accept color() and oklch() in canvas paint
-  // contexts via the CSS Houdini fallback chain. If a token isn't resolved
-  // we fall back to safe defaults.
+  const bid = get("--color-bid-500") || FALLBACK_TOKENS.bid;
+  const ask = get("--color-ask-500") || FALLBACK_TOKENS.ask;
   return {
     bg: get("--color-bg-panel") || FALLBACK_TOKENS.bg,
     text: get("--color-fg") || FALLBACK_TOKENS.text,
     textMuted: get("--color-fg-muted") || FALLBACK_TOKENS.textMuted,
     borderSubtle: get("--color-border-subtle") || FALLBACK_TOKENS.borderSubtle,
-    bid: get("--color-bid-500") || FALLBACK_TOKENS.bid,
-    ask: get("--color-ask-500") || FALLBACK_TOKENS.ask,
-    bidVolume: `color-mix(in oklch, ${get("--color-bid-500") || FALLBACK_TOKENS.bid} 50%, transparent)`,
-    askVolume: `color-mix(in oklch, ${get("--color-ask-500") || FALLBACK_TOKENS.ask} 50%, transparent)`,
+    bid,
+    ask,
+    // lightweight-charts' color parser is canvas-2D-native — it does NOT
+    // accept `color-mix()` or CSS variable references. Use rgba derived
+    // from the resolved hex token; fall back to a fixed rgba if the hex
+    // doesn't parse cleanly.
+    bidVolume: hexToRgba(bid, 0.5) ?? FALLBACK_TOKENS.bidVolume,
+    askVolume: hexToRgba(ask, 0.5) ?? FALLBACK_TOKENS.askVolume,
     crosshair: get("--color-neutral-400") || FALLBACK_TOKENS.crosshair,
   };
+}
+
+/** #rgb / #rrggbb → rgba(r, g, b, alpha). Returns null on unrecognised input. */
+function hexToRgba(input: string, alpha: number): string | null {
+  const h = input.replace("#", "").trim();
+  if (h.length === 3) {
+    const r = parseInt(h[0] + h[0], 16);
+    const g = parseInt(h[1] + h[1], 16);
+    const b = parseInt(h[2] + h[2], 16);
+    if ([r, g, b].some((n) => Number.isNaN(n))) return null;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  if (h.length === 6) {
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    if ([r, g, b].some((n) => Number.isNaN(n))) return null;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+  return null;
 }
 
 const FALLBACK_TOKENS: ChartTokens = {
@@ -507,26 +553,27 @@ function toCandleDatum(r: PriceChartCandle): CandlestickData {
   };
 }
 
-function toVolumeData(rows: PriceChartCandle[]): HistogramData[] {
+function toVolumeData(rows: PriceChartCandle[], tokens: ChartTokens): HistogramData[] {
   return rows
     .filter((r) => r.volume !== undefined)
-    .map(toVolumeDatum);
+    .map((r) => toVolumeDatum(r, tokens));
 }
 
-function toVolumeDatum(r: PriceChartCandle): HistogramData {
+function toVolumeDatum(r: PriceChartCandle, tokens: ChartTokens): HistogramData {
   const up = r.close >= r.open;
   return {
     time: msToLwcTime(r.time),
     value: r.volume ?? 0,
-    color: up
-      ? "color-mix(in oklch, var(--color-bid-500) 50%, transparent)"
-      : "color-mix(in oklch, var(--color-ask-500) 50%, transparent)",
+    color: up ? tokens.bidVolume : tokens.askVolume,
   };
 }
 
-/** lightweight-charts wants seconds since epoch (UTCTimestamp). Floor to int. */
-function msToLwcTime(ms: number): Time {
-  return Math.floor(ms / 1000) as Time;
+/** lightweight-charts wants seconds since epoch (UTCTimestamp). Accept
+ *  either seconds (from the REST candles endpoint) or milliseconds (from
+ *  legacy mocks). Threshold of 1e11 cleanly separates them: year 5138 in
+ *  seconds is ~1e11, year 1973 in milliseconds is ~1e11. */
+function msToLwcTime(t: number): Time {
+  return Math.floor(t > 1e11 ? t / 1000 : t) as Time;
 }
 
 function formatPrice(n: number): string {
