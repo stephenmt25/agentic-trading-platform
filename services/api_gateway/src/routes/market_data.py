@@ -25,7 +25,9 @@ async def get_candles(
     inclusive window, ordered oldest first. Used by decision-context chart
     lookups.
     """
-    symbol = symbol.rstrip("/")
+    # Normalize URL-safe `BTC-USDT` (used by the redesign frontend's path
+    # params) back to the canonical `BTC/USDT` shape stored in the DB.
+    symbol = symbol.rstrip("/").replace("-", "/")
 
     if start is not None and end is not None:
         if end <= start:
