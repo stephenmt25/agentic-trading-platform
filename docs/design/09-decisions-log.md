@@ -360,6 +360,53 @@ The chrome pill is a UX signal for operators, not a k8s probe. Its question is "
 
 ---
 
+## ADR-018 — Profile-observation surface lives under `/hot/profiles`, not as a seventh rail slot
+
+**Date:** 2026-05-13
+
+**Decision:** The legacy `/trade/page.tsx` capabilities that don't fit `/hot/[symbol]` (execution) or `/risk` (kill-switch + system exposure) are re-homed under two new sub-routes of the "Hot Trading" rail entry:
+
+- `/hot/profiles` — comparison grid of all active profiles
+- `/hot/profiles/[id]` — single-profile observation cockpit with four tabs: **Decisions**, **Positions**, **Daily P&L**, **Attribution**
+
+The rail stays at six top-level surfaces. The "Hot Trading" rail entry expands to cover *trading-related work broadly*: symbol-axis execution at `/hot/[symbol]` and profile-axis observation at `/hot/profiles[/...]`. The surface header carries a scope-aware breadcrumb (`Hot Trading / Symbol BTC-USDT` vs. `Hot Trading / Profile Mean-Reversion`) so the user always knows which axis they're on.
+
+Companion placements (not new surfaces, distributed into existing ones):
+
+- `/risk` gains an **all-profiles risk matrix** above the existing kill-switch UI (drawdown / allocation / exposure side-by-side for every active profile).
+- `/agents/observatory` continues to host the **HITL approval queue** per ADR-016. No new wiring needed beyond the structure already there.
+- The chrome gains an **expandable engine-totals pill** next to the existing PnL pill — single-line headline by default (net P&L since boot), click to expand to the full strip (trades, win-rate, max DD, Sharpe). Visible on every surface, COOL-mode density.
+
+**Context:** The redesign merged `redesign/frontend-v2` into main at commit `6112767` (Phase 9 cutover). The legacy `/trade` page survived in-tree but isn't linked from the redesign rail. Comparing its capability set to the redesign's six surfaces revealed eight COOL-mode observational capabilities that didn't land anywhere: profile picker, DecisionFeed, profile-scoped positions, RiskMonitorCard, daily P&L drill-down, performance review (attribution), engine totals, HITL approvals. Three of the eight relocated to `/hot/[symbol]` or `/risk` during the redesign; five did not. The most concrete user question those five answered was: *"How is profile A doing vs profile B live, right now?"* — a question the redesign currently has no answer for.
+
+**Alternatives considered:**
+1. **Seventh rail slot `/profiles`.** Cleanest separation: trading is HOT mode at `/hot/[symbol]`; observation is COOL mode at `/profiles`. No axis mixing on either surface. Rejected because it breaks the "six surfaces, deliberately flat" stance from `02-information-architecture.md` §1, and the user (2026-05-13 discussion) preferred to find homes in existing surfaces over expanding the IA.
+2. **Expand `/hot/[symbol]` to also host profile-observation panels.** Re-creates the legacy `/trade` page on a denser canvas; mixes symbol-scoped and profile-scoped panels on the same URL with explicit `ScopeBadge` chips. Rejected because the URL is symbol-axis (`/hot/[symbol]`) and mixing profile-axis panels under it creates inconsistent scope semantics and visual density that fights the HOT mode contract.
+3. **Distribute everything to existing surfaces.** Decisions → `/agents/observatory`, attribution → `/backtests`, daily P&L → `/backtests`, all-profiles matrix → `/risk`, etc. Rejected on closer inspection: the per-profile observation view is itself a coherent workflow with its own audience (the operator asking "how is THIS strategy performing?"), and scattering it across three surfaces forces 3-surface navigation to answer one comparison question. The sub-route approach gives that workflow a home while preserving the six-surface IA via the rail-entry expansion.
+4. **Drawer launched from any profile chip.** Click profile name in `/hot` chrome → opens a side drawer with the cockpit. Rejected because `02-information-architecture.md` §6 explicitly rejects hidden-state patterns ("Tabs inside surfaces for sub-views: Tabs hide state. Every meaningful sub-view should be its own surface or a peer panel."), and a comparison grid (side-by-side multiple profiles) can't fit in a drawer.
+
+**Rationale:** The sub-route approach is the smallest IA change that gives profile observation a real home without rebuilding the legacy `/trade` mega-page. It rests on three observations:
+
+- "Hot Trading" as a rail-entry label is broad enough to cover both execution (symbol-axis) and observation (profile-axis) of trading activity — the user thinks of both as "the trading part of the app."
+- The URL distinction (`/hot/[symbol]` vs. `/hot/profiles/[id]`) is enough to disambiguate the axis on each page; no axis-mixing within a single URL is required.
+- Existing surfaces absorb the genuinely system-level pieces (all-profiles risk matrix on `/risk`, engine totals as chrome) rather than duplicating them into the profile cockpit.
+
+The trade-off is honest: a user comparing two profiles *across multiple dimensions* still navigates between surfaces (cross-profile risk → `/risk`, per-profile drill-down → `/hot/profiles/[id]`, per-symbol execution → `/hot/[symbol]`). The seventh-surface approach would have collapsed this into one. We accept the navigation cost in exchange for the six-surface IA being preserved and for `/hot/profiles/[id]` being a clean COOL-mode surface rather than a HOT/COOL hybrid.
+
+The legacy components (`frontend/components/decisions/DecisionFeed`, `components/trade/PositionsPanel`, `components/performance/DailyReportDetail`, `components/risk/RiskMonitorCard`, `app/analytics/PerformanceContent`) all survive in-tree from before the cutover. The plan is **lift-and-shift first, token-contract rewrite second** — get the data flowing into the new routes with the legacy components, then rebuild each one against the redesign token surface as a separate polish pass. This sequencing trades short-term visual inconsistency for fast restoration of the missing workflow.
+
+**Consequences:**
+- `02-information-architecture.md` §1 table gets an asterisk on "Hot Trading" noting the sub-route expansion; §8 URL examples gain `/hot/profiles` and `/hot/profiles/[id]`.
+- `05-surface-specs/01-hot-trading.md` grows a new §9 *Sub-routes* covering the comparison grid and the four cockpit tabs.
+- `05-surface-specs/05-risk-control.md` adds a *Profiles risk matrix* section (placed above the kill switch in §1 layout).
+- A new chrome spec section (in `02-information-architecture.md` §4) defines the engine-totals pill: default headline + click-to-expand strip.
+- The lift-and-shift uses legacy components verbatim; visual debt accumulates against the token contract until each tab gets its rewrite pass. Tracked in TECH-DEBT-REGISTRY.
+- Backend gaps each tab depends on are registered in TECH-DEBT-REGISTRY as separate rows (profile-scoped decisions endpoint, profile-cross-symbol positions filter, etc.) — none block the first lift-and-shift but each blocks a tab from being more than a placeholder until landed.
+- The four-tab cockpit and the comparison grid roll out as **four PRs** per the execution plan in `11-redesign-execution-plan.md` Phase 10 — chrome pill + risk matrix first, then index, then live tabs (Decisions + Positions), then analytical tabs (Daily P&L + Attribution). Each PR is independently mergeable.
+- IA §3 cross-link rules apply: every profile chip on every surface deep-links to `/hot/profiles/[id]`; every symbol chip on the cockpit deep-links to `/hot/[symbol]`. No surface becomes a dead end.
+
+---
+
 ## How to add a new ADR
 
 When the design portfolio needs a new explicit decision:

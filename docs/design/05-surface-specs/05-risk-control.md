@@ -55,10 +55,42 @@
 
 Single column, large typography (this surface is read at distance during stress). Sections in fixed order:
 
-1. **Kill switch** — primary, top-of-fold
-2. **Exposure** — RiskMeters for leverage, VaR, concentration, drawdown
-3. **Active limits** — list of all configured limits with current utilization
-4. **Recent violations** — chronological log of recent rejections/warnings
+1. **Profiles risk matrix** — all active profiles side-by-side (see §1.1)
+2. **Kill switch** — primary control, the centerpiece
+3. **Exposure** — RiskMeters for leverage, VaR, concentration, drawdown (system-aggregate)
+4. **Active limits** — list of all configured limits with current utilization
+5. **Recent violations** — chronological log of recent rejections/warnings
+
+### 1.1 Profiles risk matrix (new, per ADR-018)
+
+A horizontally-scrollable grid of cards — one per active profile — that gives the operator an at-a-glance "which strategy is the riskiest right now?" read before any kill-switch decision.
+
+```
+┌── PROFILES RISK MATRIX ─────────────────────────────────────────────────────┐
+│                                                                              │
+│  ┌─ Mean-Reversion ─┐  ┌─ HVB ────────────┐  ┌─ ETH-Momentum ─┐             │
+│  │ DD  ●●○○○ -1.2%  │  │ DD  ●●●●○ -3.2%  │  │ DD  ●○○○○ -0.4%│             │
+│  │ alloc 12% / 25%  │  │ alloc 18% / 25%  │  │ alloc 3% / 25% │             │
+│  │ exposure $4,250   │  │ exposure $6,180   │  │ exposure $980  │             │
+│  │ open pos     3   │  │ open pos     5   │  │ open pos    1  │  ...        │
+│  │ ► open in cockpit│  │ ► open in cockpit│  │ ► open in cockp│             │
+│  └────────────────────┘  └────────────────────┘  └────────────────┘             │
+│                                                                              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+Each card carries:
+- **Drawdown** — RiskMeter (5-bar dot density) + numeric, color-graded against the profile's `auto_pause_drawdown_pct` cap
+- **Allocation** — current allocated capital / `max_allocation_pct`
+- **Exposure** — absolute USDC value at risk across all open positions
+- **Open positions** — count, clickable to drill into `/hot/profiles/{id}` Positions tab
+- **"open in cockpit"** link → `/hot/profiles/{id}`
+
+Sorted by drawdown severity (worst first). This is *the* one place to compare cross-profile risk during a stress moment. The per-profile drill-down (decisions, attribution, P&L history) lives at `/hot/profiles/{id}`; this surface stays focused on **does any profile need intervening on, right now?**.
+
+The matrix lifts `frontend/components/risk/RiskMonitorCard.tsx` from the legacy `/trade` page as Phase 10.1's first ship; the token-contract rewrite is Phase 10.2.
+
+**Empty state:** "No active profiles. Risk Control monitors active trading; activate a profile in Pipeline Canvas to populate this matrix." (link to `/canvas`)
 
 ---
 

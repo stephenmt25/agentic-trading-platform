@@ -10,7 +10,7 @@ Praxis exposes six top-level surfaces, each tied to one of the three modes from 
 
 | # | Surface | Mode | Primary user task | Backed by services |
 |---|---|---|---|---|
-| 1 | **Hot Trading** | HOT | Place/manage orders against live market data | `api_gateway`, `ingestion`, `hot_path`, `validation`, `execution`, `pnl` |
+| 1 | **Hot Trading** ¹ | HOT / COOL | Place/manage orders against live market data; observe profile performance | `api_gateway`, `ingestion`, `hot_path`, `validation`, `execution`, `pnl`, `analyst` |
 | 2 | **Agent Observatory** | COOL (Hot when live) | Watch AI agents reason; intervene if needed | `analyst`, `debate`, `ta_agent`, `regime_hmm`, `sentiment`, `slm_inference` |
 | 3 | **Pipeline Canvas** | COOL | Compose / edit trading profile pipelines (the canvas) | `strategy`, `pipeline_compiler` (lib) |
 | 4 | **Backtesting & Analytics** | COOL | Evaluate strategies historically; compare runs | `backtesting`, `analyst`, `archiver` |
@@ -18,6 +18,8 @@ Praxis exposes six top-level surfaces, each tied to one of the three modes from 
 | 6 | **Profiles & Settings** | CALM | Configure profiles, exchange keys, tax, account | `api_gateway`, `tax`, auth |
 
 > **Critical-path note (enterprise architect lens):** The split between Hot Trading and Risk Control is deliberate even though both are HOT mode. Risk Control is the *only* surface that must remain responsive when everything else is degraded — including when the user themselves is the problem. It gets its own surface, its own keyboard binding (`Cmd+Shift+K` for kill switch), and its own session-level resilience. Bundling it into Hot Trading would be a category error.
+
+> ¹ **Hot Trading sub-routes (per ADR-018).** "Hot Trading" as a rail entry covers two URL spaces: symbol-axis execution at `/hot/{symbol}` (HOT mode, the cockpit) and profile-axis observation under `/hot/profiles[/...]` (COOL mode, the comparison grid + per-profile cockpit). The rail stays at six top-level surfaces; the expansion happens within this single rail entry. See `05-surface-specs/01-hot-trading.md` §9.
 
 ---
 
@@ -104,6 +106,35 @@ Pills, left-to-right, each surface picks the relevant subset:
 
 These pills are clickable. Clicking `regime: choppy` opens a drawer summarizing the regime model's current state and the last 24h of regime transitions, sourced from the `regime_hmm` service. This is the contract: **every chrome element either does nothing or is a drill-in to a meaningful surface.**
 
+### 4.1 Engine-totals pill (per ADR-018)
+
+A compound pill in chrome, anchored to the right of the existing `PnL` pill, visible on every surface. Two states:
+
+- **Collapsed (default)** — single value: net P&L since boot, same value the existing PnL pill currently shows. The pill *replaces* the standalone PnL pill rather than appearing beside it; the headline is identical.
+- **Expanded (on click)** — popover beneath the pill exposing the full strip:
+
+```
+┌─ Engine totals (since boot) ───────────────────────┐
+│  Net P&L    +$1,234.56                              │
+│  Gross P&L  +$1,891.20                              │
+│  Trades     287                                     │
+│  Win rate   54.4%                                   │
+│  Max DD     -3.2%                                   │
+│  Sharpe     1.6                                     │
+│                                                      │
+│  Since boot — 2026-05-13T08:14:22Z                  │
+│  ▸ open detailed report (/hot/profiles)             │
+└──────────────────────────────────────────────────────┘
+```
+
+The popover is dismissible by Esc, click-outside, or re-click. The headline value updates live on `pubsub:pnl_updates`; the strip recomputes when expanded (snapshot at expand-time, not a live-streaming surface).
+
+**Source data:** `api.paperTrading.status()` already returns these metrics in its `metrics` field. No new endpoint required.
+
+**Why chrome, not a surface body section:** the operator's question "is the engine still net-positive today?" should be answerable from any surface — debugging an agent on `/agents/observatory`, editing a canvas, reviewing a backtest — without context-switching. Putting the totals in chrome makes them glance-able everywhere. The trade-off is one extra chrome element on every surface; we accept it because the value of always-visible engine state outweighs the chrome density cost.
+
+**The standalone PnL pill** (current behavior) is replaced by this. The headline state is identical, so this is a no-op visual change for users who never expand it.
+
 ---
 
 ## 5. Density modes
@@ -153,11 +184,14 @@ This is opinionated. The alternative (full mobile parity) is what every consumer
 URLs are the canonical state. Examples:
 
 ```
-/hot/BTC-PERP                          — Hot Trading bound to BTC-PERP
+/hot/BTC-PERP                          — Hot Trading bound to BTC-PERP (execution)
+/hot/profiles                          — Profile comparison grid (observation)
+/hot/profiles/Aggressive-v3            — Profile observation cockpit
+/hot/profiles/Aggressive-v3?tab=daily-pnl   — Cockpit with Daily P&L tab active
 /agents/observatory?focus=regime_hmm   — Observatory with regime agent expanded
 /canvas/Aggressive-v3                  — canvas for profile "Aggressive-v3"
 /backtests/run-9342                    — specific backtest run
-/risk                                  — risk dashboard
+/risk                                  — risk dashboard (incl. all-profiles matrix)
 /settings/profiles/Aggressive-v3       — settings for that profile
 ```
 

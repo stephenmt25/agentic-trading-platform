@@ -549,3 +549,105 @@ The redesign branch is merged when:
 - The legacy DESIGN-SYSTEM.legacy.md is deleted or moved to historical
 
 Anything short of that is a partial cutover and should ship behind a feature flag.
+
+---
+
+## Phase 10 — Profile observation (post-cutover, ADR-018)
+
+> Status: planned 2026-05-13. Restores the COOL-mode observational capabilities the redesign lost when the legacy `/trade` page was retired. Scope is bounded by ADR-018: sub-routes under `/hot/profiles[/...]`, the `/risk` matrix, and the chrome engine-totals pill. No new top-level surface.
+
+This phase ships as **four independent PRs**, each independently mergeable. Each PR is a "lift-and-shift" of legacy components into the new routes; per-tab token-contract rewrites are tracked as follow-on work in `docs/TECH-DEBT-REGISTRY.md`.
+
+### Phase 10.1 — Chrome engine-totals pill + `/risk` profiles matrix
+
+**Goal:** smallest possible PR that restores system-level observability. No new routes.
+
+▶ **DO:**
+1. Build the new compound chrome pill component `frontend/components/shell/EngineTotalsPill.tsx` per `02-information-architecture.md` §4.1. Headline reads from `usePortfolioStore` (existing); expanded popover fetches `api.paperTrading.status()` lazily.
+2. Wire it into `frontend/components/shell/StatusPills.tsx`, replacing the standalone PnL pill. Headline state unchanged for non-expanding users.
+3. Lift `frontend/components/risk/RiskMonitorCard.tsx` into a new `<ProfilesRiskMatrix />` mount above the kill switch on `frontend/app/risk/page.tsx`. Bind to `api.profiles.list()` + `api.risk.metrics()` (or whichever endpoint the legacy component already consumed).
+4. Add cross-links: matrix card click → `/hot/profiles/{id}`, drawdown click → `/hot/profiles/{id}?tab=daily-pnl`.
+
+**Acceptance:**
+- Engine-totals pill visible in chrome on `/hot/{symbol}`, `/agents/observatory`, `/risk`, `/backtests`, `/settings/*`
+- Expanded popover renders the six metrics defined in IA §4.1
+- `/risk` shows a profiles matrix above the kill switch with at least three active profiles
+- vitest + tsc clean
+- No new `hex` literals in touched components
+
+**Effort:** ~1 session.
+
+### Phase 10.2 — `/hot/profiles` comparison grid
+
+**Goal:** restore the entry point — operators can see all active profiles at a glance and pick one to drill into.
+
+▶ **DO:**
+1. New route `frontend/app/hot/profiles/page.tsx` per spec §9.1. Card-per-profile grid, sorted by net P&L since boot.
+2. Per-card data: `api.profiles.list()` + per-profile `api.profiles.metricsSinceBoot({ profile_id })` (or aggregate from `api.paperTrading.status()` if already keyed by profile).
+3. Cross-links per spec §9.1: profile name → cockpit, P&L spark → Daily P&L tab, drawdown → `/risk`, open-positions → Positions tab.
+4. Empty state per spec §9.4 (link to `/canvas`).
+
+**Acceptance:**
+- `/hot/profiles` renders one card per active profile
+- Cards sort by net P&L descending
+- All cross-links land at the right URL (cockpit doesn't have to exist yet — links can 404 in this PR; resolved in 10.3)
+
+**Effort:** ~1 session.
+
+### Phase 10.3 — `/hot/profiles/[id]` Decisions + Positions tabs
+
+**Goal:** the core observation cockpit. Two tabs first (live-feed and live-state); analytical tabs in 10.4.
+
+▶ **DO:**
+1. New route `frontend/app/hot/profiles/[id]/page.tsx` per spec §9.2. Surface header with breadcrumb + profile-switch dropdown + per-profile stat strip.
+2. Tab routing via `?tab=decisions|positions|daily-pnl|attribution` query param. Default `decisions`. Persist last-selected tab per profile in localStorage.
+3. **Decisions tab** — lift `frontend/components/decisions/DecisionFeed.tsx` verbatim, scoped to `profile_id` from URL. Add Pending tag if backend lacks a profile-scoped `/decisions/{profile_id}/stream` endpoint (see TECH-DEBT row).
+4. **Positions tab** — lift `frontend/components/trade/PositionsPanel.tsx` verbatim. Bind to `api.positions.list({ profile_id })`. Show symbol column explicitly.
+5. Cross-link from `/hot/profiles` grid card click + from chrome breadcrumb on `/hot/{symbol}`.
+
+**Acceptance:**
+- `/hot/profiles/{id}?tab=decisions` shows the legacy DecisionFeed scoped to the URL profile (or a Pending tag if backend gap)
+- `/hot/profiles/{id}?tab=positions` shows cross-symbol open positions for that profile
+- Profile-switch dropdown jumps to `/hot/profiles/{newId}` preserving tab
+- Daily P&L and Attribution tabs render Pending tags (specs §9.2.3/§9.2.4 lite version — empty shell)
+
+**Effort:** ~1–2 sessions.
+
+### Phase 10.4 — Daily P&L + Attribution tabs
+
+**Goal:** restore the analytical depth — the legacy daily-report drawer and the performance-review drawer become first-class tabs.
+
+▶ **DO:**
+1. **Daily P&L tab** — lift `frontend/components/performance/DailyReportDetail.tsx` from the legacy `/trade/page.tsx` daily-report drawer (`DailyReportDrawer` component in that file). Scope to URL `profile_id`. Sparkline strip + row click opens an in-surface drawer with full trade lineage + blocked attempts (existing `paper-trading/reports/{date}/detail` endpoint already returns this).
+2. **Attribution tab** — lift `frontend/app/analytics/PerformanceContent.tsx`. Three sections: gate efficacy, weight evolution, per-agent contribution. Each gets a Pending tag if its backend feed is missing (see TECH-DEBT rows).
+3. Token-contract rewrite of the lifted components is OUT OF SCOPE for this PR — handled per-component in a separate Phase 10.5 polish pass.
+
+**Acceptance:**
+- `/hot/profiles/{id}?tab=daily-pnl` shows the per-day sparkline + click-to-open detail drawer with full transparency
+- `/hot/profiles/{id}?tab=attribution` shows three sections (with Pending tags where backend gaps exist)
+- Daily reports drawer renders full decision lineage per closed trade (existing endpoint shape preserved)
+
+**Effort:** ~1–2 sessions.
+
+### Phase 10.5 — Polish (deferred follow-on)
+
+Each lifted legacy component is rewritten against the redesign token surface as a separate small PR:
+- `DecisionFeed` → tokenized rebuild
+- `PositionsPanel` → tokenized rebuild (already partly aligned via PositionRow)
+- `DailyReportDetail` → tokenized rebuild
+- `PerformanceContent` → tokenized rebuild  
+- `RiskMonitorCard` → tokenized rebuild
+
+Each is a ~1-session PR. No new functionality, just token compliance per ADR-013. Sequence by user-visibility (DecisionFeed first; it's the highest-traffic component in the cockpit).
+
+### Phase 10 dependencies
+
+The backend gaps each tab depends on are tracked as rows in `docs/TECH-DEBT-REGISTRY.md`:
+- Profile-scoped decision stream endpoint (Decisions tab)
+- Profile-scoped positions filter (Positions tab — likely already works, verify)
+- Profile-cross-symbol position close endpoint (Positions tab close-N% actions)
+- Profile-scoped daily reports filter (Daily P&L tab — verify)
+- Gate-block metrics endpoint (Attribution tab gate efficacy section)
+- Per-agent realized P&L attribution endpoint (Attribution per-agent contribution section)
+
+None of these block the first lift-and-shift; each blocks its tab from being more than a placeholder until landed.
