@@ -166,6 +166,11 @@ export function PriceChart({
     // Resize handling. In fluid mode the chart tracks its container's
     // measured height (which follows the parent's flex allocation); in
     // fixed mode it uses the density-derived pixel height.
+    // RAF-coalesced: ResizeObserver fires multiple times during mount
+    // layout-settle; each fire used to do a clientHeight/Width read +
+    // applyOptions write (~25–30 ms each → ~176 ms thrash on cold-load
+    // /hot/[symbol], per 2026-05-13 perf trace). Collapsing to one resize
+    // per frame eliminates the loop.
     const resize = () => {
       if (!container || !chartRef.current) return;
       const h = fluid ? (container.clientHeight || plotHeight) : plotHeight;
@@ -174,12 +179,21 @@ export function PriceChart({
         height: h,
       });
     };
+    let rafId: number | null = null;
+    const scheduleResize = () => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = null;
+        resize();
+      });
+    };
     resize();
-    const ro = new ResizeObserver(resize);
+    const ro = new ResizeObserver(scheduleResize);
     ro.observe(container);
 
     return () => {
       ro.disconnect();
+      if (rafId !== null) cancelAnimationFrame(rafId);
       try {
         chart.remove();
       } catch {

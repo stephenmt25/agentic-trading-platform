@@ -45,6 +45,7 @@ import {
   type KillSwitchStatus,
 } from "@/lib/api/client";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
+import { useShallow } from "zustand/react/shallow";
 import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { useOrderBookStore } from "@/lib/stores/orderbookStore";
 import { useOrdersStore, type OptimisticOrder } from "@/lib/stores/ordersStore";
@@ -220,19 +221,38 @@ export default function HotTradingPage() {
   const armed = killStatus?.active === true;
 
   // ----- Data: agent traces (filtered to current symbol) ------------------
-  const globalFeed = useAgentViewStore((s) => s.globalFeed);
+  // Subscribe to the symbol-filtered, capped top-N events directly from the
+  // store with shallow equality. The previous shape — `useAgentViewStore((s)
+  // => s.globalFeed)` + useMemo — re-rendered the entire /hot subtree on
+  // every ingested event (SSE telemetry flood), because globalFeed gets a
+  // new array reference on every ingestEvent. With useShallow comparing the
+  // *filtered* slice element-by-element against the prior result, the
+  // component re-renders only when the top-N events for this symbol
+  // actually change.
+  const filteredEvents = useAgentViewStore(
+    useShallow((s) => {
+      const out: typeof s.globalFeed = [];
+      for (
+        let i = s.globalFeed.length - 1;
+        i >= 0 && out.length < AGENT_TRACE_CAP;
+        i--
+      ) {
+        const e = s.globalFeed[i];
+        if (!backendIdToKind(e.agent_id)) continue;
+        const payloadSymbol = (e.payload?.symbol as string | undefined)?.toUpperCase();
+        if (payloadSymbol && payloadSymbol !== symbol) continue;
+        out.push(e);
+      }
+      return out;
+    })
+  );
   const agentTraces = useMemo<AgentTraceProps[]>(() => {
-    // Surface the most recent N decision-trace / output-emitted events for
-    // agentic kinds; map to AgentTraceProps for the AgentSummaryPanel.
     const out: AgentTraceProps[] = [];
-    for (let i = globalFeed.length - 1; i >= 0 && out.length < AGENT_TRACE_CAP; i--) {
-      const e = globalFeed[i];
+    for (const e of filteredEvents) {
       const kind = backendIdToKind(e.agent_id);
+      // Selector already filters by kind; the redundant guard keeps the
+      // type narrowing local so this loop is self-contained.
       if (!kind) continue;
-      // Symbol filter: prefer events whose payload references this symbol;
-      // fall back to all traces when there are no symbol-tagged emissions.
-      const payloadSymbol = (e.payload?.symbol as string | undefined)?.toUpperCase();
-      if (payloadSymbol && payloadSymbol !== symbol) continue;
       out.push({
         agent: kind,
         emittedAt: new Date(e.timestamp).getTime(),
@@ -241,7 +261,7 @@ export default function HotTradingPage() {
       });
     }
     return out;
-  }, [globalFeed, symbol]);
+  }, [filteredEvents]);
 
   // ----- Order entry shape ------------------------------------------------
   const lastClose = useMemo(() => {
