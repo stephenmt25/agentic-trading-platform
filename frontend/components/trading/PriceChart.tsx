@@ -263,6 +263,13 @@ export function PriceChart({
     // resolved and the latest in-progress.
     const tail = candles.slice(-2);
     for (const bar of tail) {
+      // lightweight-charts requires monotonic update() — `bar.time` must be
+      // strictly >= the series' last applied time, else it throws "Cannot
+      // update oldest data". Skip bars older than what we've already shown
+      // so that an effect re-fire on identical/stale candles (StrictMode
+      // double-mount, HMR, a parent that re-creates the array reference, or
+      // a late refetch landing after a newer one) doesn't blow up the chart.
+      if (last !== null && bar.time < last) continue;
       candle.update(toCandleDatum(bar));
       if (volume && bar.volume !== undefined) {
         volume.update(toVolumeDatum(bar, tokens));
