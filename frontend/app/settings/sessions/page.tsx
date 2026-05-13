@@ -1,66 +1,82 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { signOut, useSession } from "next-auth/react";
-import { Laptop, LogOut } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { signOut } from "next-auth/react";
+import { AlertTriangle, Laptop, LogOut, Smartphone } from "lucide-react";
+import { toast } from "sonner";
 import { Button, Tag } from "@/components/primitives";
 import { Pill, StatusDot } from "@/components/data-display";
+import { api } from "@/lib/api/client";
 
-function detectDevice(): { device: string; browser: string } {
-  if (typeof navigator === "undefined") {
-    return { device: "Unknown device", browser: "Unknown" };
-  }
-  const ua = navigator.userAgent;
-  const isMac = /Macintosh|Mac OS X/i.test(ua);
-  const isWindows = /Windows NT/i.test(ua);
-  const isLinux = /Linux/i.test(ua);
-  const isiPhone = /iPhone/i.test(ua);
-  const isAndroid = /Android/i.test(ua);
-
-  const device = isMac
-    ? "Mac"
-    : isWindows
-      ? "Windows"
-      : isLinux
-        ? "Linux"
-        : isiPhone
-          ? "iPhone"
-          : isAndroid
-            ? "Android"
-            : "Unknown device";
-
-  const browser = /Edg\//i.test(ua)
-    ? "Edge"
-    : /Chrome\//i.test(ua)
-      ? "Chrome"
-      : /Firefox\//i.test(ua)
-        ? "Firefox"
-        : /Safari\//i.test(ua)
-          ? "Safari"
-          : "Browser";
-
-  return { device, browser };
+interface SessionRow {
+  session_id: string;
+  device: string | null;
+  browser: string | null;
+  ip: string | null;
+  user_agent: string | null;
+  created_at: string | null;
+  last_seen_at: string | null;
+  is_current: boolean;
 }
+
+const POLL_MS = 60_000;
 
 /**
  * /settings/sessions — active sessions, API tokens, webhooks.
  * Per surface spec §9.
  *
- * Cross-session listing and API-token CRUD need backend endpoints
- * that don't exist yet. The current session is shown from
- * navigator/useSession; the rest is surfaced as Pending so the
- * structure is in place when the backend lands.
+ * Active sessions are wired against /auth/sessions (migration 022). API
+ * token issuance and webhook destinations are still pending — those are
+ * their own projects, each surfaced explicitly here with a short reason
+ * so the partner can see what's coming.
  */
 export default function SessionsSettingsPage() {
-  const { data: session } = useSession();
-  const [agent, setAgent] = useState<{ device: string; browser: string }>({
-    device: "—",
-    browser: "—",
-  });
+  const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [revoking, setRevoking] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await api.sessions.list();
+      setSessions(res.sessions);
+      setError(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load sessions");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    setAgent(detectDevice());
-  }, []);
+    load();
+    const id = window.setInterval(load, POLL_MS);
+    return () => window.clearInterval(id);
+  }, [load]);
+
+  const handleRevoke = useCallback(
+    async (sessionId: string, isCurrent: boolean) => {
+      setRevoking(sessionId);
+      try {
+        await api.sessions.revoke(sessionId);
+        toast.success(
+          isCurrent ? "Session revoked. Signing out." : "Session revoked."
+        );
+        if (isCurrent) {
+          await signOut({ callbackUrl: "/login" });
+          return;
+        }
+        await load();
+      } catch (e: unknown) {
+        toast.error(
+          e instanceof Error ? e.message : "Failed to revoke session."
+        );
+      } finally {
+        setRevoking(null);
+      }
+    },
+    [load]
+  );
 
   return (
     <section className="flex flex-col gap-6">
@@ -75,42 +91,49 @@ export default function SessionsSettingsPage() {
 
       <FieldGroup
         title="Active sessions"
-        description="Devices currently signed in to your account."
+        description="Devices currently signed in to your account. Revoking a session forces that browser back to /login on its next refresh."
       >
-        <div className="rounded-md border border-border-subtle bg-bg-panel px-4 py-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <Laptop className="w-5 h-5 text-fg-muted" strokeWidth={1.5} aria-hidden />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-[14px] text-fg">
-                  {agent.browser} · {agent.device}
-                </p>
-                <Pill intent="bid" icon={<StatusDot state="live" size={6} pulse />}>
-                  This session
-                </Pill>
-              </div>
-              <p className="text-[12px] text-fg-muted">
-                Signed in as {session?.user?.email || "—"}
-              </p>
+        {error && (
+          <div
+            role="alert"
+            className="rounded-md border border-danger-700/40 bg-danger-700/10 px-4 py-3 flex items-start gap-3 text-[13px] text-danger-500"
+          >
+            <AlertTriangle
+              className="w-4 h-4 shrink-0 mt-0.5"
+              strokeWidth={1.5}
+              aria-hidden
+            />
+            <div>
+              <p className="font-medium">Sessions endpoint unreachable</p>
+              <p className="text-danger-500/80 mt-1">{error}</p>
             </div>
           </div>
-          <Button
-            intent="secondary"
-            size="md"
-            leftIcon={<LogOut className="w-3.5 h-3.5" />}
-            onClick={() => signOut({ callbackUrl: "/login" })}
-          >
-            Sign out
-          </Button>
-        </div>
+        )}
 
-        <div className="rounded-md border border-dashed border-border-subtle bg-bg-canvas/40 px-4 py-3 flex items-start gap-3">
-          <Tag intent="warn">Pending</Tag>
-          <p className="text-[13px] text-fg-secondary leading-snug flex-1">
-            Listing other devices, IPs, and last-seen times needs a backend
-            sessions endpoint. Until then, only the current browser appears.
-          </p>
-        </div>
+        {loading && !sessions.length ? (
+          <div className="rounded-md border border-border-subtle bg-bg-panel/60 p-6 text-center">
+            <p className="text-[13px] text-fg-muted">Loading sessions…</p>
+          </div>
+        ) : sessions.length === 0 ? (
+          <div className="rounded-md border border-border-subtle bg-bg-panel/60 p-6 text-center">
+            <p className="text-fg">No active sessions.</p>
+            <p className="text-[13px] text-fg-muted mt-1">
+              That shouldn&apos;t happen if you&apos;re reading this — try
+              refreshing.
+            </p>
+          </div>
+        ) : (
+          <ul className="rounded-md border border-border-subtle bg-bg-panel divide-y divide-border-subtle">
+            {sessions.map((s) => (
+              <SessionItem
+                key={s.session_id}
+                session={s}
+                revoking={revoking === s.session_id}
+                onRevoke={() => handleRevoke(s.session_id, s.is_current)}
+              />
+            ))}
+          </ul>
+        )}
       </FieldGroup>
 
       <FieldGroup
@@ -120,7 +143,9 @@ export default function SessionsSettingsPage() {
         <div className="rounded-md border border-border-subtle bg-bg-panel/60 p-6 text-center">
           <p className="text-fg">No API tokens.</p>
           <p className="text-[13px] text-fg-muted mt-1">
-            Token issuance lands with the auth-tokens endpoint.
+            Token issuance, hashed storage, and scoped permissions are coming
+            in a follow-up. The session-revocation infrastructure that lands
+            today is the foundation it builds on.
           </p>
           <div className="mt-4 inline-flex">
             <Tag intent="warn">Pending</Tag>
@@ -135,7 +160,8 @@ export default function SessionsSettingsPage() {
         <div className="rounded-md border border-border-subtle bg-bg-panel/60 p-6 text-center">
           <p className="text-fg">No webhooks configured.</p>
           <p className="text-[13px] text-fg-muted mt-1">
-            Configurable destinations land alongside the notification matrix.
+            Webhook delivery pairs with the per-event notification matrix
+            (Notifications page). They land together.
           </p>
           <div className="mt-4 inline-flex">
             <Tag intent="warn">Pending</Tag>
@@ -143,6 +169,63 @@ export default function SessionsSettingsPage() {
         </div>
       </FieldGroup>
     </section>
+  );
+}
+
+function SessionItem({
+  session,
+  revoking,
+  onRevoke,
+}: {
+  session: SessionRow;
+  revoking: boolean;
+  onRevoke: () => void;
+}) {
+  const isMobile =
+    session.device === "iPhone" || session.device === "Android";
+  const Icon = isMobile ? Smartphone : Laptop;
+
+  const deviceLabel = session.device ?? "Unknown device";
+  const browserLabel = session.browser ?? "Browser";
+
+  return (
+    <li className="px-4 py-3 flex items-center justify-between gap-4">
+      <div className="flex items-center gap-3 min-w-0">
+        <Icon
+          className="w-5 h-5 text-fg-muted shrink-0"
+          strokeWidth={1.5}
+          aria-hidden
+        />
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <p className="text-[14px] text-fg">
+              {browserLabel} · {deviceLabel}
+            </p>
+            {session.is_current && (
+              <Pill intent="bid" icon={<StatusDot state="live" size={6} pulse />}>
+                This session
+              </Pill>
+            )}
+          </div>
+          <p className="text-[12px] text-fg-muted mt-0.5 num-tabular font-mono">
+            {session.ip ? `${session.ip} · ` : ""}
+            {session.last_seen_at
+              ? `last seen ${new Date(session.last_seen_at).toLocaleString()}`
+              : "last seen unknown"}
+          </p>
+        </div>
+      </div>
+      <Button
+        intent={session.is_current ? "secondary" : "danger"}
+        size="md"
+        leftIcon={<LogOut className="w-3.5 h-3.5" />}
+        onClick={onRevoke}
+        loading={revoking}
+        disabled={revoking}
+      >
+        {session.is_current ? "Sign out" : "Revoke"}
+      </Button>
+    </li>
   );
 }
 

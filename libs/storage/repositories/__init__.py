@@ -9,6 +9,8 @@ from .order_repo import OrderRepository
 from .pnl_repo import PnlRepository
 from .position_repo import PositionRepository
 from .profile_repo import ProfileRepository
+from .user_risk_defaults_repo import UserRiskDefaultsRepository
+from .user_session_repo import UserSessionRepository
 from .validation_repo import ValidationRepository
 from .weight_history_repo import WeightHistoryRepository
 
@@ -24,6 +26,8 @@ __all__ = [
     "PnlRepository",
     "PositionRepository",
     "ProfileRepository",
+    "UserRiskDefaultsRepository",
+    "UserSessionRepository",
     "ValidationRepository",
     "WeightHistoryRepository",
 ]

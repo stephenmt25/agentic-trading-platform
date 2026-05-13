@@ -1,5 +1,7 @@
+import uuid as _uuid
 import jwt
 from datetime import datetime, timedelta, timezone
+from typing import Optional, Tuple
 from fastapi import Request, HTTPException
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from libs.config import settings
@@ -18,14 +20,26 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     return encoded_jwt
 
 
-def create_refresh_token(data: dict, expires_delta: timedelta = None):
+def create_refresh_token(
+    data: dict,
+    expires_delta: timedelta = None,
+    *,
+    jti: Optional[str] = None,
+) -> Tuple[str, str]:
+    """Create a refresh JWT. Always carries a `jti` (UUID) so the caller can
+    persist (or rotate) a row in `user_sessions` keyed by jti. Returns
+    (token, jti); pass `jti` to mint a specific value (used on rotation),
+    otherwise a fresh UUID4 is generated.
+    """
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + (expires_delta or timedelta(days=7))
-    to_encode.update({"exp": expire, "type": "refresh"})
+    if jti is None:
+        jti = str(_uuid.uuid4())
+    to_encode.update({"exp": expire, "type": "refresh", "jti": jti})
     if not settings.REFRESH_SECRET_KEY:
         raise RuntimeError("REFRESH_SECRET_KEY must be configured separately from SECRET_KEY")
     encoded_jwt = jwt.encode(to_encode, settings.REFRESH_SECRET_KEY, algorithm="HS256")
-    return encoded_jwt
+    return encoded_jwt, jti
 
 
 def verify_refresh_token(token: str) -> dict:
@@ -73,6 +87,10 @@ async def verify_jwt(request: Request):
         request.state.user_id = payload.get("sub")
         if not request.state.user_id:
             raise HTTPException(status_code=401, detail="Token invalid: missing subject")
+        # session_id is only present on tokens minted after the user_sessions
+        # migration; older tokens (in-flight at the time of rollout) still work
+        # but will have None — the sessions list will mark no row as current.
+        request.state.session_id = payload.get("session_id")
     except jwt.ExpiredSignatureError:
         raise HTTPException(status_code=401, detail="Token expired")
     except jwt.PyJWTError:

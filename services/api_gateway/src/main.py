@@ -20,7 +20,7 @@ from libs.core.exceptions import (
 )
 
 from .middleware.rate_limit import RateLimiterMiddleware
-from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents, docs_chat, telemetry_stream, hitl, market_data, agent_performance, agent_config, audit, positions
+from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents, docs_chat, telemetry_stream, hitl, market_data, agent_performance, agent_config, audit, positions, risk_defaults
 
 logger = get_logger("api-gateway")
 
@@ -161,6 +161,7 @@ def create_app() -> FastAPI:
         (agent_performance.router, "/agent-performance"),
         (agent_config.router, "/agent-config"),
         (audit.router, "/audit"),
+        (risk_defaults.router, "/risk-defaults"),
     ]
 
     for router, prefix in secure_routes:

@@ -748,3 +748,60 @@ class RiskLimitsPayload(BaseModel):
     max_allocation_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["max_allocation_pct"]))
     circuit_breaker_daily_loss_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"]))
     model_config = ConfigDict(extra="allow")
+
+
+# Sensible defaults for user-level risk caps; expressed in the same units as the
+# editable form on /settings/risk. Floats at the API boundary follow the same
+# convention as RiskLimitsPayload — downstream consumers convert to Decimal at
+# the calculation site.
+DEFAULT_USER_RISK_DEFAULTS: Dict[str, float] = {
+    "max_position_size_pct": 0.10,         # 10% of free capital × confidence
+    "max_leverage": 1.0,                   # spot-only by default
+    "max_daily_loss_pct": 0.02,            # 2% halts new orders for the day
+    "rate_limit_orders_per_min": 30,       # sliding-window cap
+    "auto_pause_drawdown_pct": 0.05,       # 5% drawdown trip
+}
+
+
+class UserRiskDefaultsPayload(BaseModel):
+    """User-level risk caps that apply when a profile doesn't override them.
+
+    Scope: persisted defaults for *new* profiles. Recompile fan-out to running
+    profiles is a separate project. See migration 021_user_risk_defaults.sql
+    and `docs/design/05-surface-specs/06-profiles-settings.md` §5.
+    """
+
+    max_position_size_pct: float = Field(
+        default=DEFAULT_USER_RISK_DEFAULTS["max_position_size_pct"],
+        ge=0.0, le=1.0,
+        description="Per-trade cap as fraction of free capital (0.10 = 10%).",
+    )
+    max_leverage: float = Field(
+        default=DEFAULT_USER_RISK_DEFAULTS["max_leverage"],
+        ge=1.0, le=20.0,
+        description="Hard ceiling on notional / margin per position.",
+    )
+    max_daily_loss_pct: float = Field(
+        default=DEFAULT_USER_RISK_DEFAULTS["max_daily_loss_pct"],
+        ge=0.0, le=1.0,
+        description="Halts new orders for the day once breached.",
+    )
+    rate_limit_orders_per_min: int = Field(
+        default=DEFAULT_USER_RISK_DEFAULTS["rate_limit_orders_per_min"],
+        ge=1, le=600,
+        description="Sliding-window cap enforced by rate_limiter service.",
+    )
+    auto_pause_drawdown_pct: float = Field(
+        default=DEFAULT_USER_RISK_DEFAULTS["auto_pause_drawdown_pct"],
+        ge=0.0, le=1.0,
+        description="Drawdown threshold that auto-pauses the affected profile.",
+    )
+    model_config = ConfigDict(extra="forbid")
+
+
+class UserRiskDefaultsResponse(BaseModel):
+    """GET /risk-defaults response."""
+
+    defaults: UserRiskDefaultsPayload
+    updated_at: Optional[str] = None  # ISO8601; null if never saved (defaults returned).
+    applies_to: Literal["new_profiles_only"] = "new_profiles_only"  # Honest scope tag for the FE banner.

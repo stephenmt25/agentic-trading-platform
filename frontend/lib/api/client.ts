@@ -684,6 +684,74 @@ export const api = {
       }),
   },
 
+  sessions: {
+    // GET /auth/sessions — active sessions for the current user. Each row's
+    // is_current flag is set by the server when session_id claim on the
+    // access token matches; tokens minted before migration 022 won't have
+    // that claim and no row will be marked current (graceful rollout).
+    list: () =>
+      apiRequest<{
+        sessions: Array<{
+          session_id: string;
+          device: string | null;
+          browser: string | null;
+          ip: string | null;
+          user_agent: string | null;
+          created_at: string | null;
+          last_seen_at: string | null;
+          is_current: boolean;
+        }>;
+      }>("/auth/sessions"),
+
+    revoke: (sessionId: string) =>
+      apiRequest<{ session_id: string; revoked: boolean }>(
+        `/auth/sessions/${encodeURIComponent(sessionId)}/revoke`,
+        { method: "POST" }
+      ),
+  },
+
+  riskDefaults: {
+    // GET /risk-defaults — returns the persisted user-level caps. If the user
+    // has never saved, the server returns canonical defaults with
+    // updated_at=null so the FE can render the form without a special case.
+    // Scope tag `applies_to` is always "new_profiles_only" until the recompile
+    // fan-out lands; the FE surfaces that in a small inline note.
+    get: () =>
+      apiRequest<{
+        defaults: {
+          max_position_size_pct: number;
+          max_leverage: number;
+          max_daily_loss_pct: number;
+          rate_limit_orders_per_min: number;
+          auto_pause_drawdown_pct: number;
+        };
+        updated_at: string | null;
+        applies_to: "new_profiles_only";
+      }>("/risk-defaults"),
+
+    save: (data: {
+      max_position_size_pct: number;
+      max_leverage: number;
+      max_daily_loss_pct: number;
+      rate_limit_orders_per_min: number;
+      auto_pause_drawdown_pct: number;
+    }) =>
+      apiRequest<{
+        defaults: {
+          max_position_size_pct: number;
+          max_leverage: number;
+          max_daily_loss_pct: number;
+          rate_limit_orders_per_min: number;
+          auto_pause_drawdown_pct: number;
+        };
+        updated_at: string | null;
+        applies_to: "new_profiles_only";
+      }>("/risk-defaults", {
+        method: "PUT",
+        body: data,
+      }),
+  },
+
   marketData: {
     candles: (
       symbol: string,

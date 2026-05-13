@@ -13,6 +13,7 @@ from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.debate_repo import DebateRepository
 from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
 from libs.storage.repositories.backtest_repo import BacktestRepository
+from libs.storage.repositories.user_session_repo import UserSessionRepository
 from fastapi.security import HTTPBearer
 from .middleware.auth import verify_jwt
 
@@ -91,11 +92,23 @@ async def get_backtest_repo(request: Request) -> BacktestRepository:
     return BacktestRepository(client)
 
 
+async def get_user_session_repo(request: Request) -> UserSessionRepository:
+    client = await get_timescale(request)
+    return UserSessionRepository(client)
+
+
 def get_current_user(request: Request) -> str:
     user_id = getattr(request.state, "user_id", None)
     if not user_id:
         raise HTTPException(status_code=401, detail="Authentication required")
     return user_id
+
+
+def get_current_session_id(request: Request) -> str | None:
+    """Returns the session_id claim from the access token, if present. Older
+    tokens minted before migration 022 won't have one — callers must treat
+    None as 'session unknown' rather than 'no session'."""
+    return getattr(request.state, "session_id", None)
 
 
 async def verify_token_dep(request: Request):
