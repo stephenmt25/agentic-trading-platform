@@ -6,6 +6,7 @@ import {
   useMemo,
   useState,
 } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import {
@@ -24,7 +25,6 @@ import { toast } from "sonner";
 import { Select, Tag, Tooltip } from "@/components/primitives";
 import { Pill, StatusDot } from "@/components/data-display";
 import {
-  PriceChart,
   type PriceChartCandle,
   type PriceChartTimeframe,
   OrderBook,
@@ -34,6 +34,26 @@ import {
   type OrderEntryPayload,
   PnLBadge,
 } from "@/components/trading";
+import { PriceChartSkeleton } from "./_components/PriceChartSkeleton";
+
+/**
+ * PriceChart is lazy-loaded (next/dynamic, ssr:false) so the rest of the
+ * surface — order book, tape, positions, agent feed — paints immediately.
+ * The chart's lightweight-charts bundle is large and its initial mount
+ * causes ~170ms of forced reflow inside the library; deferring it moves
+ * that cost off the critical paint path. The skeleton matches the chart's
+ * outer dimensions to keep CLS at 0.
+ */
+const PriceChart = dynamic(
+  () =>
+    import("@/components/trading/PriceChart").then((m) => ({
+      default: m.PriceChart,
+    })),
+  {
+    ssr: false,
+    loading: () => <PriceChartSkeleton />,
+  },
+);
 import {
   AgentSummaryPanel,
   type AgentTraceProps,

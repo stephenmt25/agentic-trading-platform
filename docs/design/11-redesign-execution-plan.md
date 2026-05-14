@@ -629,16 +629,25 @@ This phase ships as **four independent PRs**, each independently mergeable. Each
 
 **Effort:** ~1–2 sessions.
 
-### Phase 10.5 — Polish (deferred follow-on)
+### Phase 10.5 — Polish (completed 2026-05-13)
 
-Each lifted legacy component is rewritten against the redesign token surface as a separate small PR:
-- `DecisionFeed` → tokenized rebuild
-- `PositionsPanel` → tokenized rebuild (already partly aligned via PositionRow)
-- `DailyReportDetail` → tokenized rebuild
-- `PerformanceContent` → tokenized rebuild  
-- `RiskMonitorCard` → tokenized rebuild
+The original plan was to ship five per-component tokenized rewrite PRs. In practice the polish landed differently — during the cockpit build (10.3) the user asked for a redesign of `/hot/profiles/[id]` rather than continuing the lift-and-shift, so the legacy components were replaced wholesale with redesign-native tab components instead of being rewritten in place:
 
-Each is a ~1-session PR. No new functionality, just token compliance per ADR-013. Sequence by user-visibility (DecisionFeed first; it's the highest-traffic component in the cockpit).
+| Original target | Replacement | Lives at |
+|---|---|---|
+| `DecisionFeed` | `DecisionsTab` (master-detail with drawer) | `app/hot/profiles/[id]/_components/DecisionsTab.tsx` |
+| `PositionsPanel` | `PositionsTab` (drawer + chain lineage + close-at-market) | `app/hot/profiles/[id]/_components/PositionsTab.tsx` |
+| `DailyReportDetail` | `DailyPnlTab` (sparkline + day-drawer with profile filter) | `app/hot/profiles/[id]/_components/DailyPnlTab.tsx` |
+| `PerformanceContent` | `AttributionTab` (gate efficacy + per-agent + weight evolution) | `app/hot/profiles/[id]/_components/AttributionTab.tsx` |
+| `RiskMonitorCard` | `ProfilesRiskMatrix` | `components/risk/ProfilesRiskMatrix.tsx` |
+
+The cleanup pass then deleted the now-orphan legacy code:
+
+- **Pages deleted** (deletion was already authorized but never executed at Phase 9 cutover): `app/trade/` (ADR-018), `app/paper-trading/` (ADR-015), `app/approval/` (ADR-016)
+- **Components deleted** (zero remaining consumers after the three page deletes): `app/analytics/PerformanceContent.tsx`, `app/analytics/AnalysisContent.tsx`, `components/decisions/DecisionFeed.tsx`, `components/decisions/DecisionDetail.tsx`, `components/trade/PositionsPanel.tsx`, `components/performance/DailyReportDetail.tsx`, `components/risk/RiskMonitorCard.tsx`
+- **Empty parent directories removed**: `app/analytics/`, `components/decisions/`, `components/trade/`
+
+Phase 10 is now complete. Other legacy route directories (`app/performance/`, `app/analyze/`, `app/analysis/`, `app/agent-view/`, `app/backtest/` singular, `app/pipeline/`, `app/profiles/`, `app/strategies/`, `app/docs/`) survived the Phase 9 cutover but have no ADR scheduling deletion — they're surfaced here as a known follow-up review for a future cleanup phase, not part of Phase 10.
 
 ### Phase 10 dependencies
 

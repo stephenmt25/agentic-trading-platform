@@ -402,8 +402,8 @@ export const api = {
   },
 
   paperTrading: {
-    status: () =>
-      apiRequest<PaperTradingStatus>("/paper-trading/status"),
+    status: (options?: { signal?: AbortSignal }) =>
+      apiRequest<PaperTradingStatus>("/paper-trading/status", options),
 
     mode: () =>
       apiRequest<TradingModeStatus>("/paper-trading/mode"),

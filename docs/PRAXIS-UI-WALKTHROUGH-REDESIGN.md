@@ -23,12 +23,22 @@ The redesign is organized around **five canonical surfaces** and a shared chrome
 
 **Chrome**
 - Sidebar, top bar, connection pill, kill-switch shortcut
+- Engine-totals pill *(new, Phase 10.1)*
 
 **Surface 1 — Hot Trading**
 - 1.1 Default state (chart + book + tape + order entry)
 - 1.2 Paper-order submission flow
 - 1.3 Connection states (live / degraded / stale)
 - 1.4 Kill-switch armed overlay
+- 1.5 Profile comparison grid *(new, Phase 10.2)* — `/hot/profiles`
+- 1.6 Per-profile observation cockpit *(new, Phase 10.3 + 10.4)* — `/hot/profiles/[id]`
+  - 1.6.1 Decisions tab
+  - 1.6.2 Decision drill-down drawer
+  - 1.6.3 Positions tab
+  - 1.6.4 Position chain drill-down drawer
+  - 1.6.5 Daily P&L tab
+  - 1.6.6 Day transparency drill-down drawer
+  - 1.6.7 Attribution tab
 
 **Surface 2 — Agent Observatory**
 - 2.1 Three-column default (roster + event stream + focus panel)
@@ -39,7 +49,7 @@ The redesign is organized around **five canonical surfaces** and a shared chrome
 **Surface 3 — Risk Control**
 - 3.1 Default state (kill switch + exposure + active limits)
 - 3.2 Kill-switch modal (`Cmd+Shift+K`)
-- 3.3 Per-profile risk monitor cards
+- 3.3 All-profiles risk matrix *(new, Phase 10.1)*
 
 **Surface 4 — Backtesting**
 - 4.1 Run list (`/backtests`)
@@ -84,6 +94,27 @@ The chrome is the only UI that persists across every surface. It is split into:
 * `frontend/components/providers/AppShell.tsx` // sidebar + top bar composition
 * `frontend/components/shell/ConnectionPill.tsx` // /ready-aware pill (ADR-017)
 * `frontend/components/shell/KillSwitchModal.tsx` // Cmd+Shift+K modal
+
+---
+
+## Chrome — Engine-totals pill *(new, Phase 10.1)*
+
+**Screenshot file:** `chrome_engine_pill_expanded.png`
+
+Anchored to the right of the trading-mode pill on every surface. Headline state shows net P&L since boot (the same value the standalone PnL pill used to carry); clicking expands a popover with the full strip — gross P&L, trades, win rate, max DD, Sharpe. This is the operator's "is the engine still net-positive today?" glance, available from any surface without context-switching.
+
+**What the screenshot is showing:**
+* **Collapsed headline** in chrome: `engine -8,648.09` rendered in `text-danger-500` because P&L is negative. Positive P&L renders in `text-bid-300`; zero in neutral.
+* **Expanded popover** anchored beneath the pill: six metrics in a two-column grid — Net P&L, Gross P&L, Trades, Win rate, Max DD, Sharpe.
+* **Footer**: timestamp ("since 2026-04-28") + deep link "open detailed report" → `/hot/profiles`.
+* **Poll discipline** (added 2026-05-13 after a backend-saturation incident): 30 s interval, in-flight guard so polls never stack, 20 s AbortController timeout. Stale value survives a failed poll — no blink to `—`.
+
+**Source of truth (code):**
+* `frontend/components/shell/EngineTotalsPill.tsx`
+* `frontend/components/shell/StatusPills.tsx` // wires the pill into chrome
+* `frontend/lib/api/client.ts` // api.paperTrading.status({ signal })
+* `docs/design/02-information-architecture.md` §4.1 // chrome pill spec
+* `docs/design/09-decisions-log.md` ADR-018 // chrome placement rationale
 
 ---
 
@@ -184,6 +215,117 @@ When the kill switch is `armed-hard`, the cockpit takes a `bg-bg-canvas` overlay
 * `services/api_gateway/src/routes/commands.py` // /commands/kill-switch endpoint
 * `frontend/components/shell/KillSwitchModal.tsx` // confirm modal
 * `frontend/lib/stores/killSwitchStore.ts` // shared kill-switch state
+
+## 1.5 Profile comparison grid *(new, Phase 10.2)* — `/hot/profiles`
+
+**Screenshot file:** `hot_profiles_grid.png`
+**Route:** `/hot/profiles`
+
+The "Hot Trading" rail entry now covers two URL spaces (per ADR-018): symbol-axis execution at `/hot/{symbol}` (sections 1.1–1.4) and profile-axis observation under `/hot/profiles[/...]` (this section + 1.6). The grid is the index: one card per active profile, sorted by net P&L since boot descending, with a flat "Add profile" tile that links to `/canvas`.
+
+**What the screenshot is showing:**
+* **Five cards**, sorted by P&L: Demo · Pullback Long (+1,423.92) at top, Trend Following (−232.67) at the bottom. Positive cards render the P&L in bid-green with an upward sparkline; negative in danger-red with downward.
+* **Per-card data**: header (status dot + profile name + `paper` mode pill), big net-P&L value with a 24-trade cumulative sparkline, then a 2×2 grid for Trades today / Win rate / Drawdown / Allocation, and a footer with open-position count + last-trade-relative-time.
+* **Cross-link rules** (per IA §3) — profile name → cockpit, P&L sparkline → cockpit's Daily P&L tab, drawdown → `/risk`, open-positions → cockpit's Positions tab, "Add profile" → `/canvas`.
+* **Data aggregation**: backend has no per-profile `metricsSinceBoot` endpoint yet, so the grid does four parallel calls (`api.profiles.list`, `api.agents.allRisk`, `api.audit.closedTrades({ limit: 500 })`, `api.positions.list({ status: "open" })`) and groups client-side. Four total backend round-trips regardless of profile count.
+
+**Source of truth (code):**
+* `frontend/app/hot/profiles/page.tsx`
+* `frontend/lib/api/client.ts` // api.audit.closedTrades + api.positions.list({ profileId })
+* `docs/design/05-surface-specs/01-hot-trading.md` §9.1 // grid spec
+
+## 1.6 Per-profile observation cockpit *(new, Phase 10.3 + 10.4)* — `/hot/profiles/[id]`
+
+The cockpit is a four-tab observation surface for a single profile, with a master-detail drawer pattern for row drill-through. The header carries a back-link, profile name + live status dot, a profile-switch dropdown, and a five-card MetricStrip (Net P&L since boot, Trades today, Win rate, Drawdown, Allocation) all bound to the URL `profile_id`. Tabs are URL-routable (`?tab=decisions|positions|daily-pnl|attribution`); the last-selected tab persists per profile in localStorage. Sections 1.6.1–1.6.7 cover each tab and its drill-down drawer separately.
+
+### 1.6.1 Decisions tab
+
+**Screenshot file:** `cockpit_decisions.png`
+**Route:** `/hot/profiles/{id}?tab=decisions`
+
+Every signal the engine evaluated for this profile, with All/Approved/Blocked filter chips. Left-edge accent bar per row (bid-green for approved, danger-red for blocked). Row click opens the drill-down drawer (§1.6.2). URL state for selection is `?decision={event_id}` — shareable.
+
+**Source of truth (code):**
+* `frontend/app/hot/profiles/[id]/_components/DecisionsTab.tsx`
+* `frontend/app/hot/profiles/[id]/_components/MetricStrip.tsx`
+
+### 1.6.2 Decision drill-down drawer
+
+**Screenshot file:** `cockpit_decisions_drawer.png`
+**Route:** `/hot/profiles/{id}?tab=decisions&decision={event_id}`
+
+420 px right-side drawer with the full TradeDecision broken into named sections: Setup (strategy, direction, base + confidence before/after, input price), Regime (resolved/rule/HMM + multiplier), Indicators (RSI/MACD/Signal/Hist/ATR/ADX), Agent scores (with weights, color-tinted by sign), Gates (pass/block reasons), Strategy conditions (each with actual vs. threshold + ✓/✗), Resulting order. Drawer header has an "open {symbol} →" deep-link. Esc, click-outside, or X dismiss.
+
+**Source of truth (code):**
+* `frontend/app/hot/profiles/[id]/_components/DecisionsTab.tsx` // DecisionDetail render
+* `frontend/app/hot/profiles/[id]/_components/DetailDrawer.tsx` // shared drawer shell
+
+### 1.6.3 Positions tab
+
+**Screenshot file:** `cockpit_positions.png`
+**Route:** `/hot/profiles/{id}?tab=positions`
+
+Cross-symbol open positions for this profile (the legacy `/hot/[symbol]` panel was symbol-scoped; this is profile-scoped). Columns: Symbol, Side, Qty, Entry, Mark, Unrealized $ / %, Age. 5 s poll cadence with an in-flight guard so a slow tail doesn't stack requests.
+
+**Source of truth (code):**
+* `frontend/app/hot/profiles/[id]/_components/PositionsTab.tsx`
+* `frontend/lib/api/client.ts` // api.positions.list({ profileId })
+
+### 1.6.4 Position chain drill-down drawer
+
+**Screenshot file:** `cockpit_positions_drawer.png`
+**Route:** `/hot/profiles/{id}?tab=positions&position={position_id}`
+
+The full decision → order → position chain, assembled by `api.audit.chain(decision_event_id)`. Sections: Live state (entry/mark/unrealized/stop/target/age — stop in danger-red, target in bid-green), Why we entered (regime resolved, final score, rationale if recorded), Agent scores (ranked by absolute score), Gates passed, Refs (decision + position IDs). Primary "Close at market" action at the bottom — confirms before submitting to `POST /positions/{id}/close`.
+
+**Source of truth (code):**
+* `frontend/app/hot/profiles/[id]/_components/PositionsTab.tsx` // PositionDetail render
+* `services/api_gateway/src/routes/audit.py` // /chain/{decision_event_id}
+* `services/api_gateway/src/routes/positions.py` // POST /positions/{id}/close
+
+### 1.6.5 Daily P&L tab
+
+**Screenshot file:** `cockpit_daily_pnl.png`
+**Route:** `/hot/profiles/{id}?tab=daily-pnl`
+
+Per-day P&L sparkline at the top + a table of trading days. The sparkline is tagged `engine-wide` because per-profile daily summaries need a backend aggregator (TECH-DEBT). Click any day row to drill into the day's full transparency (§1.6.6). 60 s poll cadence.
+
+**Source of truth (code):**
+* `frontend/app/hot/profiles/[id]/_components/DailyPnlTab.tsx`
+* `frontend/lib/api/client.ts` // api.paperTrading.status() for the daily-reports array
+
+### 1.6.6 Day transparency drill-down drawer
+
+**Screenshot file:** `cockpit_daily_pnl_drawer.png`
+**Route:** `/hot/profiles/{id}?tab=daily-pnl&date=YYYY-MM-DD`
+
+The day's full transparency report, fetched via `api.paperTrading.reportDetail(date)` and client-side-filtered to the URL profile. Three sections: **Engine totals (this day)** for context, **This profile (filtered)** with trades + win rate + net P&L + blocked count, then per-trade and per-blocked-attempt cards. Each closed-trade card has a "view decision lineage →" deep-link back into the Decisions drawer (§1.6.2).
+
+The drawer for `2026-05-01` in the screenshot is a real diagnostic example: the engine had 7 winning trades that day but this profile had zero closed trades and 100 blocked attempts (all `risk_gate (trade_below_minimum)`) — the answer to "why didn't my profile trade?" that used to require grepping logs.
+
+**Source of truth (code):**
+* `frontend/app/hot/profiles/[id]/_components/DailyPnlTab.tsx` // DailyReportDrawer render
+* `frontend/lib/api/client.ts` // api.paperTrading.reportDetail(date)
+* `services/api_gateway/src/routes/paper_trading.py` // reports/{date}/detail
+
+### 1.6.7 Attribution tab
+
+**Screenshot file:** `cockpit_attribution.png`
+**Route:** `/hot/profiles/{id}?tab=attribution`
+
+Symbol-axis attribution analytics. A symbol-scope picker defaults to the most-traded symbol the profile has touched; three sections analyze engine behavior at that symbol:
+
+* **Gate efficacy** — per-gate pass/block counts sorted by block count desc. On the demo profile, `circuit_breaker` is blocking 186/500 (37% of all decisions) — the diagnostic answer to "why does this profile never trade?".
+* **Per-agent contribution** — win rate × avg P&L by (TA / Sentiment / Debate) stance pattern over the last 7d. Confidence lift per pattern shown on the right.
+* **Weight evolution** — last-7d agent weight + EWMA accuracy + a sparkline per agent. Tagged *Pending* for the profile-filter gap because the backend endpoint is currently symbol-only.
+
+No row-level drill-down (this tab is analytical aggregates, not lineage).
+
+**Source of truth (code):**
+* `frontend/app/hot/profiles/[id]/_components/AttributionTab.tsx`
+* `frontend/lib/api/client.ts` // agentPerformance.gateAnalytics + agentAttributionSummary + weightHistory
+* `services/api_gateway/src/routes/agent_performance.py`
+* `docs/design/05-surface-specs/01-hot-trading.md` §9.2 // cockpit spec
 
 ---
 
@@ -313,21 +455,24 @@ The kill-switch is the load-bearing safety control. The keyboard shortcut is the
 * `frontend/components/shell/KillSwitchModal.test.tsx` // covers Cmd+Shift+K binding, two-step confirm
 * `services/hot_path/src/kill_switch.py` // KILL_SWITCH_LOG_KEY (Redis list for audit)
 
-## 3.3 Per-profile risk monitor cards
+## 3.3 All-profiles risk matrix *(new, Phase 10.1)*
 
-**Screenshot file:** `risk_per_profile_cards.png`
-**Route:** `/risk` (scroll to per-profile section)
+**Screenshot file:** `risk_profiles_matrix.png`
+**Route:** `/risk` (top of fold, above the kill switch)
 
-Below the global cards, each active profile gets its own RiskMonitorCard summarizing its current standing against its risk limits. Useful when running multiple profiles concurrently to see which one is closest to a circuit-breaker trip.
+The all-profiles risk matrix is now the first thing on `/risk`, sitting above the kill switch — the spec phrasing is "which profile needs intervening on, *right now*?" before any kill-switch decision. It replaced the legacy stack of per-profile RiskMonitorCard rows with a horizontally-scrollable card grid, sorted by drawdown severity (worst first).
 
 **What the screenshot is showing:**
-* **Per-card** — profile name, scope chip (live/paused), daily PnL vs. circuit-breaker limit (as a progress bar tinted bid/ask), current drawdown, allocation used.
-* **Sorted** by closest-to-breach descending — the profile most likely to trip the circuit breaker is at the top.
-* **Click-through** — clicking a profile card opens that profile's settings page in a new route (`/settings/profiles/{id}`).
+* **Header** — section title, active-profile count, "worst drawdown first" sort note.
+* **Five cards in a horizontal scroll**, sorted descending by drawdown. Each card has: profile name + truncated ID, a Drawdown bar with current % vs. `auto_pause_drawdown_pct` cap (color-graded — danger when ratio ≥ 85% of cap, warn when ≥ 50%), an Allocation bar against `max_allocation_pct`, then a 2×2 grid for Exposure (USDC at risk across open positions) + Open positions count.
+* **Cross-links** — entire card → `/hot/profiles/{id}` (cockpit), Drawdown bar → `?tab=daily-pnl`, Open-positions count → `?tab=positions`, "open in cockpit" link at the footer.
+* **Empty state** — "No active profiles. Risk Control monitors active trading; activate a profile in Pipeline Canvas to populate this matrix." (link to `/canvas`).
 
 **Source of truth (code):**
-* `frontend/components/risk/RiskMonitorCard.tsx` // single card
-* `frontend/app/risk/page.tsx` (per-profile section) // multi-card layout
+* `frontend/components/risk/ProfilesRiskMatrix.tsx`
+* `frontend/app/risk/page.tsx` // matrix mounted above KillSwitchSection
+* `docs/design/05-surface-specs/05-risk-control.md` §1.1 // matrix spec
+* `docs/design/09-decisions-log.md` ADR-018 // companion placement rationale
 
 ---
 

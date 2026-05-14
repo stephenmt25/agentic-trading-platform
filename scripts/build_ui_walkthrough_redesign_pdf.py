@@ -224,8 +224,18 @@ def build() -> None:
     story.append(Paragraph("Contents", s["h3"]))
     toc = [
         "1. Hot Trading &mdash; cockpit (chart + book + tape + order entry)",
+        "&nbsp;&nbsp;&nbsp;Chrome &mdash; Engine-totals pill <i>(new, Phase 10.1)</i>",
+        "&nbsp;&nbsp;&nbsp;Hot Trading &mdash; Profile comparison grid <i>(new, Phase 10.2)</i>",
+        "&nbsp;&nbsp;&nbsp;Profile cockpit &mdash; Decisions tab <i>(new, Phase 10.3)</i>",
+        "&nbsp;&nbsp;&nbsp;Profile cockpit &mdash; Decision drill-down drawer <i>(new, Phase 10.3)</i>",
+        "&nbsp;&nbsp;&nbsp;Profile cockpit &mdash; Positions tab <i>(new, Phase 10.3)</i>",
+        "&nbsp;&nbsp;&nbsp;Profile cockpit &mdash; Position chain drill-down drawer <i>(new, Phase 10.3)</i>",
+        "&nbsp;&nbsp;&nbsp;Profile cockpit &mdash; Daily P&amp;L tab <i>(new, Phase 10.4)</i>",
+        "&nbsp;&nbsp;&nbsp;Profile cockpit &mdash; Day transparency drill-down drawer <i>(new, Phase 10.4)</i>",
+        "&nbsp;&nbsp;&nbsp;Profile cockpit &mdash; Attribution tab <i>(new, Phase 10.4)</i>",
         "2. Agent Observatory &mdash; roster + event stream + focus panel",
         "3. Risk Control &mdash; kill switch + exposure + active limits",
+        "&nbsp;&nbsp;&nbsp;Risk Control &mdash; All-profiles risk matrix <i>(new, Phase 10.1)</i>",
         "4. Backtesting &mdash; run list",
         "5. Backtesting &mdash; run detail",
         "6. Backtesting &mdash; compare view",
@@ -276,6 +286,245 @@ def build() -> None:
         ],
     )
 
+    # ── 1A. Chrome — Engine-totals pill (Phase 10.1) ────────────────────
+    section(
+        story, s,
+        title="Chrome &mdash; Engine-totals pill <i>(new, Phase 10.1)</i>",
+        file_label="chrome_engine_pill_expanded.png",
+        image=SCRNSHTS / "chrome_engine_pill_expanded.png",
+        summary=(
+            "Anchored to the right of the trading-mode pill on every surface. Headline state shows net "
+            "P&amp;L since boot (positive = bid-green, negative = danger-red, zero = neutral). Clicking "
+            "expands a popover with the full strip &mdash; gross P&amp;L, trades, win rate, max DD, Sharpe "
+            "&mdash; plus a deep link to <font face='Courier'>/hot/profiles</font>. The operator's "
+            "&ldquo;is the engine still net-positive today?&rdquo; glance, available from any surface."
+        ),
+        bullets=[
+            "<b>Collapsed headline</b> &mdash; <font face='Courier'>engine -8,648.09</font> in danger-red because the cumulative P&amp;L is negative on this run.",
+            "<b>Expanded popover</b> &mdash; six metrics in a two-column grid: Net P&amp;L, Gross P&amp;L, Trades, Win rate, Max DD, Sharpe.",
+            "<b>Footer</b> &mdash; <font face='Courier'>since 2026-04-28</font> + deep link &ldquo;open detailed report&rdquo; &rarr; <font face='Courier'>/hot/profiles</font>.",
+            "<b>Poll discipline</b> (added 2026-05-13 after a backend-saturation incident): 30 s interval, in-flight guard so polls never stack, 20 s AbortController timeout, stale value survives failed polls &mdash; no blink to <font face='Courier'>&mdash;</font>.",
+        ],
+        code_refs=[
+            "frontend/components/shell/EngineTotalsPill.tsx",
+            "frontend/components/shell/StatusPills.tsx  &nbsp;&nbsp;// wires the pill into chrome",
+            "frontend/lib/api/client.ts  &nbsp;&nbsp;// api.paperTrading.status({ signal })",
+            "docs/design/02-information-architecture.md  &nbsp;&nbsp;// §4.1 chrome pill spec",
+            "docs/design/09-decisions-log.md  &nbsp;&nbsp;// ADR-018 placement rationale",
+        ],
+    )
+
+    # ── 1B. Profile comparison grid (Phase 10.2) ────────────────────────
+    section(
+        story, s,
+        title="Hot Trading &mdash; Profile comparison grid <i>(new, Phase 10.2)</i>",
+        file_label="hot_profiles_grid.png",
+        image=SCRNSHTS / "hot_profiles_grid.png",
+        summary=(
+            "The &ldquo;Hot Trading&rdquo; rail entry now covers two URL spaces (ADR-018): symbol-axis execution at "
+            "<font face='Courier'>/hot/{symbol}</font> and profile-axis observation under "
+            "<font face='Courier'>/hot/profiles[/...]</font>. The grid is the index: one card per active "
+            "profile, sorted by net P&amp;L since boot descending, with an &ldquo;Add profile&rdquo; tile linking "
+            "to <font face='Courier'>/canvas</font>."
+        ),
+        bullets=[
+            "<b>Five cards</b>, sorted by P&amp;L: Demo Pullback Long (+1,423.92) at top, Trend Following (&ndash;232.67) at the bottom. Positive cards render the P&amp;L in bid-green with an upward sparkline; negative in danger-red with downward.",
+            "<b>Per-card data</b> &mdash; status dot + name + paper mode pill in the header, big net-P&amp;L value with a 24-trade cumulative sparkline, a 2&times;2 grid for Trades today / Win rate / Drawdown / Allocation, plus a footer with open-position count + last-trade-relative time.",
+            "<b>Cross-link rules</b> per IA §3 &mdash; profile name &rarr; cockpit, P&amp;L sparkline &rarr; Daily P&amp;L tab, drawdown &rarr; <font face='Courier'>/risk</font>, open-positions &rarr; Positions tab.",
+            "<b>Data aggregation</b> &mdash; backend has no per-profile <font face='Courier'>metricsSinceBoot</font> endpoint yet, so the grid does four parallel calls and groups client-side. Four backend round-trips regardless of profile count.",
+        ],
+        code_refs=[
+            "frontend/app/hot/profiles/page.tsx",
+            "frontend/lib/api/client.ts  &nbsp;&nbsp;// api.audit.closedTrades + api.positions.list({ profileId })",
+            "docs/design/05-surface-specs/01-hot-trading.md  &nbsp;&nbsp;// §9.1 grid spec",
+        ],
+    )
+
+    # ── 1C. Profile cockpit — Decisions tab (Phase 10.3) ────────────────
+    section(
+        story, s,
+        title="Profile cockpit &mdash; Decisions tab <i>(new, Phase 10.3)</i>",
+        file_label="cockpit_decisions.png",
+        image=SCRNSHTS / "cockpit_decisions.png",
+        summary=(
+            "Per-profile observation surface at <font face='Courier'>/hot/profiles/{id}</font>. The header "
+            "carries a back-link, profile name + live status dot, profile-switch dropdown, and a five-card "
+            "MetricStrip (Net P&amp;L since boot, Trades today, Win rate, Drawdown, Allocation). Tabs are "
+            "URL-routable and persist per profile via localStorage. The Decisions tab is the default and "
+            "lists every signal the engine evaluated for this profile."
+        ),
+        bullets=[
+            "<b>Filter chips</b> &mdash; All / Approved / Blocked. Refresh affordance at the right with last-fetch indicator.",
+            "<b>Table</b> &mdash; Time, Symbol, Outcome (color-coded pill), Direction (bid/ask tone), Confidence, RSI, ATR. Left-edge accent bar per row (bid-green for approved, danger-red for blocked).",
+            "<b>Hover state</b> &mdash; row highlights and a right-aligned chevron fades in, signalling the row is clickable.",
+            "<b>Row click</b> opens the drill-down drawer covered in the next section.",
+            "<b>URL drill-through</b>: <font face='Courier'>?tab=decisions</font> for the table view; selection state lives in <font face='Courier'>?decision={event_id}</font>.",
+        ],
+        code_refs=[
+            "frontend/app/hot/profiles/[id]/page.tsx",
+            "frontend/app/hot/profiles/[id]/_components/DecisionsTab.tsx",
+            "frontend/app/hot/profiles/[id]/_components/MetricStrip.tsx",
+            "docs/design/05-surface-specs/01-hot-trading.md  &nbsp;&nbsp;// §9.2.1 spec",
+        ],
+    )
+
+    # ── 1C-drawer. Decision drill-down drawer ───────────────────────────
+    section(
+        story, s,
+        title="Profile cockpit &mdash; Decision drill-down drawer <i>(new, Phase 10.3)</i>",
+        file_label="cockpit_decisions_drawer.png",
+        image=SCRNSHTS / "cockpit_decisions_drawer.png",
+        summary=(
+            "Clicking any row on the Decisions tab opens a 420 px right-side drawer with the full "
+            "TradeDecision broken into named sections. Backdrop dims the underlying table; the drawer is "
+            "scrollable independently. Esc, click-outside, or the X button dismiss."
+        ),
+        bullets=[
+            "<b>Drawer header</b> &mdash; symbol &middot; direction (e.g. <font face='Courier'>ETH/USDT &middot; BUY</font>) + timestamp + truncated event ID + an &ldquo;open {symbol} &rarr;&rdquo; action that deep-links to <font face='Courier'>/hot/{symbol}</font>.",
+            "<b>Setup</b> &mdash; strategy, direction, base + before / after confidence, input price.",
+            "<b>Regime</b> &mdash; resolved / rule-based / HMM with multiplier.",
+            "<b>Indicators</b> &mdash; RSI, MACD, Signal, Histogram, ATR, ADX.",
+            "<b>Agent scores</b> &mdash; per-agent score &times; weight, color-tinted by sign (TA, sentiment, debate).",
+            "<b>Gates</b> &mdash; every gate the decision passed or blocked on, with the block reason inline.",
+            "<b>Strategy conditions</b> &mdash; each evaluated condition with actual value vs. threshold and a ✓/✗ pass mark.",
+            "<b>Resulting order</b> &mdash; order ID linkout when the decision was approved.",
+            "<b>Shareable URL</b>: <font face='Courier'>?tab=decisions&amp;decision={event_id}</font> opens the cockpit with this drawer already expanded.",
+        ],
+        code_refs=[
+            "frontend/app/hot/profiles/[id]/_components/DecisionsTab.tsx  &nbsp;&nbsp;// DecisionDetail render",
+            "frontend/app/hot/profiles/[id]/_components/DetailDrawer.tsx  &nbsp;&nbsp;// shared drawer shell",
+        ],
+    )
+
+    # ── 1D. Profile cockpit — Positions tab (Phase 10.3) ────────────────
+    section(
+        story, s,
+        title="Profile cockpit &mdash; Positions tab <i>(new, Phase 10.3)</i>",
+        file_label="cockpit_positions.png",
+        image=SCRNSHTS / "cockpit_positions.png",
+        summary=(
+            "Cross-symbol open positions for this profile (the legacy panel was symbol-scoped; this is "
+            "profile-scoped). The table view lists every open position; click a row to drill into the full "
+            "lineage and a market-close action (next section)."
+        ),
+        bullets=[
+            "<b>Table</b> &mdash; Symbol, Side (long/short pill), Qty, Entry, Mark, Unrealized $ / %, Age. Color-tinted per side and per P&amp;L sign; left-edge accent matches the side.",
+            "<b>Open-count chip</b> at the top of the tab body shows the live count of open positions for this profile.",
+            "<b>Hover state</b> &mdash; row highlights, right-aligned chevron fades in.",
+            "<b>5 s poll cadence</b> for live mark/unrealized updates, with the in-flight guard so a slow tail doesn&apos;t stack requests.",
+        ],
+        code_refs=[
+            "frontend/app/hot/profiles/[id]/_components/PositionsTab.tsx",
+            "frontend/lib/api/client.ts  &nbsp;&nbsp;// api.positions.list({ profileId })",
+            "docs/design/05-surface-specs/01-hot-trading.md  &nbsp;&nbsp;// §9.2.2 spec",
+        ],
+    )
+
+    # ── 1D-drawer. Position chain drill-down drawer ─────────────────────
+    section(
+        story, s,
+        title="Profile cockpit &mdash; Position chain drill-down drawer <i>(new, Phase 10.3)</i>",
+        file_label="cockpit_positions_drawer.png",
+        image=SCRNSHTS / "cockpit_positions_drawer.png",
+        summary=(
+            "Row click on the Positions tab opens the position chain &mdash; the full decision &rarr; order "
+            "&rarr; position lineage assembled by <font face='Courier'>api.audit.chain(decision_event_id)</font>. "
+            "Includes a primary market-close action at the bottom of the drawer."
+        ),
+        bullets=[
+            "<b>Drawer header</b> &mdash; symbol &middot; side (e.g. <font face='Courier'>ETH/USDT &middot; long</font>) + age (&ldquo;opened 17.8h ago&rdquo;) + &ldquo;open {symbol} &rarr;&rdquo; link.",
+            "<b>Live state</b> &mdash; Symbol, Side / Qty, Entry, Mark, Unrealized ($ + %), Notional, Stop ($price), Target ($price), Age. Stop renders in danger-red, target in bid-green.",
+            "<b>Why we entered</b> &mdash; regime resolved, final score, rationale (if recorded).",
+            "<b>Agent scores</b> &mdash; ranked by absolute score; weight shown next to each.",
+            "<b>Gates</b> &mdash; every gate the originating decision passed, with reason for any blocks.",
+            "<b>Refs</b> &mdash; truncated decision event ID + position ID for cross-referencing logs / DB.",
+            "<b>Close at market</b> action at the bottom &mdash; confirms before submitting to <font face='Courier'>POST /positions/{id}/close</font>.",
+            "<b>Shareable URL</b>: <font face='Courier'>?tab=positions&amp;position={position_id}</font>.",
+        ],
+        code_refs=[
+            "frontend/app/hot/profiles/[id]/_components/PositionsTab.tsx  &nbsp;&nbsp;// PositionDetail render",
+            "services/api_gateway/src/routes/audit.py  &nbsp;&nbsp;// /chain/{decision_event_id}",
+            "services/api_gateway/src/routes/positions.py  &nbsp;&nbsp;// POST /positions/{id}/close",
+        ],
+    )
+
+    # ── 1E. Profile cockpit — Daily P&L tab (Phase 10.4) ────────────────
+    section(
+        story, s,
+        title="Profile cockpit &mdash; Daily P&amp;L tab <i>(new, Phase 10.4)</i>",
+        file_label="cockpit_daily_pnl.png",
+        image=SCRNSHTS / "cockpit_daily_pnl.png",
+        summary=(
+            "Per-day P&amp;L sparkline at the top + a table of trading days. The sparkline is tagged "
+            "<i>engine-wide</i> because per-profile daily summaries need a backend aggregator (TECH-DEBT). "
+            "Click any day row to drill into the day's full transparency (next section)."
+        ),
+        bullets=[
+            "<b>Top strip</b> &mdash; engine net P&amp;L since boot + 10-day sparkline (area + midline) + engine-wide Pending tag.",
+            "<b>Note</b> below the sparkline explains the gap: &ldquo;Daily reports are engine-wide totals &mdash; the day drawer below filters trade lineage to this profile.&rdquo;",
+            "<b>Table</b> &mdash; Date, Trades, Win rate, Gross, Net, Max DD, Sharpe. Left-edge accent: bid-green when net positive, danger-red when negative.",
+            "<b>Hover</b> &mdash; row highlights + chevron fades in.",
+            "<b>60 s poll cadence</b> &mdash; this is a daily-rollup surface, not real-time.",
+        ],
+        code_refs=[
+            "frontend/app/hot/profiles/[id]/_components/DailyPnlTab.tsx",
+            "frontend/lib/api/client.ts  &nbsp;&nbsp;// api.paperTrading.status() for the daily-reports array",
+            "docs/design/05-surface-specs/01-hot-trading.md  &nbsp;&nbsp;// §9.2.3 spec",
+        ],
+    )
+
+    # ── 1E-drawer. Day transparency drill-down drawer ───────────────────
+    section(
+        story, s,
+        title="Profile cockpit &mdash; Day transparency drill-down drawer <i>(new, Phase 10.4)</i>",
+        file_label="cockpit_daily_pnl_drawer.png",
+        image=SCRNSHTS / "cockpit_daily_pnl_drawer.png",
+        summary=(
+            "Row click on the Daily P&amp;L table opens the day's transparency report. The drawer fetches "
+            "<font face='Courier'>api.paperTrading.reportDetail(date)</font> and filters the trades and "
+            "blocked attempts to the URL profile &mdash; this is where operators see exactly what their "
+            "profile did (or didn&apos;t do) on a given day."
+        ),
+        bullets=[
+            "<b>Drawer header</b> &mdash; date (e.g. <font face='Courier'>2026-05-01</font>) + &ldquo;full transparency &middot; this profile&rdquo; subtitle.",
+            "<b>Engine totals (this day)</b> &mdash; engine-wide trades, win rate, net P&amp;L, Sharpe for context.",
+            "<b>This profile (filtered)</b> &mdash; trades, win rate, net P&amp;L, blocked count specifically for this profile.",
+            "<b>Closed trades</b> &mdash; per-trade card with symbol, outcome, realized $ + %, entry &rarr; exit, hold duration, close reason, slippage. Each card has a &ldquo;view decision lineage &rarr;&rdquo; link that deep-links to <font face='Courier'>?tab=decisions&amp;decision={event_id}</font>.",
+            "<b>Blocked attempts</b> &mdash; up to 10 cards showing symbol, outcome, blocking gates + reasons, time.",
+            "<b>Diagnostic example</b> from the screenshot: on 2026-05-01 the engine had 7 winning trades but this profile had 0 closed trades and 100 blocked attempts (all <font face='Courier'>risk_gate (trade_below_minimum)</font>) &mdash; the answer to &ldquo;why didn&apos;t my profile trade?&rdquo; that used to require grepping logs.",
+            "<b>Shareable URL</b>: <font face='Courier'>?tab=daily-pnl&amp;date=YYYY-MM-DD</font>.",
+        ],
+        code_refs=[
+            "frontend/app/hot/profiles/[id]/_components/DailyPnlTab.tsx  &nbsp;&nbsp;// DailyReportDrawer render",
+            "frontend/lib/api/client.ts  &nbsp;&nbsp;// api.paperTrading.reportDetail(date)",
+            "services/api_gateway/src/routes/paper_trading.py  &nbsp;&nbsp;// reports/{date}/detail",
+        ],
+    )
+
+    # ── 1F. Profile cockpit — Attribution tab (Phase 10.4) ──────────────
+    section(
+        story, s,
+        title="Profile cockpit &mdash; Attribution tab <i>(new, Phase 10.4)</i>",
+        file_label="cockpit_attribution.png",
+        image=SCRNSHTS / "cockpit_attribution.png",
+        summary=(
+            "Symbol-axis attribution analytics for this profile. A symbol-scope picker defaults to the "
+            "most-traded symbol the profile has touched; three sections analyze the engine's behavior."
+        ),
+        bullets=[
+            "<b>Gate efficacy</b> &mdash; per-gate pass/block counts sorted by block count desc. On the demo profile, <font face='Courier'>circuit_breaker</font> is blocking 186 / 500 (37% of all decisions) &mdash; the diagnostic answer to &ldquo;why does this profile never trade?&rdquo;.",
+            "<b>Per-agent contribution</b> &mdash; win rate &times; avg P&amp;L by (TA / Sentiment / Debate) stance pattern over the last 7 days. Confidence lift per pattern shown on the right.",
+            "<b>Weight evolution</b> &mdash; last-7d agent weight + EWMA accuracy + a sparkline per agent. Tagged <i>Pending</i> for the profile-filter gap because the backend endpoint is currently symbol-only.",
+            "<b>Symbol picker</b> at the top &mdash; discovered client-side from this profile's closed trades; rerenders all three sections when changed.",
+        ],
+        code_refs=[
+            "frontend/app/hot/profiles/[id]/_components/AttributionTab.tsx",
+            "frontend/lib/api/client.ts  &nbsp;&nbsp;// agentPerformance.gateAnalytics + agentAttributionSummary + weightHistory",
+            "services/api_gateway/src/routes/agent_performance.py",
+            "docs/design/05-surface-specs/01-hot-trading.md  &nbsp;&nbsp;// §9.2.4 spec",
+        ],
+    )
+
     # ── 2. Agent Observatory default ────────────────────────────────────
     section(
         story, s,
@@ -322,7 +571,7 @@ def build() -> None:
             "<b>Exposure card</b> &mdash; leverage as a RiskMeter, portfolio VaR (1-day 95%), concentration breakdown per symbol, current drawdown vs. peak.",
             "<b>Active limits card</b> &mdash; live status per limit (max position size, max leverage, daily loss limit, rate limit). Limits >60% utilized turn amber; breached turn red with a callout.",
             "<b>Recent violations</b> strip &mdash; last 5 rejected orders with the rule that blocked them.",
-            "<b>Per-profile risk monitor</b> cards below (visible in the screenshot, header reads &ldquo;High Volume Breakout&rdquo;) sort closest-to-breach descending.",
+            "<b>All-profiles risk matrix</b> sits above the kill switch (see the next section) &mdash; the operator&apos;s &ldquo;which profile needs intervening on, right now?&rdquo; glance before any kill-switch decision.",
         ],
         code_refs=[
             "frontend/app/risk/page.tsx  &nbsp;&nbsp;// surface composition",
@@ -330,6 +579,34 @@ def build() -> None:
             "services/hot_path/src/kill_switch.py  &nbsp;&nbsp;// KillSwitch Redis key + reasoned arm/disarm log",
             "services/api_gateway/src/routes/commands.py  &nbsp;&nbsp;// /commands/kill-switch endpoint",
             "docs/design/05-surface-specs/05-risk-control.md",
+        ],
+    )
+
+    # ── 3A. Risk Control — all-profiles matrix (Phase 10.1) ─────────────
+    section(
+        story, s,
+        title="Risk Control &mdash; All-profiles risk matrix <i>(new, Phase 10.1)</i>",
+        file_label="risk_profiles_matrix.png",
+        image=SCRNSHTS / "risk_profiles_matrix.png",
+        summary=(
+            "The all-profiles risk matrix is now the first thing on <font face='Courier'>/risk</font>, sitting "
+            "above the kill switch &mdash; the spec phrasing is &ldquo;which profile needs intervening on, "
+            "<i>right now</i>?&rdquo; before any kill-switch decision. Replaces the legacy stack of per-profile "
+            "RiskMonitorCard rows with a horizontally-scrollable card grid, sorted by drawdown severity "
+            "(worst first)."
+        ),
+        bullets=[
+            "<b>Header</b> &mdash; section title, active-profile count, &ldquo;worst drawdown first&rdquo; sort note.",
+            "<b>Per card</b> &mdash; profile name + truncated ID; Drawdown bar (current % vs. <font face='Courier'>auto_pause_drawdown_pct</font> cap, color-graded: danger at &ge;85% of cap, warn at &ge;50%); Allocation bar against <font face='Courier'>max_allocation_pct</font>; 2&times;2 grid for Exposure (USDC at risk across open positions) and Open positions count.",
+            "<b>Cross-links</b> &mdash; entire card &rarr; cockpit; Drawdown bar &rarr; cockpit Daily P&amp;L tab; Open-positions count &rarr; cockpit Positions tab; &ldquo;open in cockpit&rdquo; affordance at the footer.",
+            "<b>Empty state</b> &mdash; &ldquo;No active profiles. Risk Control monitors active trading; activate a profile in Pipeline Canvas to populate this matrix.&rdquo; (link to <font face='Courier'>/canvas</font>).",
+            "<b>Poll discipline</b> &mdash; 30 s interval with in-flight guard; component fan-outs to 1 + 2N requests per cycle so without the guard 5 active profiles would mean 11 requests every 10 s.",
+        ],
+        code_refs=[
+            "frontend/components/risk/ProfilesRiskMatrix.tsx",
+            "frontend/app/risk/page.tsx  &nbsp;&nbsp;// matrix mounted above KillSwitchSection",
+            "docs/design/05-surface-specs/05-risk-control.md  &nbsp;&nbsp;// §1.1 matrix spec",
+            "docs/design/09-decisions-log.md  &nbsp;&nbsp;// ADR-018 companion placement rationale",
         ],
     )
 

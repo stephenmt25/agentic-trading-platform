@@ -20,6 +20,7 @@ import {
 import { Button, Tag } from "@/components/primitives";
 import { Pill, StatusDot } from "@/components/data-display";
 import { RiskMeter } from "@/components/trading";
+import { ProfilesRiskMatrix } from "@/components/risk/ProfilesRiskMatrix";
 import {
   api,
   type KillSwitchStatus,
@@ -329,6 +330,8 @@ export default function RiskControlPage() {
 
       <div className="flex-1 min-h-0 overflow-auto">
         <div className="px-6 py-6 flex flex-col gap-6 max-w-4xl">
+          <ProfilesRiskMatrix />
+
           <KillSwitchSection
             status={killStatus}
             loading={killLoading}

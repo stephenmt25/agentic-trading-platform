@@ -7,6 +7,7 @@ import { useTradingModeStore, type TradingMode } from "@/lib/stores/tradingModeS
 import { api } from "@/lib/api/client";
 import { Activity, Shield, FlaskConical, Beaker, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { EngineTotalsPill } from "./EngineTotalsPill";
 
 const IS_MOCK_DATA = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
 
@@ -57,8 +58,14 @@ const MODE_ICON: Record<TradingMode, React.ComponentType<{ className?: string; s
  * PAPER vs LIVE is a real-money risk class, so the badge belongs in
  * every-surface chrome.
  *
- * Regime, latency, agent count, and live PnL pills are deferred to
- * Phase 6 surface integrations where the data sources land.
+ * Phase 10.1 (2026-05-13) adds the EngineTotalsPill per ADR-018 + IA §4.1
+ * — a compound pill carrying net-P&L-since-boot as headline with a
+ * click-to-expand popover for the full metrics strip. This is also the
+ * canonical home for the live-PnL signal in chrome; no separate PnL pill
+ * is needed.
+ *
+ * Regime, latency, and agent-count pills are still deferred to Phase 6
+ * surface integrations where the data sources land.
  */
 export function StatusPills() {
   const backendStatus = useConnectionStore((s) => s.backendStatus);
@@ -110,6 +117,7 @@ export function StatusPills() {
           tone={MODE_TONE[mode]}
         />
       )}
+      <EngineTotalsPill />
     </div>
   );
 }
