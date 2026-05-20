@@ -12,8 +12,15 @@ export interface OrderBookSnapshot {
   exchange: string;
   bids: OrderBookLevel[]; // descending price
   asks: OrderBookLevel[]; // ascending price
-  /** ms epoch — last update time as reported by the exchange. */
+  /** ms epoch — last update time as reported by the exchange. May be 0 when
+   *  watch_order_book yields no timestamp. Display-only — do NOT use for the
+   *  staleness indicator. */
   timestampMs: number;
+  /** ms epoch — when the frontend ingested this snapshot. This, not
+   *  timestampMs, is the honest feed-liveness signal: it is immune to
+   *  exchange clock skew and to the exchange reporting a 0/missing
+   *  timestamp. The "stale Xs" badge measures against this. */
+  receivedAtMs: number;
 }
 
 interface OrderBookStore {
@@ -56,6 +63,7 @@ export const useOrderBookStore = create<OrderBookStore>((set) => ({
           bids: bids.map(([p, s]) => ({ price: toNumber(p), size: toNumber(s) })),
           asks: asks.map(([p, s]) => ({ price: toNumber(p), size: toNumber(s) })),
           timestampMs,
+          receivedAtMs: Date.now(),
         },
       },
     })),

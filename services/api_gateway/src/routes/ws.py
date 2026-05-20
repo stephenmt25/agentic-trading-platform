@@ -105,7 +105,15 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
         return
 
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        # require=["exp"] rejects tokens minted without an expiry; verify_exp
+        # (PyJWT default) rejects already-expired ones. A token with no exp
+        # would otherwise be accepted indefinitely at the WS handshake.
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=["HS256"],
+            options={"require": ["exp"], "verify_exp": True},
+        )
         user_id = payload.get("sub")
         if not user_id:
             await websocket.close(code=1008)

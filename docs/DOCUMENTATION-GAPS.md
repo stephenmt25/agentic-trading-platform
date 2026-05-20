@@ -37,7 +37,7 @@ engineering team.
 | G-7 | No documented exchange API key rotation procedures. | Key compromise response time is unknown. Keys may be long-lived. | Document rotation steps and implement automated rotation on a schedule. |
 | ~~G-8~~ | ~~Port 8080 collision between 4+ services.~~ | **RESOLVED** (2026-03-27). All services now have unique port assignments (8000–8096). See `run_all.sh`. | — |
 | ~~G-9~~ | ~~No documented rate limits per exchange.~~ | **RESOLVED** (2026-03-27). Rate limits now enforced and documented: Binance 1200 req/min, Coinbase 300 req/min, default 600 req/min. Implemented via Redis sorted-set sliding window in `RateLimiterClient`. Queryable via `GET /commands/../quotas` endpoint on rate limiter service (port 8094). | — |
-| G-10 | Strategy rules JSON schema not formally documented. | The `strategy_rules` JSONB column is validated by `RuleValidator` but the expected schema is not published. | Extract and publish the JSON Schema from `RuleValidator`. |
+| ~~G-10~~ | ~~Strategy rules JSON schema not formally documented.~~ | **RESOLVED** (2026-05-19). Schema published in `docs/STRATEGY_RULES_SCHEMA.md` — both the canonical `strategy_rules` JSONB shape (`RuleSchema`/`RuleCondition` core + transformer-added `preferred_regimes`/`entry_long`/`entry_short`) and the user-facing `StrategyRulesInput` shape, with JSON Schema, validator constraints, enumerations, and examples. Notes that `RuleValidator`/`RuleSchema` only validates the four core fields. | — |
 | G-11 | No documented maximum number of concurrent WebSocket connections. | Unknown scaling ceiling for real-time market data subscriptions. | Benchmark and document per-process and per-host WebSocket limits. |
 
 ---
@@ -212,7 +212,7 @@ The platform was renamed from **Aion** to **Praxis**:
 auth endpoint in WALKTHROUGH.md, A-4: stale shutdown list in SHUTDOWN.md) — both are in legacy
 docs with warning banners. Remaining MEDIUM items (A-3, A-6) are stale values in legacy docs.
 
-**For documentation**: Remaining gaps (G-1 through G-7, G-10, G-11) require input from the
+**For documentation**: Remaining gaps (G-1 through G-7, G-11) require input from the
 engineering team. Schedule a 30-minute review session per gap to capture the missing information.
 
 **For auditors**: Financial precision defects (D-1 through D-7) have been fully remediated.

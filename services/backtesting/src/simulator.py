@@ -6,8 +6,25 @@ import math
 
 from services.strategy.src.compiler import RuleCompiler, CompiledRuleSet
 from libs.indicators import create_indicator_set
+from libs.core.enums import Regime
 
 _D = Decimal
+
+
+def parse_preferred_regimes(strategy_rules: Dict[str, Any]) -> frozenset:
+    """Coerce strategy_rules['preferred_regimes'] (a list of regime-name
+    strings) to a frozenset of Regime enums. Unknown names are silently
+    dropped — mirrors the hot_path loader (_parse_static_config) so a profile
+    typo can't change a backtest into a crash. An empty set means the profile
+    is regime-agnostic and no regime gating is applied.
+    """
+    out: set = set()
+    for name in strategy_rules.get("preferred_regimes", []) or []:
+        try:
+            out.add(Regime(name))
+        except ValueError:
+            pass
+    return frozenset(out)
 
 
 @dataclass
@@ -56,6 +73,7 @@ class TradingSimulator:
 
         compiled = RuleCompiler.compile(job.strategy_rules)
         indicators = create_indicator_set()
+        preferred_regimes = parse_preferred_regimes(job.strategy_rules)
 
         trades: List[SimulatedTrade] = []
         equity = _ONE
@@ -96,6 +114,21 @@ class TradingSimulator:
             if rsi_val is None or macd_val is None or atr_val is None:
                 equity_curve.append(equity)
                 continue
+
+            # Row 18: regime gate — mirrors the hot_path regime short-circuit
+            # in processor.py. When the profile declares preferred_regimes and
+            # the live rule-based regime is known and not among them, skip
+            # signal evaluation for this candle (no entry, no signal-driven
+            # exit). Empty preferred_regimes = regime-agnostic; regime None
+            # during classifier priming = don't gate on missing data. The HMM
+            # regime is unavailable offline, so this uses the rule-based
+            # SimpleRegimeClassifier alone — exactly how the live dampener
+            # degrades when no HMM signal is present.
+            if preferred_regimes:
+                regime = indicators.regime.update(close_f, atr_val)
+                if regime is not None and regime not in preferred_regimes:
+                    equity_curve.append(equity)
+                    continue
 
             eval_dict = {
                 "rsi": rsi_val,

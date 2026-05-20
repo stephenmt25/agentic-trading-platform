@@ -47,7 +47,10 @@ def verify_refresh_token(token: str) -> dict:
         raise HTTPException(status_code=500, detail="Refresh token infrastructure not configured")
     key = settings.REFRESH_SECRET_KEY
     try:
-        payload = jwt.decode(token, key, algorithms=["HS256"])
+        payload = jwt.decode(
+            token, key, algorithms=["HS256"],
+            options={"require": ["exp"], "verify_exp": True},
+        )
         if payload.get("type") != "refresh":
             raise HTTPException(status_code=401, detail="Invalid token type")
         return payload
@@ -83,7 +86,15 @@ async def verify_jwt(request: Request):
     token = auth_header.split(" ")[1]
 
     try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=["HS256"])
+        # require=["exp"] rejects tokens minted without an expiry claim, which
+        # bare decode would otherwise accept indefinitely; verify_exp (PyJWT
+        # default) rejects already-expired ones.
+        payload = jwt.decode(
+            token,
+            settings.SECRET_KEY,
+            algorithms=["HS256"],
+            options={"require": ["exp"], "verify_exp": True},
+        )
         request.state.user_id = payload.get("sub")
         if not request.state.user_id:
             raise HTTPException(status_code=401, detail="Token invalid: missing subject")

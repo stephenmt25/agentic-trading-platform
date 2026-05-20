@@ -52,6 +52,34 @@ describe("orderbookStore", () => {
     expect(snap.timestampMs).toBe(2);
   });
 
+  it("stamps receivedAtMs at ingest time, independent of the exchange timestamp", () => {
+    const before = Date.now();
+    // Exchange timestamp of 0 — watch_order_book reported none. A badge wired
+    // to timestampMs would read this as ~57 years stale; receivedAtMs must
+    // still be a real wall-clock time so the staleness badge stays honest.
+    useOrderBookStore.getState().ingest(
+      "BTC-PERP",
+      "BINANCE",
+      [["1", "1"]],
+      [["2", "1"]],
+      0
+    );
+    const after = Date.now();
+    const snap = useOrderBookStore.getState().bySymbol["BTC-PERP"];
+    expect(snap.timestampMs).toBe(0);
+    expect(snap.receivedAtMs).toBeGreaterThanOrEqual(before);
+    expect(snap.receivedAtMs).toBeLessThanOrEqual(after);
+  });
+
+  it("advances receivedAtMs on every ingest", async () => {
+    useOrderBookStore.getState().ingest("BTC-PERP", "BINANCE", [["1", "1"]], [["2", "1"]], 1);
+    const first = useOrderBookStore.getState().bySymbol["BTC-PERP"].receivedAtMs;
+    await new Promise((r) => setTimeout(r, 5));
+    useOrderBookStore.getState().ingest("BTC-PERP", "BINANCE", [["3", "1"]], [["4", "1"]], 1);
+    const second = useOrderBookStore.getState().bySymbol["BTC-PERP"].receivedAtMs;
+    expect(second).toBeGreaterThan(first);
+  });
+
   it("keeps multiple symbols independent", () => {
     useOrderBookStore.getState().ingest("BTC-PERP", "BINANCE", [["1", "1"]], [["2", "1"]], 1);
     useOrderBookStore.getState().ingest("ETH-PERP", "BINANCE", [["10", "5"]], [["11", "5"]], 1);

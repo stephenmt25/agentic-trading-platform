@@ -16,8 +16,9 @@ from libs.indicators import (
     RSICalculator, MACDCalculator, ATRCalculator,
     ADXCalculator, BollingerCalculator, OBVCalculator, ChoppinessCalculator,
     VWAPCalculator, KeltnerCalculator, RVOLCalculator, ZScoreCalculator, HurstCalculator,
+    SimpleRegimeClassifier,
 )
-from .simulator import BacktestJob, BacktestResult, SimulatedTrade
+from .simulator import BacktestJob, BacktestResult, SimulatedTrade, parse_preferred_regimes
 
 _D = Decimal
 
@@ -217,6 +218,26 @@ class VectorBTRunner:
         signals = _evaluate_conditions_vectorized(
             indicators, compiled.conditions, compiled.logic,
         )
+
+        # Row 18: regime gate. Mask the signal array to False on every bar
+        # whose live rule-based regime is not in the profile's
+        # preferred_regimes — same semantics as the sequential engine and
+        # hot_path. Empty preferred_regimes = regime-agnostic (no masking).
+        # The SimpleRegimeClassifier is fed only once ATR has primed (NaN ATR
+        # bars are skipped); a None regime during its own priming leaves the
+        # bar un-masked, so we never gate on missing data.
+        preferred_regimes = parse_preferred_regimes(job.strategy_rules)
+        if preferred_regimes:
+            atr_arr = indicators["atr"]
+            regime_clf = SimpleRegimeClassifier()
+            for i in range(n):
+                a = atr_arr[i]
+                if math.isnan(a):
+                    continue
+                reg = regime_clf.update(float(closes[i]), float(a))
+                if reg is not None and reg not in preferred_regimes:
+                    signals[i] = False
+
         direction = compiled.direction.value  # "BUY" or "SELL"
         slippage_f = float(job.slippage_pct)  # float-ok: numpy vectorized engine requires float
 

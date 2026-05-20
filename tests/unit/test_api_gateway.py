@@ -143,3 +143,102 @@ class TestRouteStructure:
         from services.api_gateway.src.routes.commands import router
         paths = [route.path for route in router.routes]
         assert "/kill-switch" in paths or any("kill-switch" in p for p in paths)
+
+
+# ---------------------------------------------------------------------------
+# WebSocket auth tests (Row 31 — JWT expiry enforced at the WS handshake)
+# ---------------------------------------------------------------------------
+
+class TestWebSocketAuth:
+    """The /ws handshake must reject a token that is expired OR that carries
+    no `exp` claim at all — a no-exp token would otherwise stay valid forever.
+    """
+
+    SECRET = "test-key-32-bytes-long-enough-123"
+
+    def setup_method(self):
+        from services.api_gateway.src.routes.ws import router as ws_router
+        app = FastAPI()
+        app.include_router(ws_router)
+        self.client = TestClient(app)
+
+    def _connect_expect_reject(self, url):
+        from starlette.websockets import WebSocketDisconnect
+        with patch("services.api_gateway.src.routes.ws.settings") as mock_settings:
+            mock_settings.SECRET_KEY = self.SECRET
+            with pytest.raises(WebSocketDisconnect):
+                with self.client.websocket_connect(url):
+                    pass
+
+    def test_expired_token_rejected(self):
+        import jwt
+        from datetime import datetime, timezone, timedelta
+        tok = jwt.encode(
+            {"sub": "u1", "exp": datetime.now(timezone.utc) - timedelta(hours=1)},
+            self.SECRET, algorithm="HS256",
+        )
+        self._connect_expect_reject(f"/ws?token={tok}")
+
+    def test_token_without_exp_rejected(self):
+        import jwt
+        tok = jwt.encode({"sub": "u1"}, self.SECRET, algorithm="HS256")
+        self._connect_expect_reject(f"/ws?token={tok}")
+
+    def test_missing_token_rejected(self):
+        from starlette.websockets import WebSocketDisconnect
+        with pytest.raises(WebSocketDisconnect):
+            with self.client.websocket_connect("/ws"):
+                pass
+
+
+# ---------------------------------------------------------------------------
+# REST middleware auth tests (Row 31 follow-on — same no-exp gap as the WS path)
+# ---------------------------------------------------------------------------
+
+class TestVerifyJwt:
+    """verify_jwt must reject a token with no `exp` claim — a bare decode
+    would otherwise accept it forever."""
+
+    SECRET = "test-key-32-bytes-long-enough-123"
+
+    def _run(self, token: str):
+        import asyncio
+        from services.api_gateway.src.middleware.auth import verify_jwt
+        request = MagicMock(spec=Request)
+        request.url = SimpleNamespace(path="/profiles")
+        request.headers = {"Authorization": f"Bearer {token}"}
+        request.state = SimpleNamespace()
+        with patch("services.api_gateway.src.middleware.auth.settings") as ms:
+            ms.SECRET_KEY = self.SECRET
+            asyncio.run(verify_jwt(request))
+        return request
+
+    def test_token_without_exp_rejected(self):
+        import jwt
+        from fastapi import HTTPException
+        tok = jwt.encode({"sub": "u1"}, self.SECRET, algorithm="HS256")
+        with pytest.raises(HTTPException) as exc:
+            self._run(tok)
+        assert exc.value.status_code == 401
+
+    def test_expired_token_rejected(self):
+        import jwt
+        from datetime import datetime, timezone, timedelta
+        from fastapi import HTTPException
+        tok = jwt.encode(
+            {"sub": "u1", "exp": datetime.now(timezone.utc) - timedelta(hours=1)},
+            self.SECRET, algorithm="HS256",
+        )
+        with pytest.raises(HTTPException) as exc:
+            self._run(tok)
+        assert exc.value.status_code == 401
+
+    def test_valid_token_with_exp_accepted(self):
+        import jwt
+        from datetime import datetime, timezone, timedelta
+        tok = jwt.encode(
+            {"sub": "u1", "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
+            self.SECRET, algorithm="HS256",
+        )
+        request = self._run(tok)
+        assert request.state.user_id == "u1"

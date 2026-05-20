@@ -1,7 +1,10 @@
 """Sprint 8.6: Backtest engine verification tests."""
 import pytest
 from decimal import Decimal
-from services.backtesting.src.simulator import TradingSimulator, BacktestJob
+from services.backtesting.src.simulator import (
+    TradingSimulator, BacktestJob, parse_preferred_regimes,
+)
+from services.backtesting.src.vectorbt_runner import VectorBTRunner
 
 
 def _make_candles(n: int, base_price: float = 100.0) -> list:
@@ -131,3 +134,105 @@ class TestTradingSimulator:
         candles = _make_candles(200)
         result = TradingSimulator.run(job, candles)
         assert result.equity_curve[0] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Row 18 — backtester honours preferred_regimes
+# ---------------------------------------------------------------------------
+
+_ALL_REGIMES = {"RANGE_BOUND", "TRENDING_UP", "TRENDING_DOWN", "HIGH_VOLATILITY", "CRISIS"}
+
+
+def _observed_regimes(candles: list) -> set:
+    """Replay the candles through the same rule-based regime classifier the
+    backtester uses (fed only once ATR has primed) and collect every regime it
+    actually emits. Lets the gating tests self-calibrate to whatever the
+    synthetic data classifies as, instead of hard-coding a regime."""
+    from libs.indicators import SimpleRegimeClassifier, ATRCalculator
+    clf = SimpleRegimeClassifier()
+    atr = ATRCalculator()
+    seen: set = set()
+    for c in candles:
+        a = atr.update(float(c["high"]), float(c["low"]), float(c["close"]))
+        if a is None:
+            continue
+        r = clf.update(float(c["close"]), a)
+        if r is not None:
+            seen.add(r)
+    return seen
+
+
+class TestParsePreferredRegimes:
+    def test_empty_when_absent(self):
+        assert parse_preferred_regimes({}) == frozenset()
+
+    def test_empty_when_none(self):
+        assert parse_preferred_regimes({"preferred_regimes": None}) == frozenset()
+
+    def test_known_regimes_parsed(self):
+        from libs.core.enums import Regime
+        result = parse_preferred_regimes(
+            {"preferred_regimes": ["RANGE_BOUND", "TRENDING_UP"]}
+        )
+        assert result == frozenset({Regime.RANGE_BOUND, Regime.TRENDING_UP})
+
+    def test_unknown_regime_silently_dropped(self):
+        from libs.core.enums import Regime
+        result = parse_preferred_regimes(
+            {"preferred_regimes": ["RANGE_BOUND", "BANANA"]}
+        )
+        assert result == frozenset({Regime.RANGE_BOUND})
+
+
+class TestRegimeGating:
+    """A regime-gated profile must fire strictly fewer trades than the same
+    profile with no allowlist — and an allowlist that covers every regime the
+    data visits must change nothing. Without this, regime-gated backtests
+    overstate trade frequency (the Row 18 defect)."""
+
+    def _rules(self, preferred=None) -> dict:
+        r = {
+            "conditions": [{"indicator": "rsi", "operator": "LT", "value": 45}],
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
+        }
+        if preferred is not None:
+            r["preferred_regimes"] = preferred
+        return r
+
+    def _setup(self):
+        candles = _make_candles(500)
+        observed = _observed_regimes(candles)
+        assert observed, "classifier should prime over 500 candles"
+        excluded = sorted(_ALL_REGIMES - {r.value for r in observed})
+        assert excluded, "synthetic data must not span every regime"
+        matched = sorted(r.value for r in observed)
+        return candles, matched, excluded
+
+    def test_sequential_engine_honours_preferred_regimes(self):
+        candles, matched, excluded = self._setup()
+
+        def run(preferred):
+            job = BacktestJob("rg-seq", "BTC/USDT", self._rules(preferred), Decimal("0.001"))
+            return TradingSimulator.run(job, candles).total_trades
+
+        ungated = run(None)
+        assert ungated > 0
+        # Allowlist covering every visited regime must not gate anything.
+        assert run(matched) == ungated
+        # Allowlist of regimes the data never visits suppresses post-priming
+        # signals → strictly fewer trades.
+        assert run(excluded) < ungated
+
+    def test_vectorbt_engine_honours_preferred_regimes(self):
+        candles, matched, excluded = self._setup()
+
+        def run(preferred):
+            job = BacktestJob("rg-vbt", "BTC/USDT", self._rules(preferred), Decimal("0.001"))
+            return VectorBTRunner.run(job, candles).total_trades
+
+        ungated = run(None)
+        assert ungated > 0
+        assert run(matched) == ungated
+        assert run(excluded) < ungated
