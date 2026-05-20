@@ -9,6 +9,7 @@ from .regime_dampener import RegimeDampener
 from .agent_modifier import AgentModifier
 from .circuit_breaker import CircuitBreaker
 from .blacklist import BlacklistChecker
+from .reentry_gate import ReentryGate
 from .risk_gate import RiskGate
 from .hitl_gate import HITLGate
 from .kill_switch import KillSwitch
@@ -177,6 +178,23 @@ class HotPathProcessor:
                                 )
                                 await self._pubsub.publish(self._proximity_pubsub_channel, prox_event)
                             continue
+
+                        # 1c. Re-entry guard — one open position per
+                        # (profile, symbol). hot_path emits an order on every
+                        # tick the entry condition holds; without this a
+                        # sustained signal pyramids a new position each tick
+                        # (192 ETH/USDT positions in 17s on the Phase 0 soak).
+                        # Placed early so a held symbol short-circuits before
+                        # the regime / agent / validation work.
+                        if ReentryGate.check(profile_state, tick.symbol):
+                            logger.info("gate_block", gate="reentry", symbol=tick.symbol)
+                            if self._decision_writer:
+                                trace["outcome"] = "BLOCKED_REENTRY"
+                                trace["gates"]["reentry"] = {"passed": False}
+                                await self._decision_writer.write(trace)
+                            continue
+                        if trace:
+                            trace["gates"]["reentry"] = {"passed": True}
 
                         # 2. Abstention
                         abstain_blocked, abstain_reason = AbstentionChecker.check_with_reason(profile_state, sig_res, tick, inds)
@@ -387,6 +405,12 @@ class HotPathProcessor:
                         )
                         await self._publisher.publish(self._orders_channel, order_ev)
                         MetricsCollector.increment_counter("orders.approved")
+
+                        # Optimistically mark the symbol as held so the next
+                        # tick's ReentryGate blocks a pyramid immediately —
+                        # before PnlSync's 5s poll reconciles
+                        # open_position_symbols from the positions table.
+                        profile_state.open_position_symbols.add(tick.symbol)
 
                         # Pre-bump open exposure so the next tick's RiskGate sees
                         # the projected commitment immediately. Without this,

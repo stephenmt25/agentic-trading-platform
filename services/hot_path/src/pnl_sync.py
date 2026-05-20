@@ -113,15 +113,24 @@ class PnlSync:
                         try:
                             open_rows = await self._position_repo.get_open_positions(profile_id=pid)
                             total = Decimal("0")
+                            symbols: set = set()
                             for r in open_rows:
+                                sym = r.get("symbol")
+                                if sym:
+                                    symbols.add(str(sym))
                                 ep = r.get("entry_price")
                                 qty = r.get("quantity")
                                 if ep is None or qty is None:
                                     continue
                                 total += Decimal(str(ep)) * Decimal(str(qty))
                             state.open_exposure_dollars = total
+                            # Authoritative reconciliation of the re-entry
+                            # guard's symbol set: replaces the optimistic adds
+                            # the processor made since the last poll and drops
+                            # symbols whose positions have since closed.
+                            state.open_position_symbols = symbols
                         except Exception as e:
-                            logger.warning("Failed to refresh open_exposure_dollars",
+                            logger.warning("Failed to refresh open positions",
                                            profile_id=pid, error=str(e))
 
             except asyncio.CancelledError:

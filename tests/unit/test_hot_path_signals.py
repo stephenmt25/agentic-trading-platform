@@ -14,6 +14,7 @@ from libs.core.enums import Regime, SignalDirection
 from libs.core.models import NormalisedTick
 from services.hot_path.src.abstention import AbstentionChecker
 from services.hot_path.src.kill_switch import KillSwitch, KILL_SWITCH_KEY
+from services.hot_path.src.reentry_gate import ReentryGate
 from services.hot_path.src.strategy_eval import SignalResult, EvaluatedIndicators
 
 
@@ -83,6 +84,30 @@ class TestAbstentionChecker:
         signal = _make_signal(direction=SignalDirection.ABSTAIN)
         inds = _make_indicators(atr=200.0)
         assert AbstentionChecker.check(state, signal, tick, inds) is True
+
+
+# ---------------------------------------------------------------------------
+# ReentryGate tests — one open position per (profile, symbol)
+# ---------------------------------------------------------------------------
+
+class TestReentryGate:
+    def test_blocks_when_symbol_already_held(self):
+        """A symbol with an open position blocks re-entry — the guard that
+        stops a sustained signal pyramiding dozens of positions."""
+        state = _make_state()
+        state.open_position_symbols = {"ETH/USDT"}
+        assert ReentryGate.check(state, "ETH/USDT") is True
+
+    def test_allows_other_symbol_when_one_is_held(self):
+        """Holding ETH must not block a BTC entry — the guard is per-symbol."""
+        state = _make_state()
+        state.open_position_symbols = {"ETH/USDT"}
+        assert ReentryGate.check(state, "BTC/USDT") is False
+
+    def test_allows_when_no_positions_open(self):
+        state = _make_state()
+        state.open_position_symbols = set()
+        assert ReentryGate.check(state, "ETH/USDT") is False
 
 
 # ---------------------------------------------------------------------------

@@ -21,6 +21,7 @@ class ProfileState:
         'current_allocation_pct',
         'notional',
         'open_exposure_dollars',
+        'open_position_symbols',
         'is_active'
     )
 
@@ -56,6 +57,12 @@ class ProfileState:
         # aggregate-exposure cap in RiskGate so we don't keep stacking trades
         # past the profile's notional capital.
         self.open_exposure_dollars: Decimal = Decimal("0")
+        # Symbols this profile currently holds an OPEN position on. Reconciled
+        # from the positions table by PnlSync every 5s and optimistically
+        # updated by the processor the instant an order is emitted. Drives
+        # ReentryGate — one open position per (profile, symbol) — so a
+        # sustained entry signal can't pyramid dozens of positions.
+        self.open_position_symbols: set = set()
         self.is_active = True
 
 class ProfileStateCache:
