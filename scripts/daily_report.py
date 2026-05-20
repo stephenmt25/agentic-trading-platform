@@ -36,10 +36,39 @@ def _seconds_until_next_run() -> float:
     return max(60.0, (target - now).total_seconds())
 
 
+async def _initial_backfill(db: TimescaleClient, attempts: int = 5) -> None:
+    """Run the startup backfill with retry + exponential backoff.
+
+    A cold-start DB timeout — TimescaleDB under contention while run_all.sh
+    boots all 19 services and runs migrations concurrently — must not kill the
+    daemon. After exhausting retries we log and return: the scheduled loop's
+    own opportunistic `backfill()` (and the next midnight cycle) will catch up
+    any gap. Survive-and-continue beats a dead daemon and no daily reports.
+    """
+    delay = 5.0
+    for attempt in range(1, attempts + 1):
+        try:
+            await backfill(db)
+            return
+        except Exception as exc:
+            if attempt == attempts:
+                logger.exception(
+                    "Initial backfill failed after %d attempts: %s — continuing "
+                    "to the scheduled loop without it.", attempts, exc,
+                )
+                return
+            logger.warning(
+                "Initial backfill attempt %d/%d failed (%s); retrying in %.0fs.",
+                attempt, attempts, exc, delay,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 60.0)
+
+
 async def daemon(db: TimescaleClient) -> None:
     """Long-running loop: backfill on startup, then regenerate each completed UTC day."""
     logger.info("Daemon started. Running initial backfill...")
-    await backfill(db)
+    await _initial_backfill(db)
 
     while True:
         wait_s = _seconds_until_next_run()
