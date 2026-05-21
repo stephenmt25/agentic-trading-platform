@@ -22,6 +22,7 @@ class ProfileState:
         'notional',
         'open_exposure_dollars',
         'open_position_symbols',
+        'open_position_symbols_optimistic_ts',
         'is_active'
     )
 
@@ -63,6 +64,11 @@ class ProfileState:
         # ReentryGate — one open position per (profile, symbol) — so a
         # sustained entry signal can't pyramid dozens of positions.
         self.open_position_symbols: set = set()
+        # symbol -> time.monotonic() when the processor optimistically added it
+        # on order emit. Lets PnlSync's reconciliation keep a just-emitted
+        # symbol the positions table doesn't show yet (order out, position row
+        # not created) instead of clobbering it and allowing a duplicate entry.
+        self.open_position_symbols_optimistic_ts: dict = {}
         self.is_active = True
 
 class ProfileStateCache:

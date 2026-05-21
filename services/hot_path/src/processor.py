@@ -1,3 +1,4 @@
+import time
 import uuid
 from dataclasses import asdict
 from decimal import Decimal
@@ -409,8 +410,11 @@ class HotPathProcessor:
                         # Optimistically mark the symbol as held so the next
                         # tick's ReentryGate blocks a pyramid immediately —
                         # before PnlSync's 5s poll reconciles
-                        # open_position_symbols from the positions table.
+                        # open_position_symbols from the positions table. The
+                        # timestamp lets that reconciliation preserve this add
+                        # while the position row is still in flight.
                         profile_state.open_position_symbols.add(tick.symbol)
+                        profile_state.open_position_symbols_optimistic_ts[tick.symbol] = time.monotonic()
 
                         # Pre-bump open exposure so the next tick's RiskGate sees
                         # the projected commitment immediately. Without this,

@@ -15,6 +15,7 @@ from libs.core.models import NormalisedTick
 from services.hot_path.src.abstention import AbstentionChecker
 from services.hot_path.src.kill_switch import KillSwitch, KILL_SWITCH_KEY
 from services.hot_path.src.reentry_gate import ReentryGate
+from services.hot_path.src.pnl_sync import reconcile_position_symbols
 from services.hot_path.src.strategy_eval import SignalResult, EvaluatedIndicators
 
 
@@ -108,6 +109,55 @@ class TestReentryGate:
         state = _make_state()
         state.open_position_symbols = set()
         assert ReentryGate.check(state, "ETH/USDT") is False
+
+
+# ---------------------------------------------------------------------------
+# reconcile_position_symbols — the re-entry guard race fix
+# ---------------------------------------------------------------------------
+
+class TestReconcilePositionSymbols:
+    """PnlSync's DB reconciliation must not clobber an optimistic add whose
+    position row hasn't appeared yet — that race let a duplicate position
+    open (2 ETH positions on the Phase 0 soak)."""
+
+    GRACE = 15.0
+
+    def test_db_symbol_is_kept(self):
+        open_syms, pruned = reconcile_position_symbols({"ETH/USDT"}, {}, 100.0, self.GRACE)
+        assert open_syms == {"ETH/USDT"}
+        assert pruned == {}
+
+    def test_recent_optimistic_add_survives_absent_db(self):
+        """The fix: a symbol optimistically added 5s ago is kept even though
+        the DB doesn't show its position row yet."""
+        open_syms, pruned = reconcile_position_symbols(
+            set(), {"ETH/USDT": 100.0}, 105.0, self.GRACE
+        )
+        assert open_syms == {"ETH/USDT"}
+        assert pruned == {"ETH/USDT": 100.0}
+
+    def test_expired_optimistic_add_is_dropped(self):
+        """Past the grace window the DB is authoritative — a stale optimistic
+        add (e.g. a rejected order that never became a position) is released."""
+        open_syms, pruned = reconcile_position_symbols(
+            set(), {"ETH/USDT": 100.0}, 120.0, self.GRACE
+        )
+        assert open_syms == set()
+        assert pruned == {}
+
+    def test_db_symbol_plus_expired_optimistic_for_other_symbol(self):
+        open_syms, pruned = reconcile_position_symbols(
+            {"BTC/USDT"}, {"ETH/USDT": 100.0}, 120.0, self.GRACE
+        )
+        assert open_syms == {"BTC/USDT"}
+        assert pruned == {}
+
+    def test_union_of_db_and_recent_optimistic(self):
+        open_syms, pruned = reconcile_position_symbols(
+            {"BTC/USDT"}, {"ETH/USDT": 110.0}, 115.0, self.GRACE
+        )
+        assert open_syms == {"BTC/USDT", "ETH/USDT"}
+        assert pruned == {"ETH/USDT": 110.0}
 
 
 # ---------------------------------------------------------------------------

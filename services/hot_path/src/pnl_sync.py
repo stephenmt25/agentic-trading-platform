@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import msgpack
 from decimal import Decimal
 from libs.core.schemas import DrawdownPayload, AllocationPayload
@@ -7,6 +8,35 @@ from libs.messaging.channels import PUBSUB_PNL_UPDATES
 from libs.observability import get_logger
 
 logger = get_logger("hot-path.pnl-sync")
+
+# Grace window for the re-entry guard's symbol reconciliation. An order is
+# emitted by the processor before its position row exists in the DB; until
+# that row appears, the DB-derived symbol set must not be allowed to clobber
+# the processor's optimistic add. 15s comfortably covers order→position-row
+# latency even under DB load.
+OPTIMISTIC_GRACE_S = 15.0
+
+
+def reconcile_position_symbols(
+    db_symbols: set,
+    optimistic_ts: dict,
+    now: float,
+    grace_s: float = OPTIMISTIC_GRACE_S,
+) -> tuple:
+    """Reconcile the re-entry guard's open-symbol set against the DB.
+
+    The processor optimistically adds a symbol the instant it emits an order;
+    the position row only appears in ``db_symbols`` once execution has created
+    it. A blind overwrite with ``db_symbols`` during that window would clobber
+    a valid optimistic add and let a duplicate position open. So any symbol
+    optimistically added within ``grace_s`` is preserved; optimistic
+    timestamps past the window are pruned (the DB is authoritative by then).
+
+    Returns ``(open_symbols, pruned_optimistic_ts)``.
+    """
+    recent = {s: t for s, t in optimistic_ts.items() if now - t < grace_s}
+    open_symbols = set(db_symbols) | set(recent)
+    return open_symbols, recent
 
 
 class PnlSync:
@@ -124,11 +154,17 @@ class PnlSync:
                                     continue
                                 total += Decimal(str(ep)) * Decimal(str(qty))
                             state.open_exposure_dollars = total
-                            # Authoritative reconciliation of the re-entry
-                            # guard's symbol set: replaces the optimistic adds
-                            # the processor made since the last poll and drops
-                            # symbols whose positions have since closed.
-                            state.open_position_symbols = symbols
+                            # Reconcile the re-entry guard's symbol set against
+                            # the DB, preserving optimistic adds still inside
+                            # the grace window so an in-flight order isn't
+                            # clobbered into a duplicate position.
+                            open_syms, pruned_ts = reconcile_position_symbols(
+                                symbols,
+                                state.open_position_symbols_optimistic_ts,
+                                time.monotonic(),
+                            )
+                            state.open_position_symbols = open_syms
+                            state.open_position_symbols_optimistic_ts = pruned_ts
                         except Exception as e:
                             logger.warning("Failed to refresh open positions",
                                            profile_id=pid, error=str(e))
