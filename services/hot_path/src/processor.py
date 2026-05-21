@@ -78,6 +78,11 @@ class HotPathProcessor:
         group_name = "hotpath_engine"
 
         while True:
+            # Marks the loop as iterating — the stall watchdog reads this.
+            # Set at the loop top so consume-retry cycles (Redis slow at boot)
+            # still count as progress; only a genuinely stuck await goes stale.
+            self.last_progress_mono = time.monotonic()
+
             # Consume 100 max per heartbeat. A transient Redis hiccup — e.g.
             # the server briefly unresponsive while it replays its AOF at boot,
             # which trips the client socket_timeout — raises here. An unhandled
@@ -89,7 +94,6 @@ class HotPathProcessor:
                 logger.error("consume failed — retrying", error=str(exc))
                 await asyncio.sleep(1)
                 continue
-            self.last_progress_mono = time.monotonic()
 
             message_ids_to_ack = []
 
