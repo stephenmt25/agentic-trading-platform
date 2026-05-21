@@ -1,3 +1,4 @@
+import asyncio
 import time
 import uuid
 from dataclasses import asdict
@@ -77,8 +78,17 @@ class HotPathProcessor:
         group_name = "hotpath_engine"
 
         while True:
-            # Consume 100 max per heartbeat
-            events = await self._consumer.consume(self._tick_channel, group_name, "processor_1", count=100, block_ms=50)
+            # Consume 100 max per heartbeat. A transient Redis hiccup — e.g.
+            # the server briefly unresponsive while it replays its AOF at boot,
+            # which trips the client socket_timeout — raises here. An unhandled
+            # raise out of run() ends the processor task silently and kills the
+            # engine, so catch it: log, back off, and retry the loop.
+            try:
+                events = await self._consumer.consume(self._tick_channel, group_name, "processor_1", count=100, block_ms=50)
+            except Exception as exc:
+                logger.error("consume failed — retrying", error=str(exc))
+                await asyncio.sleep(1)
+                continue
             self.last_progress_mono = time.monotonic()
 
             message_ids_to_ack = []
