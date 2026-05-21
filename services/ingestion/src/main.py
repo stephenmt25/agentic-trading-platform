@@ -48,6 +48,12 @@ candle_aggregator = CandleAggregator(market_repo, rest_client)
 
 symbols_to_track = ["BTC/USDT", "ETH/USDT"]
 
+# Cap the market-data stream so it can't grow unbounded. Consumers (hot_path,
+# strategy) read recent ticks via consumer groups; ~10k entries is ~80 min of
+# buffer at the live tick rate — ample for catch-up — vs the 1M+ untrimmed
+# backlog observed before this cap.
+MARKET_DATA_STREAM_MAXLEN = 10_000
+
 adapters = [
     get_adapter("BINANCE", testnet=False),
     # get_adapter("COINBASE", testnet=settings.COINBASE_SANDBOX) # Removed to avoid duplications in simple demo
@@ -74,7 +80,7 @@ async def handle_tick(tick):
 
     with timer("ingestion.publish"):
         await asyncio.gather(
-            stream_pub.publish(MARKET_DATA_STREAM, event),
+            stream_pub.publish(MARKET_DATA_STREAM, event, maxlen=MARKET_DATA_STREAM_MAXLEN),
             pubsub_broadcaster.publish(PUBSUB_PRICE_TICKS, event),
         )
 

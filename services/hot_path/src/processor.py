@@ -68,6 +68,10 @@ class HotPathProcessor:
         # by the default-pool's 5 s socket_timeout.
         self._hitl_gate = HITLGate(hitl_redis_client or redis_client, pubsub) if redis_client else None
 
+        # Updated every consume cycle. The stall watchdog in main.py reads this
+        # to detect a hung processor loop (a stuck await stops it advancing).
+        self.last_progress_mono = time.monotonic()
+
     async def run(self):
         logger.info("HotPath Processor started consuming loop.")
         group_name = "hotpath_engine"
@@ -75,6 +79,7 @@ class HotPathProcessor:
         while True:
             # Consume 100 max per heartbeat
             events = await self._consumer.consume(self._tick_channel, group_name, "processor_1", count=100, block_ms=50)
+            self.last_progress_mono = time.monotonic()
 
             message_ids_to_ack = []
 

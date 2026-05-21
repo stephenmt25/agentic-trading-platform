@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 import httpx
 from decimal import Decimal
@@ -260,16 +261,61 @@ async def lifespan(app: FastAPI):
         decision_writer=decision_writer,
     )
 
+    # Processor stall watchdog. Silent while healthy; if the processor loop
+    # stops advancing (a hung await — e.g. a Redis/DB socket with no timeout),
+    # it dumps every live asyncio task's suspended stack once per stall episode
+    # so the stuck coroutine is diagnosable instead of an invisible freeze.
+    async def _processor_stall_watchdog():
+        STALL_S = 30.0
+        dumped = False
+        while True:
+            await asyncio.sleep(10)
+            stalled_for = time.monotonic() - processor.last_progress_mono
+            if stalled_for > STALL_S:
+                if not dumped:
+                    logger.error("processor_stall_detected",
+                                 stalled_for_s=round(stalled_for, 1))
+                    for t in asyncio.all_tasks():
+                        if t.done():
+                            continue
+                        frames = t.get_stack()
+                        parts = []
+                        for fr in reversed(frames[-12:]):
+                            fn = fr.f_code.co_filename.replace("\\", "/").split("/")[-1]
+                            parts.append(f"{fr.f_code.co_name}@{fn}:{fr.f_lineno}")
+                        logger.error("stall_taskdump", task=t.get_name(),
+                                     frames=len(frames), stack=" <- ".join(parts))
+                    dumped = True
+            else:
+                dumped = False
+
     logger.info("Injecting Hot-Path background loop.")
     task = asyncio.create_task(processor.run())
+
+    def _on_processor_done(t):
+        # processor.run() is `while True` — if the task ever completes, it
+        # raised. The task object is held for the app's lifetime, so asyncio
+        # never GCs it and never logs the exception: the crash is otherwise
+        # completely silent. Surface it loudly.
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            import traceback as _tb
+            tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+            logger.error("processor_task_crashed", error=str(exc), traceback=tb)
+
+    task.add_done_callback(_on_processor_done)
+    _watchdog_task = asyncio.create_task(_processor_stall_watchdog())
 
     yield
 
     # Teardown
     task.cancel()
+    _watchdog_task.cancel()
     pnl_sync_task.cancel()
     profile_refresh_task.cancel()
-    await asyncio.gather(task, pnl_sync_task, profile_refresh_task, return_exceptions=True)
+    await asyncio.gather(task, _watchdog_task, pnl_sync_task, profile_refresh_task, return_exceptions=True)
     await telemetry.stop()
     await ts_client.close()
     logger.info("Hot-Path shutdown gracefully.")

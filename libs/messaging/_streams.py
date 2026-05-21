@@ -7,9 +7,20 @@ class StreamPublisher:
     def __init__(self, redis_client: redis.Redis):
         self._redis = redis_client
 
-    async def publish(self, channel: str, event: BaseEvent) -> str:
+    async def publish(self, channel: str, event: BaseEvent, maxlen: int | None = None) -> str:
+        """Publish an event to a Redis stream.
+
+        When `maxlen` is set the stream is capped to ~maxlen entries
+        (approximate trim) so a high-volume stream like market data can't grow
+        unbounded; left unset, behaviour is unchanged for low-volume streams.
+        """
         data = encode_event(event)
-        message_id = await self._redis.xadd(channel, {"payload": data})
+        if maxlen is not None:
+            message_id = await self._redis.xadd(
+                channel, {"payload": data}, maxlen=maxlen, approximate=True
+            )
+        else:
+            message_id = await self._redis.xadd(channel, {"payload": data})
         return message_id
 
 class StreamConsumer:
