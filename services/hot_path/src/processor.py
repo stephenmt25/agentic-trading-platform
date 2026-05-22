@@ -74,6 +74,21 @@ class HotPathProcessor:
         self.last_progress_mono = time.monotonic()
 
     async def run(self):
+        """Supervisor: keep the consume/process loop alive across transient
+        failures. An unhandled exception inside _run_loop — e.g. a Redis
+        TimeoutError from validation's blpop, or from any other await when the
+        server briefly stalls — would otherwise end the processor task and
+        kill the engine silently. Catch it, log, back off, restart the loop."""
+        while True:
+            try:
+                await self._run_loop()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error("processor loop crashed — restarting", error=str(exc))
+                await asyncio.sleep(1)
+
+    async def _run_loop(self):
         logger.info("HotPath Processor started consuming loop.")
         group_name = "hotpath_engine"
 
