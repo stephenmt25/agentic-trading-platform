@@ -29,6 +29,11 @@ from libs.observability.telemetry import TelemetryPublisher
 
 logger = get_logger("hot-path.processor")
 
+# Market-data ticks older than this are skipped — hot_path only trades on
+# live data, never on a backlog of stale ticks drained at boot.
+MAX_TICK_AGE_S = 60.0
+
+
 class HotPathProcessor:
     def __init__(
         self,
@@ -131,6 +136,17 @@ class HotPathProcessor:
                     price=event.price,
                     volume=event.volume,
                 )
+
+                # Stale-tick guard. On boot hot_path's consumer group is
+                # behind, so without this it drains a backlog of hours-old
+                # ticks and opens trades off them — wrong on its own, and it
+                # emits orders faster than execution can create the position
+                # rows the re-entry guard reads, pyramiding positions. Only
+                # trade live data: skip (and ack) anything older than 60s.
+                tick_age_s = (time.time() * 1_000_000 - event.timestamp_us) / 1_000_000
+                if tick_age_s > MAX_TICK_AGE_S:
+                    message_ids_to_ack.append(msg_id)
+                    continue
 
                 if self._telemetry:
                     await self._telemetry.emit("input_received", {"symbol": event.symbol, "price": str(event.price), "exchange": event.exchange}, source_agent="ingestion")
