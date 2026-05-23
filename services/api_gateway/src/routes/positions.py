@@ -1,6 +1,6 @@
 """Positions API — open and recently-closed positions for the user-facing dashboard."""
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 from uuid import UUID
@@ -315,7 +315,7 @@ async def close_position(
         "gross_pnl": str(snapshot.gross_pnl),
         "net_pnl_pre_tax": str(snapshot.net_pre_tax),
         "pct_return": float(snapshot.pct_return),
-        "closed_at": datetime.utcnow().isoformat(),
+        "closed_at": datetime.now(timezone.utc).isoformat(),
         "trading_mode": "PAPER" if settings.PAPER_TRADING_MODE else (
             "TESTNET" if (settings.BINANCE_TESTNET or settings.COINBASE_SANDBOX) else "LIVE"
         ),

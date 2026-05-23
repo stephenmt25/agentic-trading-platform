@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import List, Literal, Optional
 from uuid import UUID, uuid4
@@ -92,7 +92,7 @@ async def submit_order(
         price = Decimal("0")
 
     order_id = uuid4()
-    submitted_at = datetime.utcnow()
+    submitted_at = datetime.now(timezone.utc)
 
     event = OrderApprovedEvent(
         profile_id=body.profile_id,

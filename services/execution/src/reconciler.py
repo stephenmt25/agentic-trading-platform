@@ -2,7 +2,7 @@ import asyncio
 import json
 from collections import defaultdict
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from libs.exchange import get_adapter
 from libs.core.secrets import SecretManager
 from libs.core.schemas import AlertEvent
@@ -125,7 +125,7 @@ class BalanceReconciler:
                 if self._pubsub:
                     alert = AlertEvent(
                         event_type=EventType.ALERT_RED,
-                        timestamp_us=int(datetime.utcnow().timestamp() * 1_000_000),
+                        timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
                         source_service="reconciler",
                         message=f"Reconciliation drift {float(max_drift)*100:.2f}% for {profile_id}",
                         level="RED",

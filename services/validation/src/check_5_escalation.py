@@ -28,7 +28,7 @@ class EscalationCheck:
             return "RED"
             
         if "AMBER" in reason.upper():
-            now = datetime.datetime.utcnow()
+            now = datetime.datetime.now(datetime.timezone.utc)
             history = self._amber_history[profile_id][check_type]
             history.append(now)
             
@@ -53,7 +53,7 @@ class EscalationCheck:
         # Publish structured alert over PubSub so all services (executor, PnL, alerter) react
         alert_event = AlertEvent(
             event_type=EventType.ALERT_RED,
-            timestamp_us=int(datetime.datetime.utcnow().timestamp() * 1_000_000),
+            timestamp_us=int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1_000_000),
             source_service="validation",
             message=reason,
             level="RED",

@@ -2,7 +2,7 @@ import asyncio
 import json
 import uuid
 from decimal import Decimal
-from datetime import datetime
+from datetime import datetime, timezone
 from libs.core.schemas import OrderApprovedEvent, OrderExecutedEvent, OrderRejectedEvent, BaseEvent, AgentScorePayload
 from libs.core.models import Order, Position
 from libs.core.enums import OrderStatus, PositionStatus
@@ -164,7 +164,7 @@ class OrderExecutor:
                         profile_id=ev.profile_id,
                         symbol=ev.symbol,
                         reason="Trading disabled (TRADING_ENABLED=false)",
-                        timestamp_us=int(datetime.utcnow().timestamp() * 1000000),
+                        timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
                         source_service="execution"
                     )
                     await self._publisher.publish(self._channel, fail_ev)
@@ -192,7 +192,7 @@ class OrderExecutor:
                     price=ev.price,
                     status=OrderStatus.PENDING,
                     exchange=exchange_name,
-                    created_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
                     decision_event_id=ev.decision_event_id,
                 )
 
@@ -242,7 +242,7 @@ class OrderExecutor:
                             entry_price=fill_price,
                             quantity=ev.quantity,
                             entry_fee=entry_fee,
-                            opened_at=datetime.utcnow(),
+                            opened_at=datetime.now(timezone.utc),
                             status=PositionStatus.OPEN,
                             order_id=order_id,
                             decision_event_id=ev.decision_event_id,
@@ -261,7 +261,7 @@ class OrderExecutor:
                             side=ev.side,
                             fill_price=fill_price,
                             quantity=ev.quantity,
-                            timestamp_us=int(datetime.utcnow().timestamp() * 1000000),
+                            timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
                             source_service="execution"
                         )
                         await self._publisher.publish(self._channel, executed_ev)
@@ -291,7 +291,7 @@ class OrderExecutor:
                         profile_id=ev.profile_id,
                         symbol=ev.symbol,
                         reason=f"Execution Failed: {e}",
-                        timestamp_us=int(datetime.utcnow().timestamp() * 1000000),
+                        timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
                         source_service="execution"
                     )
                     await self._publisher.publish(self._channel, fail_ev)
