@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 
 from libs.config import settings
 from libs.storage._redis_client import RedisClient
-from libs.observability import get_logger, MetricsCollector
+from libs.observability import get_logger, MetricsCollector, supervised_task
 from .quota_config import EXCHANGE_QUOTAS
 
 logger = get_logger("rate-limiter")
@@ -44,7 +44,7 @@ async def lifespan(app: FastAPI):
             await asyncio.sleep(30)
 
     logger.info("Starting Rate Limiter Service")
-    metrics_task = asyncio.create_task(metrics_loop())
+    metrics_task = supervised_task(metrics_loop, name="rate_limiter.metrics")
 
     yield
 

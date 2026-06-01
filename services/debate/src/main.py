@@ -18,7 +18,7 @@ from libs.storage import RedisClient
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage.repositories.debate_repo import DebateRepository
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
 from services.sentiment.src.scorer import create_backend
 from .engine import DebateEngine, MarketContext
@@ -223,7 +223,10 @@ async def lifespan(app: FastAPI):
     telemetry = TelemetryPublisher(redis_conn, "debate", "scoring")
     await telemetry.start_health_loop()
 
-    task = asyncio.create_task(debate_loop(redis_conn, engine, telemetry, score_repo, debate_repo))
+    task = supervised_task(
+        lambda: debate_loop(redis_conn, engine, telemetry, score_repo, debate_repo),
+        name="debate.loop",
+    )
     logger.info("Debate Agent started", backend_mode=settings.LLM_BACKEND)
     yield
     task.cancel()

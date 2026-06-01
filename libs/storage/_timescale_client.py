@@ -17,6 +17,13 @@ class TimescaleClient:
                 command_timeout=5.0
             )
 
+    def get_pool(self) -> Optional[asyncpg.Pool]:
+        """Return the underlying asyncpg pool, or None if init_pool() has
+        not run yet. Callers that need raw connection access (e.g. the
+        archiver's bulk INSERT...SELECT/DELETE archiving) use this rather
+        than the execute/fetch helpers, which acquire a connection per call."""
+        return self._pool
+
     async def execute(self, query: str, *args: Any) -> str:
         if not self._pool:
             raise RuntimeError("Pool not initialized")

@@ -11,7 +11,7 @@ from libs.config import settings
 from libs.storage import RedisClient
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
 from .news_client import NewsClient
 from .scorer import LLMSentimentScorer, create_backend
@@ -105,7 +105,10 @@ async def lifespan(app: FastAPI):
     telemetry = TelemetryPublisher(redis_instance, "sentiment", "sentiment")
     await telemetry.start_health_loop()
 
-    task = asyncio.create_task(sentiment_loop(redis_instance, scorer, news_client, telemetry, score_repo))
+    task = supervised_task(
+        lambda: sentiment_loop(redis_instance, scorer, news_client, telemetry, score_repo),
+        name="sentiment.loop",
+    )
     logger.info("Sentiment Agent started")
     yield
     task.cancel()

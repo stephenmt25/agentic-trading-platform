@@ -2,7 +2,8 @@ import asyncio
 import time
 from libs.messaging import StreamConsumer
 from libs.storage.repositories import ValidationRepository
-from libs.core.schemas import ValidationRequestEvent
+from libs.core.schemas import ValidationRequestEvent, ValidationResponseEvent
+from libs.core.enums import ValidationVerdict, ValidationMode
 from .check_2_hallucination import HallucinationCheck
 from .check_3_bias import BiasCheck
 from .check_4_drift import DriftCheck
@@ -35,6 +36,7 @@ class AsyncAuditHandler:
                 if not ev or not isinstance(ev, ValidationRequestEvent):
                     continue
                     
+                t0 = time.monotonic()
                 profile_id = ev.profile_id
                 payload = ev.payload
                 
@@ -54,8 +56,41 @@ class AsyncAuditHandler:
                     status = "RED" if "RED" in res4.reason else "AMBER"
                     await self._check5.evaluate(profile_id, "check4_drift", {"reason": f"{status} " + str(res4.reason)})
                     
-                # Write to validation_events table
-                await self._validation_repo.write_event(ev, {"res2": res2.passed, "res3": res3.passed, "res4": res4.passed})
+                # Persist the async-audit outcome. ValidationMode.ASYNC_AUDIT
+                # exists in the schema precisely for this path; mirror the
+                # fast-gate's ValidationResponseEvent construction. Verdict is
+                # GREEN only if all async checks passed, RED if drift (check 4)
+                # flagged RED, else AMBER. event_id is carried from the request
+                # for correlation (validation_events has no unique constraint on
+                # event_id, so stream redelivery can't cause a PK conflict).
+                if res2.passed and res3.passed and res4.passed:
+                    verdict = ValidationVerdict.GREEN
+                elif not res4.passed and "RED" in str(res4.reason):
+                    verdict = ValidationVerdict.RED
+                else:
+                    verdict = ValidationVerdict.AMBER
+                failed = []
+                if not res2.passed:
+                    failed.append(f"check2:{res2.reason}")
+                if not res3.passed:
+                    failed.append(f"check3:{res3.reason}")
+                if not res4.passed:
+                    failed.append(f"check4:{res4.reason}")
+                audit_resp = ValidationResponseEvent(
+                    event_id=ev.event_id,
+                    timestamp_us=int(time.time() * 1000000),
+                    source_service="validation",
+                    verdict=verdict,
+                    check_type=ev.check_type,
+                    mode=ValidationMode.ASYNC_AUDIT,
+                    reason="; ".join(failed) or None,
+                    response_time_ms=(time.monotonic() - t0) * 1000.0,
+                )
+                await self._validation_repo.write_validation_event(
+                    str(profile_id),
+                    audit_resp,
+                    {"res2": res2.passed, "res3": res3.passed, "res4": res4.passed},
+                )
                 
             if events:
                 await self._consumer.ack(self._channel, "async_val_group", [m for m, _ in events])

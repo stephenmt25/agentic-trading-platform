@@ -12,7 +12,7 @@ from libs.storage import RedisClient
 from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage._timescale_client import TimescaleClient
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
 from .checkpoint import load_checkpoint
 from .hmm_model import HMMRegimeModel
@@ -168,7 +168,10 @@ async def lifespan(app: FastAPI):
     await telemetry.start_health_loop()
 
     score_repo = AgentScoreRepository(timescale)
-    task = asyncio.create_task(classification_loop(redis_instance, market_repo, telemetry, score_repo))
+    task = supervised_task(
+        lambda: classification_loop(redis_instance, market_repo, telemetry, score_repo),
+        name="regime_hmm.classification",
+    )
     logger.info("Regime HMM Agent started")
     yield
     task.cancel()

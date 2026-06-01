@@ -7,7 +7,7 @@ from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient, MarketDataRepository
 from libs.storage.repositories.backtest_repo import BacktestRepository
 from libs.messaging import StreamConsumer, StreamPublisher
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 
 from .simulator import TradingSimulator
 from .vectorbt_runner import VectorBTRunner, run_sweep
@@ -43,7 +43,7 @@ async def lifespan(app: FastAPI):
 
     # Loop
     logger.info("Starting Backtest Job Worker")
-    worker_task = asyncio.create_task(runner.run())
+    worker_task = supervised_task(runner.run, name="backtesting.job_runner")
 
     yield
 

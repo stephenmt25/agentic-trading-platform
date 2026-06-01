@@ -9,7 +9,7 @@ from libs.storage.repositories import BacktestRepository
 from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
 from libs.messaging.channels import VALIDATION_STREAM, VALIDATION_RESPONSE_STREAM
 from libs.messaging._serialisation import encode_event
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
 
 from .check_1_strategy import StrategyRecheck
@@ -34,7 +34,14 @@ async def lifespan(app: FastAPI):
     
     # Initialize Dependencies
     publisher = StreamPublisher(redis_instance)
-    consumer = StreamConsumer(redis_instance)
+    # Stream consumers issue blocking XREADGROUP reads. Use the long-blocking
+    # Redis client (no socket_timeout) so an idle stream — e.g. no orders to
+    # validate during a quiet soak window — doesn't trip the default 5s
+    # socket_timeout and crash-loop fast_gate/async_auditor under the
+    # supervisor. The default redis_instance (with socket_timeout, required by
+    # the kill-switch fail-safe) stays for every non-blocking op below.
+    consumer_redis = RedisClient.get_long_blocking_instance(settings.REDIS_URL).get_connection()
+    consumer = StreamConsumer(consumer_redis)
     pubsub = PubSubBroadcaster(redis_instance)
     
     market_repo = MarketDataRepository(timescale_client)
@@ -90,12 +97,16 @@ async def lifespan(app: FastAPI):
                         source_agent="hot_path",
                     )
                 await consumer.ack(VALIDATION_STREAM, g_name, [msg_id])
+            # Idle: yield instead of busy-spinning the 5ms block when no
+            # validation requests are pending.
+            if not events:
+                await asyncio.sleep(0.01)
 
     # Start Tasks
     logger.info("Starting FastGate & Auditor Loops")
-    gate_task = asyncio.create_task(fast_gate_loop())
-    audit_task = asyncio.create_task(async_auditor.run())
-    learn_task = asyncio.create_task(learning_loop.run_hourly_scan())
+    gate_task = supervised_task(fast_gate_loop, name="validation.fast_gate")
+    audit_task = supervised_task(async_auditor.run, name="validation.async_auditor")
+    learn_task = supervised_task(learning_loop.run_hourly_scan, name="validation.learning")
     
     yield
     

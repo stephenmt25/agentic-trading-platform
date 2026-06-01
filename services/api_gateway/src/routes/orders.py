@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from libs.core.enums import OrderSide
 from libs.core.schemas import OrderApprovedEvent
 from libs.messaging import ORDERS_STREAM, StreamPublisher
+from libs.messaging.channels import ORDERS_STREAM_MAXLEN
 from libs.storage.repositories import OrderRepository, ProfileRepository
 from services.hot_path.src.kill_switch import KillSwitch
 
@@ -106,7 +107,7 @@ async def submit_order(
     )
 
     publisher = StreamPublisher(redis)
-    await publisher.publish(ORDERS_STREAM, event)
+    await publisher.publish(ORDERS_STREAM, event, maxlen=ORDERS_STREAM_MAXLEN)
 
     return OrderSubmitResponse(
         order_id=str(order_id),

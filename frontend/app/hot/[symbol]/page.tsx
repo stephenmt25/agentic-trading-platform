@@ -19,6 +19,7 @@ import {
   FlaskConical,
   Beaker,
   AlertTriangle,
+  ArrowUpRight,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -188,15 +189,23 @@ export default function HotTradingPage() {
   // ----- Data: positions ---------------------------------------------------
   type Position = Awaited<ReturnType<typeof api.positions.list>>[number];
   const [positions, setPositions] = useState<Position[]>([]);
+  const activeProfileId = activeProfile?.profile_id;
 
   const loadPositions = useCallback(async () => {
+    if (!activeProfileId) {
+      setPositions([]);
+      return;
+    }
     try {
-      const rows = await api.positions.list({ status: "open" });
+      const rows = await api.positions.list({
+        status: "open",
+        profileId: activeProfileId,
+      });
       setPositions(rows);
     } catch {
       // swallow — header banner covers connectivity issues elsewhere
     }
-  }, []);
+  }, [activeProfileId]);
 
   useEffect(() => {
     loadPositions();
@@ -354,6 +363,10 @@ export default function HotTradingPage() {
         symbolOptions={symbolOptions}
         profile={activeProfile}
         profiles={profiles}
+        onProfileChange={(id) => {
+          const next = profiles.find((p) => p.profile_id === id);
+          if (next) setActiveProfile(next);
+        }}
         totalNetPnl={totalNetPnl}
         killArmed={armed}
         onOpenKillModal={() => openKillModal(true)}
@@ -387,6 +400,7 @@ export default function HotTradingPage() {
           {/* Bottom: Positions / Orders / Fills tabs */}
           <BottomTabs
             symbol={symbol}
+            profileId={activeProfileId}
             symbolPositions={symbolPositions}
             allPositionsCount={positions.length}
           />
@@ -441,6 +455,7 @@ interface HotChromeProps {
   symbolOptions: { value: string; label: string }[];
   profile: ProfileResponse | null;
   profiles: ProfileResponse[];
+  onProfileChange: (profileId: string) => void;
   totalNetPnl: number;
   killArmed: boolean;
   onOpenKillModal: () => void;
@@ -452,10 +467,22 @@ function HotChrome({
   symbolOptions,
   profile,
   profiles,
+  onProfileChange,
   totalNetPnl,
   killArmed,
   onOpenKillModal,
 }: HotChromeProps) {
+  // Active-only — inactive profiles can't route orders, so showing them
+  // in the switcher would let the user submit through a profile the
+  // backend will silently drop. The "all profiles" link covers discovery
+  // of inactive ones via the comparison grid.
+  const activeProfileOptions = useMemo(
+    () =>
+      profiles
+        .filter((p) => p.is_active)
+        .map((p) => ({ value: p.profile_id, label: p.name })),
+    [profiles]
+  );
   const tradingMode = useTradingModeStore((s) => s.mode);
   // Per Phase 8.1 GAP-3 (real-money risk class): show the active mode next
   // to the kill-switch on /hot so a glance never misreads paper vs live.
@@ -494,11 +521,34 @@ function HotChrome({
           {profile && (
             <>
               <span aria-hidden className="ml-2">·</span>
-              <span className="num-tabular text-fg-secondary">
+              <span className="num-tabular text-fg-secondary inline-flex items-center gap-1.5">
                 Profile:{" "}
-                <span className="font-mono text-fg">
-                  {profile.name}
-                </span>
+                {activeProfileOptions.length > 0 ? (
+                  <Select
+                    options={activeProfileOptions}
+                    value={profile.profile_id}
+                    onValueChange={onProfileChange}
+                    density="compact"
+                    aria-label="Active profile"
+                    className="w-40"
+                    searchable={activeProfileOptions.length > 6}
+                  />
+                ) : (
+                  <Link
+                    href={`/hot/profiles/${encodeURIComponent(profile.profile_id)}`}
+                    className="font-mono text-fg inline-flex items-center gap-0.5 hover:text-accent-300 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500 rounded-sm"
+                  >
+                    {profile.name}
+                    <ArrowUpRight className="w-3 h-3" strokeWidth={1.5} aria-hidden />
+                  </Link>
+                )}
+                <span aria-hidden className="text-fg-muted">·</span>
+                <Link
+                  href="/hot/profiles"
+                  className="text-fg-muted hover:text-fg-secondary transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500 rounded-sm"
+                >
+                  all profiles
+                </Link>
               </span>
             </>
           )}
@@ -590,8 +640,11 @@ function OrderBookPanel({ symbol }: { symbol: string }) {
     return () => window.clearInterval(id);
   }, []);
 
+  // Staleness measures frontend receive time (receivedAtMs), NOT the
+  // exchange-reported timestampMs — the latter can be 0 or clock-skewed, so
+  // a badge wired to it lies in the always-stale direction (tech-debt row 32).
   const isStale =
-    snapshot !== undefined && now - snapshot.timestampMs > STALE_AFTER_MS;
+    snapshot !== undefined && now - snapshot.receivedAtMs > STALE_AFTER_MS;
   const isEmpty = !snapshot || snapshot.bids.length === 0;
 
   return (
@@ -607,7 +660,7 @@ function OrderBookPanel({ symbol }: { symbol: string }) {
         )}
         {snapshot && isStale && (
           <Tag intent="warn" className="ml-auto">
-            stale {Math.floor((now - snapshot.timestampMs) / 1000)}s
+            stale {Math.floor((now - snapshot.receivedAtMs) / 1000)}s
           </Tag>
         )}
       </header>
@@ -681,15 +734,17 @@ type Position = Awaited<ReturnType<typeof api.positions.list>>[number];
 
 function BottomTabs({
   symbol,
+  profileId,
   symbolPositions,
   allPositionsCount,
 }: {
   symbol: string;
+  profileId: string | undefined;
   symbolPositions: Position[];
   allPositionsCount: number;
 }) {
   const [tab, setTab] = useState<BottomTab>("positions");
-  const orders = useOpenOrdersForSymbol(symbol);
+  const orders = useOpenOrdersForSymbol(symbol, profileId);
   return (
     <section className="flex-[2] min-h-0 flex flex-col border-t border-border-subtle">
       <header className="flex items-center gap-0.5 px-2 h-9 border-b border-border-subtle">
@@ -749,16 +804,23 @@ interface OpenOrderRow {
 
 const OPEN_ORDER_STATUSES = new Set(["PENDING", "SUBMITTED"]);
 
-function useOpenOrdersForSymbol(symbol: string): OpenOrderRow[] {
+function useOpenOrdersForSymbol(
+  symbol: string,
+  profileId: string | undefined
+): OpenOrderRow[] {
   const [serverRows, setServerRows] = useState<ServerOrder[]>([]);
   const optimistic = useOrdersStore((s) => s.optimistic);
   const reconcile = useOrdersStore((s) => s.reconcile);
 
   useEffect(() => {
+    if (!profileId) {
+      setServerRows([]);
+      return;
+    }
     let cancelled = false;
     const tick = () => {
       api.orders
-        .list({ symbol, limit: 50 })
+        .list({ symbol, profileId, limit: 50 })
         .then((rows) => {
           if (cancelled) return;
           setServerRows(rows);
@@ -774,13 +836,14 @@ function useOpenOrdersForSymbol(symbol: string): OpenOrderRow[] {
       cancelled = true;
       window.clearInterval(id);
     };
-  }, [symbol, reconcile]);
+  }, [symbol, profileId, reconcile]);
 
   return useMemo(() => {
     const out: OpenOrderRow[] = [];
     const claimed = new Set<string>();
     for (const o of optimistic) {
       if (o.symbol !== symbol) continue;
+      if (profileId && o.profileId !== profileId) continue;
       if (o.status === "confirmed" && o.orderId && serverRows.some((r) => r.order_id === o.orderId)) {
         // Server already shows it — skip the optimistic shadow.
         claimed.add(o.orderId);
@@ -796,7 +859,7 @@ function useOpenOrdersForSymbol(symbol: string): OpenOrderRow[] {
     }
     out.sort((a, b) => b.submittedAtMs - a.submittedAtMs);
     return out;
-  }, [optimistic, serverRows, symbol]);
+  }, [optimistic, serverRows, symbol, profileId]);
 }
 
 function toOptimisticRow(o: OptimisticOrder): OpenOrderRow {

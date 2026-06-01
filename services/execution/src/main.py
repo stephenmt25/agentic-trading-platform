@@ -1,4 +1,5 @@
 import asyncio
+import time
 from fastapi import FastAPI
 import uvicorn
 from contextlib import asynccontextmanager
@@ -55,13 +56,63 @@ async def lifespan(app: FastAPI):
     exec_task = asyncio.create_task(executor.run())
     logger.info("Starting Reconciler Cron")
     recon_task = asyncio.create_task(reconciler.run_cron())
-    
+
+    def _on_executor_done(t):
+        # executor.run() is `while True` — if the task ever completes, it
+        # raised. The task object is held for the app's lifetime, so asyncio
+        # never GCs it and never logs the exception: the crash is otherwise
+        # completely silent (this exact failure mode was the 2026-05-26
+        # overnight bug — 17 APPROVED decisions, 0 fills). Surface it loudly.
+        if t.cancelled():
+            return
+        exc = t.exception()
+        if exc is not None:
+            import traceback as _tb
+            tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
+            logger.error("executor_task_crashed", error=str(exc), traceback=tb)
+
+    exec_task.add_done_callback(_on_executor_done)
+
+    # Stall watchdog. Silent while healthy; if the consume loop stops
+    # advancing (a hung await — e.g. Redis socket with no timeout, or any
+    # deadlock that stops last_progress_mono from updating), dumps every
+    # live asyncio task's suspended stack once per stall episode so the
+    # stuck coroutine is diagnosable instead of an invisible freeze.
+    async def _executor_stall_watchdog():
+        STALL_S = 30.0
+        dumped = False
+        while True:
+            await asyncio.sleep(10)
+            if not hasattr(executor, "last_progress_mono"):
+                continue  # supervisor hasn't initialised the heartbeat yet
+            stalled_for = time.monotonic() - executor.last_progress_mono
+            if stalled_for > STALL_S:
+                if not dumped:
+                    logger.error("executor_stall_detected",
+                                 stalled_for_s=round(stalled_for, 1))
+                    for t in asyncio.all_tasks():
+                        if t.done():
+                            continue
+                        frames = t.get_stack()
+                        parts = []
+                        for fr in reversed(frames[-12:]):
+                            fn = fr.f_code.co_filename.replace("\\", "/").split("/")[-1]
+                            parts.append(f"{fr.f_code.co_name}@{fn}:{fr.f_lineno}")
+                        logger.error("stall_taskdump", task=t.get_name(),
+                                     frames=len(frames), stack=" <- ".join(parts))
+                    dumped = True
+            else:
+                dumped = False
+
+    watchdog_task = asyncio.create_task(_executor_stall_watchdog())
+
     yield
-    
+
     # Teardown
     exec_task.cancel()
     recon_task.cancel()
-    await asyncio.gather(exec_task, recon_task, return_exceptions=True)
+    watchdog_task.cancel()
+    await asyncio.gather(exec_task, recon_task, watchdog_task, return_exceptions=True)
     await telemetry.stop()
     await timescale_client.close()
     logger.info("Execution Agent shutdown successfully")

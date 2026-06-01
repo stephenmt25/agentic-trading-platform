@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { Wallet, ExternalLink } from "lucide-react";
+import { Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { api, type PaperTradingStatus } from "@/lib/api/client";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
@@ -201,20 +200,10 @@ export function EngineTotalsPill() {
             </p>
           )}
 
-          <div className="mt-3 pt-2.5 border-t border-border-subtle flex items-center justify-between text-[11px] text-fg-muted">
-            <span>
-              {status?.start_date
-                ? `since ${status.start_date}`
-                : "since boot"}
-            </span>
-            <Link
-              href="/hot/profiles"
-              onClick={() => setOpen(false)}
-              className="inline-flex items-center gap-1 text-accent-300 hover:text-accent-200"
-            >
-              open detailed report
-              <ExternalLink className="w-3 h-3" strokeWidth={1.5} aria-hidden />
-            </Link>
+          <div className="mt-3 pt-2.5 border-t border-border-subtle text-[11px] text-fg-muted">
+            {status?.start_date
+              ? `since ${status.start_date}`
+              : "since boot"}
           </div>
         </div>
       )}

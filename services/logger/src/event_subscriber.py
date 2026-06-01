@@ -1,5 +1,6 @@
 import asyncio
 from libs.messaging import StreamConsumer, PubSubBroadcaster
+from libs.messaging._pubsub import PubSubSubscriber
 from libs.storage.repositories import AuditRepository
 from libs.observability import get_logger
 from libs.messaging.channels import MARKET_DATA_STREAM, ORDERS_STREAM, VALIDATION_STREAM, PUBSUB_SYSTEM_ALERTS
@@ -13,12 +14,14 @@ class EventSubscriber:
         consumer: StreamConsumer,
         pubsub: PubSubBroadcaster,
         audit_repo: AuditRepository,
-        alerter: Alerter
+        alerter: Alerter,
+        subscriber: PubSubSubscriber,
     ):
         self.consumer = consumer
         self.pubsub = pubsub
         self.audit_repo = audit_repo
         self.alerter = alerter
+        self.subscriber = subscriber
 
     async def run_streams(self):
         streams = [MARKET_DATA_STREAM, ORDERS_STREAM, VALIDATION_STREAM]
@@ -42,7 +45,17 @@ class EventSubscriber:
             await asyncio.sleep(0.01)
 
     async def run_pubsub(self):
-        async for channel, message in self.pubsub.subscribe(PUBSUB_SYSTEM_ALERTS):
+        async def _on_alert(raw):
+            import msgpack
+            if isinstance(raw, bytes):
+                try:
+                    message = msgpack.unpackb(raw, raw=False)
+                except Exception:
+                    logger.warning("Failed to decode system-alert message, skipping")
+                    return
+            else:
+                message = raw
+
             # Parse alert level
             level = message.get("level", "INFO")
             if level == "RED":
@@ -56,3 +69,5 @@ class EventSubscriber:
             
             # Audit log pubsub writes
             await self.audit_repo.write_audit_event({"raw_message": message}, {"channel": PUBSUB_SYSTEM_ALERTS})
+
+        await self.subscriber.subscribe(PUBSUB_SYSTEM_ALERTS, _on_alert)

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 
 from .migrator import DataMigrator
 
@@ -30,7 +30,7 @@ async def lifespan(app: FastAPI):
             
     # Loop
     logger.info("Starting Archiver Daily Task")
-    cron_task = asyncio.create_task(daily_cron())
+    cron_task = supervised_task(daily_cron, name="archiver.daily_cron")
     
     yield
     

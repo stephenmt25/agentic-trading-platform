@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
@@ -9,6 +10,7 @@ from libs.core.enums import OrderStatus, PositionStatus
 from libs.core.secrets import SecretManager
 from libs.exchange import get_adapter
 from libs.messaging import StreamPublisher, StreamConsumer
+from libs.messaging.channels import ORDERS_STREAM_MAXLEN
 from libs.storage.repositories import OrderRepository, PositionRepository, AuditRepository, ProfileRepository
 from libs.core.types import ProfileId
 from libs.config import settings
@@ -27,6 +29,15 @@ EXCHANGE_FEE_RATES = {
     "PAPER": Decimal("0.001"),      # 0.10% (matches Binance testnet for realistic simulation)
 }
 DEFAULT_FEE_RATE = Decimal("0.002")  # 0.20% conservative fallback
+
+# Orders older than this are skipped on consume. Mirrors the stale-tick
+# guard in services/hot_path/src/processor.py: a backlog of orders left
+# behind in stream:orders from a previous session (e.g. a pyramid race
+# that emitted hundreds of orders before being stopped) must not be
+# drained on boot — the hot_path gates that approved them are stateful
+# and don't apply to a stream replay. Cap matches MAX_TICK_AGE_S in
+# processor.py at 60 s.
+MAX_ORDER_AGE_S = 60.0
 
 
 class OrderExecutor:
@@ -148,14 +159,63 @@ class OrderExecutor:
         except Exception as e:
             logger.warning("Failed to record agent scores", error=str(e), symbol=symbol)
 
+    def __post_init_supervisor__(self):
+        # Updated every consume cycle. main.py's stall watchdog reads this to
+        # detect a hung consume loop (a stuck await stops it advancing).
+        if not hasattr(self, "last_progress_mono"):
+            self.last_progress_mono = time.monotonic()
+
     async def run(self):
+        """Supervisor: keep the consume/process loop alive across transient
+        failures. An unhandled exception inside _run_loop — e.g. a Redis
+        TimeoutError when the server briefly stalls — would otherwise end the
+        executor task and kill order processing silently while leaving the
+        FastAPI process alive (and the 5-min reconciler cron still ticking),
+        making the failure invisible. Mirrors HotPathProcessor.run() in
+        services/hot_path/src/processor.py."""
+        self.__post_init_supervisor__()
+        while True:
+            try:
+                await self._run_loop()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error("executor loop crashed — restarting", error=str(exc))
+                await asyncio.sleep(1)
+
+    async def _run_loop(self):
         logger.info("OrderExecutor starting loop")
 
         while True:
-            events = await self._consumer.consume(self._channel, "executor_group", "executor_1", count=10)
+            # Marks the loop as iterating — the stall watchdog reads this.
+            self.last_progress_mono = time.monotonic()
+
+            # A transient Redis hiccup — e.g. the server briefly unresponsive
+            # while it replays its AOF at boot — raises here. Catch it: log,
+            # back off, and retry the loop, rather than killing the executor
+            # task silently and wedging order processing.
+            try:
+                events = await self._consumer.consume(self._channel, "executor_group", "executor_1", count=10)
+            except Exception as exc:
+                logger.error("consume failed — retrying", error=str(exc))
+                await asyncio.sleep(1)
+                continue
 
             for msg_id, ev in events:
                 if not ev or not isinstance(ev, OrderApprovedEvent):
+                    continue
+
+                # Stale-order guard. The batch ack at the end of the loop
+                # covers this msg_id, so a `continue` here drops the order
+                # quietly and permanently. See MAX_ORDER_AGE_S comment.
+                order_age_s = (time.time() * 1_000_000 - ev.timestamp_us) / 1_000_000
+                if order_age_s > MAX_ORDER_AGE_S:
+                    logger.warning(
+                        "stale_order_skipped",
+                        order_age_s=round(order_age_s, 1),
+                        profile_id=str(ev.profile_id),
+                        symbol=ev.symbol,
+                    )
                     continue
 
                 if not settings.TRADING_ENABLED:
@@ -167,7 +227,7 @@ class OrderExecutor:
                         timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
                         source_service="execution"
                     )
-                    await self._publisher.publish(self._channel, fail_ev)
+                    await self._publisher.publish(self._channel, fail_ev, maxlen=ORDERS_STREAM_MAXLEN)
                     continue
 
                 if self._telemetry:
@@ -264,7 +324,7 @@ class OrderExecutor:
                             timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
                             source_service="execution"
                         )
-                        await self._publisher.publish(self._channel, executed_ev)
+                        await self._publisher.publish(self._channel, executed_ev, maxlen=ORDERS_STREAM_MAXLEN)
 
                         # Telemetry: order filled
                         if self._telemetry:
@@ -294,7 +354,7 @@ class OrderExecutor:
                         timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
                         source_service="execution"
                     )
-                    await self._publisher.publish(self._channel, fail_ev)
+                    await self._publisher.publish(self._channel, fail_ev, maxlen=ORDERS_STREAM_MAXLEN)
                 finally:
                     # Close adapter to free resources (each order gets its own adapter)
                     try:

@@ -11,7 +11,7 @@ from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
 from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
 from libs.core.agent_registry import (
     AgentPerformanceTracker,
@@ -82,9 +82,10 @@ async def lifespan(app: FastAPI):
     gate_repo = GateEfficacyRepository(timescale)
 
     logger.info("Analyst Agent started — weight computation + insight engine")
-    weight_task = asyncio.create_task(weight_recompute_loop())
-    insight_task = asyncio.create_task(
-        insight_engine_loop(profile_repo, decision_repo, market_repo, gate_repo)
+    weight_task = supervised_task(weight_recompute_loop, name="analyst.weight_recompute")
+    insight_task = supervised_task(
+        lambda: insight_engine_loop(profile_repo, decision_repo, market_repo, gate_repo),
+        name="analyst.insight_engine",
     )
 
     yield

@@ -24,6 +24,7 @@ from libs.core.models import NormalisedTick
 from libs.core.schemas import MarketTickEvent, OrderApprovedEvent, ThresholdProximityEvent, ValidationRequestEvent
 from libs.core.constants import THRESHOLD_PROXIMITY_BAND_PCT
 from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
+from libs.messaging.channels import ORDERS_STREAM_MAXLEN
 from libs.observability import get_logger, timer, MetricsCollector
 from libs.observability.telemetry import TelemetryPublisher
 
@@ -454,7 +455,9 @@ class HotPathProcessor:
                             timestamp_us=tick.timestamp,
                             source_service="hot-path"
                         )
-                        await self._publisher.publish(self._orders_channel, order_ev)
+                        await self._publisher.publish(
+                            self._orders_channel, order_ev, maxlen=ORDERS_STREAM_MAXLEN
+                        )
                         MetricsCollector.increment_counter("orders.approved")
 
                         # Optimistically mark the symbol as held so the next

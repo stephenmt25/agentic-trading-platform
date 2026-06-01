@@ -12,7 +12,7 @@ from libs.storage.repositories import ClosedTradeRepository, ProfileRepository
 from libs.messaging import PubSubBroadcaster
 from libs.messaging._pubsub import PubSubSubscriber
 from libs.messaging.channels import PUBSUB_PRICE_TICKS
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
 
 from .calculator import PnLCalculator
@@ -197,8 +197,14 @@ async def lifespan(app: FastAPI):
         float(settings.DEFAULT_TAKE_PROFIT_PCT) * 100,
         int(settings.DEFAULT_MAX_HOLDING_HOURS),
     )
-    listener_task = asyncio.create_task(subscriber.subscribe(PUBSUB_PRICE_TICKS, handle_tick))
-    rehydrate_task = asyncio.create_task(rehydrate_loop(position_repo))
+    listener_task = supervised_task(
+        lambda: subscriber.subscribe(PUBSUB_PRICE_TICKS, handle_tick),
+        name="pnl.price_subscriber",
+    )
+    rehydrate_task = supervised_task(
+        lambda: rehydrate_loop(position_repo),
+        name="pnl.rehydrate",
+    )
 
     yield
 

@@ -2,7 +2,7 @@ import asyncio
 import json
 from libs.config import settings
 from libs.storage import ProfileRepository, MarketDataRepository, RedisClient, TimescaleClient
-from libs.observability import get_logger
+from libs.observability import get_logger, supervised_task
 
 from .hydrator import IndicatorHydrator
 from .rule_validator import RuleValidator
@@ -135,8 +135,13 @@ async def main():
     logger.info("Starting Strategy Agent Service")
     await hydration_task()
 
+    # Supervised: a crash inside the poll loop restarts after 1 s instead
+    # of killing the process. (Strategy runs standalone, not under
+    # FastAPI lifespan, so process-level supervision is the only line of
+    # defense; the supervisor decorator handles it in-process.)
+    poll_task = supervised_task(profile_poll_loop, name="strategy.profile_poll")
     try:
-        await profile_poll_loop()
+        await poll_task
     except asyncio.CancelledError:
         logger.info("Shutting down Strategy Agent")
     finally:

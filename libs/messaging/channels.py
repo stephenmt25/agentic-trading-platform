@@ -12,6 +12,12 @@ VALIDATION_STREAM = "stream:validation"
 VALIDATION_RESPONSE_STREAM = "stream:validation_response"
 DLQ_STREAM = "stream:dlq"
 
+# Cap on stream:orders so a backlog from a previous session (e.g. a
+# hot_path pyramid race that emitted hundreds of orders before being
+# stopped) can't survive a restart and get drained by execution at boot.
+# Mirrors MARKET_DATA_STREAM_MAXLEN in services/ingestion/src/main.py.
+ORDERS_STREAM_MAXLEN = 10_000
+
 PUBSUB_PNL_UPDATES = "pubsub:pnl_updates"
 PUBSUB_PRICE_TICKS = "pubsub:price_ticks"
 PUBSUB_ALERTS = "pubsub:alerts"

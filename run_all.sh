@@ -3,9 +3,9 @@
 # Usage: bash run_all.sh [--stop] [--local-frontend]
 #
 # Starts the 19 backend microservices on localhost. Frontend runs locally
-# at http://localhost:3000 when --local-frontend is passed.
+# at http://localhost:3001 when --local-frontend is passed.
 #
-# --local-frontend  Also start the Next.js dev server on :3000.
+# --local-frontend  Also start the Next.js dev server on :3001.
 # --stop            Gracefully stop all services and infrastructure.
 #
 # Prerequisites:
@@ -39,31 +39,44 @@ done
 # ---------- Stop mode ----------
 if [[ "${1:-}" == "--stop" ]]; then
     echo "=== Stopping Praxis Trading Platform ==="
-    # First: tracked PIDs from the current pidfile
+    # errexit/pipefail off for the whole sweep: netstat|grep returns 1 on a
+    # free port and taskkill returns 1 on an already-dead PID — neither should
+    # abort the stop.
+    set +eo pipefail
+
+    # 1. Tracked PIDs. Each service launches as `poetry run python -m ...`, so
+    #    the tracked PID is the poetry WRAPPER, not the python child that
+    #    actually holds the port. //T kills the whole process tree — plain
+    #    `kill` reaped only the wrapper and left the python child orphaned
+    #    (the long-standing "--stop leaves zombies" bug).
     if [[ -f "$PIDFILE" ]]; then
         while read -r pid name; do
-            if kill -0 "$pid" 2>/dev/null; then
-                kill "$pid" 2>/dev/null && echo "  Stopped $name (PID $pid)" || true
-            fi
+            taskkill //F //T //PID "$pid" >/dev/null 2>&1 \
+                && echo "  Stopped $name (tree PID $pid)"
         done < "$PIDFILE"
         rm -f "$PIDFILE"
     fi
-    # Second: sweep any untracked zombie holding a known Praxis port.
-    # This catches orphans from prior runs whose pidfile was already cleared.
-    # Disable pipefail/errexit locally — grep returns 1 when a port is free,
-    # which under `set -o pipefail` would abort the whole sweep silently.
-    set +eo pipefail
-    PRAXIS_PORTS="8000 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 8090 8091 8092 8093 8094 8095 8096"
+
+    # 2. Port sweep — kills every PID holding a Praxis port (frontend :3001
+    #    included), covering orphans whose pidfile entry was lost.
+    PRAXIS_PORTS="8000 8080 8081 8082 8083 8084 8085 8086 8087 8088 8089 8090 8091 8092 8093 8094 8095 8096 8097 3001"
     for port in $PRAXIS_PORTS; do
-        holder_pid=$(netstat -ano 2>/dev/null | grep "[:.]${port} .*LISTEN" | awk '{print $5}' | head -1)
-        if [[ -n "$holder_pid" ]]; then
-            if kill "$holder_pid" 2>/dev/null || taskkill //PID "$holder_pid" //F >/dev/null 2>&1; then
-                echo "  Swept zombie on :$port (PID $holder_pid)"
-            else
-                echo "  WARNING: Could not kill PID $holder_pid on :$port (may need elevated shell)"
-            fi
-        fi
+        for holder_pid in $(netstat -ano 2>/dev/null | grep "[:.]${port} .*LISTENING" | awk '{print $5}' | sort -u); do
+            taskkill //F //PID "$holder_pid" >/dev/null 2>&1 \
+                && echo "  Swept zombie on :$port (PID $holder_pid)"
+        done
     done
+
+    # 3. Catch-all by command line — kills any praxis python (including the
+    #    no-port strategy worker and daily_report daemon) and the frontend
+    #    node, even if the pidfile was lost and the process holds no port.
+    #    This is what makes --stop genuinely leave a clean slate.
+    if command -v powershell.exe >/dev/null 2>&1; then
+        powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='python.exe'\" | Where-Object { \$_.CommandLine -match 'services\.|daily_report' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue }" >/dev/null 2>&1
+        powershell.exe -NoProfile -Command "Get-CimInstance Win32_Process -Filter \"Name='node.exe'\" | Where-Object { \$_.CommandLine -match 'aion-trading' } | ForEach-Object { Stop-Process -Id \$_.ProcessId -Force -ErrorAction SilentlyContinue }" >/dev/null 2>&1
+        echo "  Command-line sweep complete (praxis python + frontend node)"
+    fi
+
     set -eo pipefail
     docker compose -f deploy/docker-compose.yml down 2>/dev/null || true
     echo "=== All stopped ==="
@@ -240,6 +253,12 @@ launch "debate"        "services.debate.src.main"        8096
 launch "rate_limiter" "services.rate_limiter.src.main" 8094
 launch "slm_inference" "services.slm_inference.src.main" 8095
 
+# Layer 3 fail-safe: predicted-trade oracle. Runs StrategyEvaluator in
+# shadow against the same market_data stream, compares synthetic signal
+# count vs APPROVED decisions vs CONFIRMED fills, alerts on sustained
+# divergence. See services/oracle/src/main.py.
+launch "oracle"        "services.oracle.src.main"        8097
+
 # Standalone async services (no HTTP server)
 launch_async "strategy"     "services.strategy.src.main"
 
@@ -273,9 +292,9 @@ if [[ "$LOCAL_FRONTEND" == true ]]; then
     echo "=== [4/4] Starting Local Frontend (Next.js) ==="
     rm -f frontend/.next/dev/lock 2>/dev/null
     if command -v powershell.exe >/dev/null 2>&1; then
-        # Trailing `|| true` so an empty pipeline (no listener on :3000) does
+        # Trailing `|| true` so an empty pipeline (no listener on :3001) does
         # not trip `set -e` and abort the script before the dev server starts.
-        powershell.exe -Command "Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { \$_ -ne 0 } | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null || true
+        powershell.exe -Command "Get-NetTCPConnection -LocalPort 3001 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | Where-Object { \$_ -ne 0 } | ForEach-Object { Stop-Process -Id \$_ -Force -ErrorAction SilentlyContinue }" 2>/dev/null || true
     fi
     sleep 1
     cd frontend
@@ -283,7 +302,7 @@ if [[ "$LOCAL_FRONTEND" == true ]]; then
     FRONTEND_PID=$!
     echo "$FRONTEND_PID frontend" >> "../$PIDFILE"
     cd ..
-    echo "  Frontend starting on :3000"
+    echo "  Frontend starting on :3001"
     echo ""
 fi
 
@@ -311,9 +330,10 @@ echo "    Risk ........... :8093"
 echo "    Rate Limiter ... :8094"
 echo "    SLM Inference .. :8095"
 echo "    Debate ......... :8096"
+echo "    Oracle ......... :8097"
 echo ""
 if [[ "$LOCAL_FRONTEND" == true ]]; then
-    echo "  Frontend:       http://localhost:3000"
+    echo "  Frontend:       http://localhost:3001"
     echo ""
 fi
 echo "  Logs: $LOGDIR/"

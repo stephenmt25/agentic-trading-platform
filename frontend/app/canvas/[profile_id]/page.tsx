@@ -20,7 +20,13 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
-import { ArrowLeft, Loader2, AlertTriangle, RotateCcw } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowUpRight,
+  Loader2,
+  AlertTriangle,
+  RotateCcw,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { Button, Tag } from "@/components/primitives";
@@ -337,14 +343,32 @@ function PipelineCanvasInner() {
             Pipeline Canvas
           </Link>
           <span aria-hidden>/</span>
-          <span className="font-mono text-fg-secondary truncate">
-            {profile?.name ?? profileId.slice(0, 8)}
-          </span>
+          {profile ? (
+            <Link
+              href={`/hot/profiles/${encodeURIComponent(profile.profile_id)}`}
+              className="font-mono text-fg-secondary truncate inline-flex items-center gap-0.5 hover:text-accent-300 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500 rounded-sm"
+              title="Open profile report"
+            >
+              {profile.name}
+              <ArrowUpRight className="w-3 h-3" strokeWidth={1.5} aria-hidden />
+            </Link>
+          ) : (
+            <span className="font-mono text-fg-secondary truncate">
+              {profileId.slice(0, 8)}
+            </span>
+          )}
           {profile?.is_active && (
             <Pill intent="bid" icon={<StatusDot state="live" size={6} pulse />}>
               Active
             </Pill>
           )}
+          <span aria-hidden className="text-fg-muted">·</span>
+          <Link
+            href="/hot/profiles"
+            className="text-fg-muted hover:text-fg-secondary transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500 rounded-sm"
+          >
+            all profiles
+          </Link>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <Button
