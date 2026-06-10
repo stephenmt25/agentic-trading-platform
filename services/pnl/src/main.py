@@ -24,6 +24,7 @@ from .close_requester import PositionCloseRequester
 from .closer import PositionCloser
 from .executed_consumer import ExecutedEventConsumer
 from .exit_monitor import ExitMonitor
+from .halt_controller import HaltController
 from .publisher import PnLPublisher
 
 logger = get_logger("pnl")
@@ -95,6 +96,16 @@ async def lifespan(app: FastAPI):
     exit_monitor = ExitMonitor(closer, profile_repo, close_requester=close_requester)
     close_consumer = ExecutedEventConsumer(
         stream_consumer, position_repo, closer, pubsub=pubsub
+    )
+    # Tiered kill-switch / flatten authority (PR3): executes a FLATTEN level by
+    # closing all open positions via the same reduce-only path, and runs the
+    # auto-escalation gate (severe triggers -> DE_RISK/FLATTEN).
+    halt_controller = HaltController(
+        redis_instance,
+        position_repo,
+        close_requester,
+        profile_repo=profile_repo,
+        pubsub=pubsub,
     )
 
     telemetry = TelemetryPublisher(redis_instance, "pnl", "portfolio")
@@ -224,6 +235,11 @@ async def lifespan(app: FastAPI):
         lambda: close_consumer.run(),
         name="pnl.close_consumer",
     )
+    # Tiered halt / flatten-authority controller (PR3).
+    halt_task = supervised_task(
+        lambda: halt_controller.run(),
+        name="pnl.halt_controller",
+    )
 
     yield
 
@@ -231,8 +247,13 @@ async def lifespan(app: FastAPI):
     listener_task.cancel()
     rehydrate_task.cancel()
     close_consumer_task.cancel()
+    halt_task.cancel()
     await asyncio.gather(
-        listener_task, rehydrate_task, close_consumer_task, return_exceptions=True
+        listener_task,
+        rehydrate_task,
+        close_consumer_task,
+        halt_task,
+        return_exceptions=True,
     )
     await telemetry.stop()
     await timescale_client.close()

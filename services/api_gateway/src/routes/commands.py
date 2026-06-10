@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from libs.config import settings
+from libs.core.enums import HaltLevel
 from libs.core.schemas import (
     CommandIntent,
     KillSwitchStatusResponse,
@@ -22,8 +23,12 @@ def _get_redis():
 
 
 class KillSwitchRequest(BaseModel):
-    active: bool
+    active: bool = True
     reason: Optional[str] = None
+    # PR3: optional tiered level (NONE/STOP_OPENING/DE_RISK/NEUTRALIZE/FLATTEN).
+    # When set it takes precedence over `active`. FLATTEN here is an explicit human
+    # authorization — the HaltController will close all open positions.
+    level: Optional[str] = None
 
 
 @router.post("/")
@@ -60,9 +65,30 @@ async def set_kill_switch(
     redis = _get_redis()
     reason = body.reason or "manual"
 
+    # Tiered level takes precedence (PR3). FLATTEN via the API is an explicit
+    # human authorization to close all open positions.
+    if body.level is not None:
+        try:
+            level = HaltLevel(body.level.strip().upper())
+        except ValueError:
+            raise HTTPException(
+                status_code=422, detail=f"Invalid halt level: {body.level}"
+            )
+        await KillSwitch.set_level(redis, level, reason=reason, actor=user_id)
+        return {"status": level.value.lower(), "reason": reason, "level": level.value}
+
+    # Legacy binary toggle: active=True -> STOP_OPENING, active=False -> NONE.
     if body.active:
         await KillSwitch.activate(redis, reason=reason, activated_by=user_id)
-        return {"status": "activated", "reason": reason}
+        return {
+            "status": "activated",
+            "reason": reason,
+            "level": HaltLevel.STOP_OPENING.value,
+        }
     else:
         await KillSwitch.deactivate(redis, reason=reason, deactivated_by=user_id)
-        return {"status": "deactivated", "reason": reason}
+        return {
+            "status": "deactivated",
+            "reason": reason,
+            "level": HaltLevel.NONE.value,
+        }

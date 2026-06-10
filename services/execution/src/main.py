@@ -64,7 +64,10 @@ async def lifespan(app: FastAPI):
     # early-returning; pubsub lets a >0.1% drift publish an ALERT_RED to
     # PUBSUB_SYSTEM_ALERTS. No-op for paper profiles (skipped by key_ref).
     reconciler = BalanceReconciler(
-        position_repo, profile_repo=profile_repo, pubsub=pubsub
+        position_repo,
+        profile_repo=profile_repo,
+        pubsub=pubsub,
+        redis_client=redis_instance,
     )
 
     # Background Tasks

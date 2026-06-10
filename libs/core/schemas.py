@@ -776,11 +776,15 @@ class KillSwitchStatusResponse(BaseModel):
     active: bool
     reason: Optional[str] = None
     activated_at: Optional[str] = None
+    # PR3 tiered halt: NONE/STOP_OPENING/DE_RISK/NEUTRALIZE/FLATTEN. `active` stays
+    # True for STOP_OPENING and above for backward compatibility.
+    level: Optional[str] = None
 
 
 class KillSwitchToggleResponse(BaseModel):
     status: str
     reason: Optional[str] = None
+    level: Optional[str] = None
 
 
 class ExchangeTestResponse(BaseModel):

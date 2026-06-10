@@ -23,10 +23,12 @@ class BalanceReconciler:
         profile_repo: ProfileRepository = None,
         pubsub=None,
         secret_manager: SecretManager = None,
+        redis_client=None,
     ):
         self._position_repo = position_repo
         self._profile_repo = profile_repo
         self._pubsub = pubsub
+        self._redis = redis_client
         self._secret_manager = secret_manager or SecretManager(
             gcp_project_id=settings.GCP_PROJECT_ID
         )
@@ -151,6 +153,14 @@ class BalanceReconciler:
                     drift=max_drift,
                     details=drift_details,
                 )
+                # Set the drift trigger flag (PR3) so the HaltController's
+                # flatten-authority gate can count it as a severe trigger. Short
+                # TTL (2 reconcile cycles) so it self-clears once drift resolves.
+                if self._redis is not None:
+                    try:
+                        await self._redis.set("praxis:halt_trigger:drift", "1", ex=600)
+                    except Exception:
+                        logger.warning("failed to set drift trigger flag")
                 # Publish system alert for trading halt consideration
                 if self._pubsub:
                     alert = AlertEvent(

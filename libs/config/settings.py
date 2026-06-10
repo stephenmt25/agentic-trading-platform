@@ -33,6 +33,19 @@ class Settings(BaseSettings):
     # 2026-06-10 flatten-authority). Off until validated on testnet.
     PROTECTIVE_STOP_ENABLED: bool = Field(default=False)
 
+    # PR3 tiered kill-switch / flatten-authority (DECISIONS.md 2026-06-10).
+    # The HaltController always executes a FLATTEN level (manual or automated).
+    # AUTO_HALT_ESCALATION_ENABLED gates the *automated* escalation path: when on,
+    # the controller reads the severe triggers and may raise the halt level itself
+    # (DE_RISK on a single trigger; FLATTEN only when the authority gate passes —
+    # >= 2 triggers persisted through the dwell). It never de-escalates a manual halt.
+    AUTO_HALT_ESCALATION_ENABLED: bool = Field(default=True)
+    HALT_CONTROLLER_INTERVAL_S: float = Field(default=10.0)
+    AUTO_FLATTEN_DWELL_S: float = Field(default=30.0)
+    # Severe-trigger thresholds for the auto-flatten gate. Drawdown is read as the
+    # daily realised loss-as-fraction-of-equity counter (pnl:daily:<pid>).
+    AUTO_FLATTEN_DRAWDOWN_PCT: Decimal = Field(default=Decimal("0.15"))
+
     FAST_GATE_TIMEOUT_MS: int = Field(default=50)
     CIRCUIT_BREAKER_DAILY_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
 

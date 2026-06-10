@@ -86,6 +86,32 @@ class PositionStatus(str, Enum):
     CLOSED = "CLOSED"
 
 
+class HaltLevel(str, Enum):
+    """Tiered trading-halt ladder (DECISIONS.md 2026-06-10 flatten-authority).
+
+    Ordered by severity; each rung subsumes the cheaper ones. Stored as the value
+    of the kill-switch Redis key — legacy "1" is read as STOP_OPENING for
+    backward compatibility.
+    """
+
+    NONE = "NONE"  # trading normal
+    STOP_OPENING = "STOP_OPENING"  # block new entries (the classic kill switch)
+    DE_RISK = "DE_RISK"  # + cancel resting orders / halt averaging-in
+    NEUTRALIZE = "NEUTRALIZE"  # + reduce-only trims to a gross-exposure budget (action lands with PR4)
+    FLATTEN = "FLATTEN"  # close ALL positions to zero
+
+    @property
+    def rank(self) -> int:
+        """Severity rank (NONE=0 … FLATTEN=4) for >= comparisons."""
+        return _HALT_RANK[self]
+
+    def at_least(self, other: "HaltLevel") -> bool:
+        return self.rank >= other.rank
+
+
+_HALT_RANK = {lvl: i for i, lvl in enumerate(HaltLevel)}
+
+
 class HITLStatus(str, Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"

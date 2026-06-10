@@ -16,12 +16,35 @@ loop — before strategy evaluation, risk gates, or any other logic.
 import json
 import time
 
+from libs.core.enums import HaltLevel
 from libs.observability import get_logger
 
 logger = get_logger("hot-path.kill-switch")
 
 KILL_SWITCH_KEY = "praxis:kill_switch"
 KILL_SWITCH_LOG_KEY = "praxis:kill_switch:log"
+
+
+def _parse_level(val) -> HaltLevel:
+    """Read the stored kill-switch value into a HaltLevel.
+
+    Backward compatible: a legacy "1"/"true" means STOP_OPENING; empty/None/"0"
+    means NONE; otherwise the value is a HaltLevel name. An unrecognised value is
+    treated as STOP_OPENING (conservative — assume *some* halt rather than none).
+    """
+    if val is None:
+        return HaltLevel.NONE
+    if isinstance(val, bytes):
+        val = val.decode()
+    val = str(val).strip().upper()
+    if val in ("", "0", "FALSE", "NONE"):
+        return HaltLevel.NONE
+    if val in ("1", "TRUE"):
+        return HaltLevel.STOP_OPENING
+    try:
+        return HaltLevel(val)
+    except ValueError:
+        return HaltLevel.STOP_OPENING
 
 
 class KillSwitch:
@@ -32,10 +55,14 @@ class KillSwitch:
 
     @staticmethod
     async def is_active(redis_client) -> bool:
-        """Returns True if the kill switch is engaged."""
+        """True if trading entry is halted (any level STOP_OPENING and above).
+
+        This is the hot-path per-tick check — a single GET. Fail-safe: if Redis
+        is unreachable, block trading.
+        """
         try:
             val = await redis_client.get(KILL_SWITCH_KEY)
-            return val is not None and val in (b"1", "1", b"true", "true")
+            return _parse_level(val).at_least(HaltLevel.STOP_OPENING)
         except Exception as e:
             # If Redis is unreachable, fail SAFE — block trading
             logger.error(
@@ -43,6 +70,48 @@ class KillSwitch:
                 error=str(e),
             )
             return True
+
+    @staticmethod
+    async def get_level(redis_client) -> HaltLevel:
+        """Return the current tiered halt level. Used by the HaltController to
+        decide actions (incl. FLATTEN). Fail-safe is DELIBERATELY non-destructive:
+        on a Redis error we return STOP_OPENING (assume a halt, but never trigger
+        an automated FLATTEN off a transient blip — the policy's false-positive
+        self-harm concern)."""
+        try:
+            return _parse_level(await redis_client.get(KILL_SWITCH_KEY))
+        except Exception as e:
+            logger.error(
+                "Kill switch level read failed — defaulting to STOP_OPENING",
+                error=str(e),
+            )
+            return HaltLevel.STOP_OPENING
+
+    @staticmethod
+    async def set_level(
+        redis_client, level: HaltLevel, reason: str = "manual", actor: str = "system"
+    ):
+        """Set the tiered halt level. NONE clears the halt; any other level
+        engages it. NEUTRALIZE+ is logged CRITICAL (it triggers position closes
+        via the HaltController)."""
+        if level == HaltLevel.NONE:
+            await redis_client.delete(KILL_SWITCH_KEY)
+        else:
+            await redis_client.set(KILL_SWITCH_KEY, level.value)
+        log_entry = json.dumps(
+            {
+                "action": f"SET_{level.value}",
+                "reason": reason,
+                "actor": actor,
+                "timestamp": time.time(),
+            }
+        )
+        await redis_client.lpush(KILL_SWITCH_LOG_KEY, log_entry)
+        await redis_client.ltrim(KILL_SWITCH_LOG_KEY, 0, 99)
+        emit = (
+            logger.critical if level.at_least(HaltLevel.NEUTRALIZE) else logger.warning
+        )
+        emit("HALT LEVEL SET", level=level.value, reason=reason, actor=actor)
 
     @staticmethod
     async def activate(
@@ -90,8 +159,9 @@ class KillSwitch:
 
     @staticmethod
     async def status(redis_client) -> dict:
-        """Return current kill switch status and recent log."""
-        active = await KillSwitch.is_active(redis_client)
+        """Return current kill switch status (level + active flag) and recent log."""
+        level = await KillSwitch.get_level(redis_client)
+        active = level.at_least(HaltLevel.STOP_OPENING)
         log = []
         try:
             log_raw = await redis_client.lrange(KILL_SWITCH_LOG_KEY, 0, 9)
@@ -107,4 +177,4 @@ class KillSwitch:
             logger.error(
                 "Kill switch log fetch failed — returning empty log", error=str(e)
             )
-        return {"active": active, "recent_log": log}
+        return {"active": active, "level": level.value, "recent_log": log}
