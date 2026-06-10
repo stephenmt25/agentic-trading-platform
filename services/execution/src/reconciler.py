@@ -106,8 +106,14 @@ class BalanceReconciler:
                         if total > 0:
                             exchange_totals[currency] = total
 
-            # 2. Fetch open positions from DB and aggregate by base currency
-            open_positions = await self._position_repo.get_open_positions(profile_id)
+            # 2. Fetch the positions the exchange should still be holding and
+            # aggregate by base currency. Uses get_unsettled_positions (OPEN +
+            # PENDING_CLOSE) not get_open_positions: a position mid-close still
+            # sits on the exchange until its reduce-only order fills, so counting
+            # it avoids a false drift alarm during the close window (PR1).
+            open_positions = await self._position_repo.get_unsettled_positions(
+                profile_id
+            )
             db_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
             for pos in open_positions:
                 pos_dict = dict(pos) if not isinstance(pos, dict) else pos

@@ -122,6 +122,19 @@ class PositionRepository(BaseRepository):
             query = "SELECT * FROM positions WHERE status = 'OPEN'"
             return await self._fetch(query)
 
+    async def get_unsettled_positions(self, profile_id: ProfileId = None) -> List[Any]:
+        """Positions the exchange should still be holding: OPEN plus
+        PENDING_CLOSE. A PENDING_CLOSE position has a reduce-only close order in
+        flight but not yet filled, so the exchange still holds it — counting it
+        keeps reconciliation honest (otherwise an in-flight close reads as drift
+        between the DB and the exchange). Used by BalanceReconciler."""
+        statuses = ["OPEN", "PENDING_CLOSE"]
+        if profile_id:
+            query = "SELECT * FROM positions WHERE profile_id = $1 AND status = ANY($2)"
+            return await self._fetch(query, profile_id, statuses)
+        query = "SELECT * FROM positions WHERE status = ANY($1)"
+        return await self._fetch(query, statuses)
+
     async def get_positions_for_symbol(self, symbol: SymbolPair) -> List[Any]:
         query = "SELECT * FROM positions WHERE symbol = $1 AND status = 'OPEN'"
         return await self._fetch(query, symbol)

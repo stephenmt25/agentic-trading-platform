@@ -6,7 +6,7 @@ import uvicorn
 from fastapi import FastAPI
 
 from libs.config import settings
-from libs.messaging import StreamConsumer, StreamPublisher
+from libs.messaging import PubSubBroadcaster, StreamConsumer, StreamPublisher
 from libs.messaging.channels import ORDERS_STREAM
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
@@ -17,6 +17,7 @@ from libs.storage import (
     RedisClient,
     TimescaleClient,
 )
+from libs.storage.repositories import ProfileRepository
 
 from .executor import OrderExecutor
 from .ledger import OptimisticLedger
@@ -39,6 +40,8 @@ async def lifespan(app: FastAPI):
     order_repo = OrderRepository(timescale_client)
     position_repo = PositionRepository(timescale_client)
     audit_repo = AuditRepository(timescale_client)
+    profile_repo = ProfileRepository(timescale_client)
+    pubsub = PubSubBroadcaster(redis_instance)
 
     ledger = OptimisticLedger(order_repo)
 
@@ -57,7 +60,12 @@ async def lifespan(app: FastAPI):
         telemetry=telemetry,
     )
 
-    reconciler = BalanceReconciler(position_repo)
+    # Wired live (PR2): profile_repo lets it iterate active profiles instead of
+    # early-returning; pubsub lets a >0.1% drift publish an ALERT_RED to
+    # PUBSUB_SYSTEM_ALERTS. No-op for paper profiles (skipped by key_ref).
+    reconciler = BalanceReconciler(
+        position_repo, profile_repo=profile_repo, pubsub=pubsub
+    )
 
     # Background Tasks
     logger.info("Starting Execution Loop")
