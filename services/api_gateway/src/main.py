@@ -69,6 +69,7 @@ async def lifespan(app: FastAPI):
     timescale_client = TimescaleClient(settings.DATABASE_URL)
     await timescale_client.init_pool()
     app.state.timescale_client = timescale_client
+    app.state.redis_instance = redis_instance
 
     logger.info("API Gateway Started")
     yield

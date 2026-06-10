@@ -21,7 +21,7 @@ def test_market_data_contract():
     decoded = MarketTickEvent.model_validate_json(encoded)
 
     assert decoded.symbol == "BTC/USD"
-    assert type(decoded.price) == float
+    assert isinstance(decoded.price, float)
 
 
 def test_order_flow_contract():

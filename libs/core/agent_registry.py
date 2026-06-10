@@ -169,10 +169,10 @@ class AgentPerformanceTracker:
                 if isinstance(outcome, bytes):
                     outcome = outcome.decode()
 
-                agent_data = agents[agent_name]
-                direction = agent_data.get("direction", "")
-
-                # Score: did the agent's direction align with the outcome?
+                # Score: 1.0 for a winning trade, else 0.0. NOTE: this credits the
+                # agent for the trade outcome regardless of whether its own voted
+                # direction matched — direction-aware scoring is unimplemented
+                # (see TECH-DEBT-REGISTRY 2026-06-10).
                 if outcome == "win":
                     hit = 1.0
                 else:

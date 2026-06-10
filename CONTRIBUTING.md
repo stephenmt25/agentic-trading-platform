@@ -44,9 +44,13 @@ Rules:
 
 ## Local quality gates (mirror CI)
 
-CI's `lint` job runs `black --check`, `isort --check-only`, `ruff check`, and
-`mypy --strict services/ libs/`. To stop "CI fails on formatting" loops, run the
-**same checks locally before every commit** via pre-commit:
+CI's `lint` job runs `black --check`, `isort --check-only`, and `ruff check` as
+**blocking** gates, plus `mypy` as an **advisory** (non-blocking) check while the
+codebase finishes its typing cleanup (see `TECH-DEBT-REGISTRY` 2026-06-10). To
+stop "CI fails on formatting" loops, run the **blocking checks locally before
+every commit** via pre-commit (mypy is intentionally not a pre-commit hook — run
+`poetry run mypy --ignore-missing-imports services/ libs/` manually when you touch
+typed code):
 
 ```bash
 pip install pre-commit
