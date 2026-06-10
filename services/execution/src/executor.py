@@ -10,6 +10,7 @@ from libs.config import settings
 from libs.core.agent_registry import AgentPerformanceTracker
 from libs.core.enums import OrderSide, OrderStatus, PositionStatus
 from libs.core.models import Order, Position
+from libs.core.portfolio import realized_slippage
 from libs.core.schemas import (
     AgentScorePayload,
     OrderApprovedEvent,
@@ -495,6 +496,14 @@ class OrderExecutor:
                         # consumer finalises the DB close on the executed event below,
                         # using the real exchange fill_price as the exit price.
 
+                        # 6d. Realized slippage attribution (PR5): adverse
+                        # fill-vs-intended, signed so positive = cost. Already
+                        # inside realized_pnl via fill_price — carried on the event
+                        # for the cost breakdown only.
+                        slippage_cost = realized_slippage(
+                            ev.side, ev.price, fill_price, ev.quantity
+                        )
+
                         # 7. Emit executed event. reduce_only + close_position_id are
                         # echoed so the pnl close consumer can correlate the fill to
                         # the position being closed.
@@ -508,6 +517,7 @@ class OrderExecutor:
                             reduce_only=ev.reduce_only,
                             close_position_id=ev.close_position_id,
                             close_reason=ev.close_reason,
+                            slippage_cost=slippage_cost,
                             timestamp_us=int(
                                 datetime.now(timezone.utc).timestamp() * 1000000
                             ),

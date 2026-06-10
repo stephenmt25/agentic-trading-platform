@@ -14,6 +14,19 @@ from typing import Optional
 
 from libs.core.correlation import cluster_for
 
+
+def realized_slippage(
+    side, intended_price: Decimal, fill_price: Decimal, qty: Decimal
+) -> Decimal:
+    """Adverse fill-vs-intended cost (PR5), signed so positive = cost. A SELL that
+    fills BELOW the intended price, or a BUY that fills ABOVE it, is adverse.
+    `side` may be an OrderSide enum or a string."""
+    is_sell = str(getattr(side, "value", side)).upper() == "SELL"
+    if is_sell:
+        return (intended_price - fill_price) * qty
+    return (fill_price - intended_price) * qty
+
+
 # Redis key the risk-service aggregator writes and the hot-path gate reads.
 SNAPSHOT_KEY = "risk:portfolio:snapshot"
 _ZERO = Decimal("0")

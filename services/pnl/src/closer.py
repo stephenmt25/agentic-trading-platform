@@ -72,6 +72,7 @@ class PositionCloser:
         exit_price: Decimal,
         taker_rate: Decimal,
         close_reason: str = "stop_loss",
+        slippage_cost: Decimal = _ZERO,
     ):
         """Finalise an in-flight close on confirmed exchange fill (PR1).
 
@@ -79,13 +80,16 @@ class PositionCloser:
         finalised (a duplicate fill event), this is a no-op and returns None so
         the daily-PnL counter and agent EWMA — neither protected by the
         closed_trades ON CONFLICT guard — run exactly once. `exit_price` is the
-        authoritative exchange fill price, not the trigger mark.
+        authoritative exchange fill price, not the trigger mark. `slippage_cost`
+        (PR5) is the adverse fill-vs-intended cost, recorded for attribution.
         """
         won = await self._position_repo.finalize_close(position.position_id, exit_price)
         if not won:
             logger.info("close_finalize_noop", position_id=str(position.position_id))
             return None
-        return await self._record_close(position, exit_price, taker_rate, close_reason)
+        return await self._record_close(
+            position, exit_price, taker_rate, close_reason, slippage_cost
+        )
 
     async def _record_close(
         self,
@@ -93,6 +97,7 @@ class PositionCloser:
         exit_price: Decimal,
         taker_rate: Decimal,
         close_reason: str,
+        slippage_cost: Decimal = _ZERO,
     ):
         """Steps 2-7 of a close: PnL, outcome, audit row, daily-PnL bump, agent
         outcome tagging, snapshot cleanup. Assumes the positions row has already
@@ -131,6 +136,7 @@ class PositionCloser:
             agent_scores=agent_scores,
             entry_regime=entry_regime,
             outcome=outcome,
+            slippage_cost=slippage_cost,
         )
 
         # 6a. Increment the daily realised P&L counter for the profile.
@@ -270,6 +276,7 @@ class PositionCloser:
         agent_scores: Optional[dict],
         entry_regime: Optional[str],
         outcome: str,
+        slippage_cost: Decimal = _ZERO,
     ) -> None:
         """Append-only write to closed_trades. Logs on failure; never raises."""
         if self._closed_trade_repo is None:
@@ -318,6 +325,8 @@ class PositionCloser:
                 realized_pnl=snapshot.net_pre_tax,
                 realized_pnl_pct=realized_pnl_pct,
                 outcome=outcome,
+                slippage_cost=slippage_cost,
+                funding_cost=_ZERO,  # spot has no funding (PR5 placeholder)
             )
         except Exception:
             logger.exception(

@@ -152,6 +152,9 @@ class OrderExecutedEvent(BaseEvent):
     reduce_only: bool = False
     close_position_id: Optional[UUID] = None
     close_reason: Optional[str] = None
+    # PR5: adverse fill-vs-intended cost on this fill (signed; positive = cost).
+    # Already reflected in realized_pnl via fill_price — carried for attribution.
+    slippage_cost: Optional[Price] = None
 
 
 class ValidationRequestEvent(BaseEvent):

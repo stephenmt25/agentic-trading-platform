@@ -141,6 +141,7 @@ class ExecutedEventConsumer:
             exit_price=ev.fill_price,  # authoritative exchange fill price
             taker_rate=_DEFAULT_TAKER_RATE,
             close_reason=close_reason,
+            slippage_cost=ev.slippage_cost or Decimal("0"),  # PR5 attribution
         )
         if snapshot is None:
             return  # duplicate fill — already finalised by an earlier delivery
