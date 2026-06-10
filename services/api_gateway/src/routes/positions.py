@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ..deps import (
     get_closed_trade_repo,
@@ -18,6 +18,7 @@ from libs.config import settings
 from libs.core.enums import OrderSide, PositionStatus
 from libs.core.models import Position
 from libs.core.notional import profile_notional
+from libs.messaging import StreamPublisher
 from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.position_repo import PositionRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
@@ -218,23 +219,26 @@ async def _latest_mark_price(
 @router.post("/{position_id}/close")
 async def close_position(
     position_id: str,
+    response: Response,
     user_id: str = Depends(get_current_user),
     repo: PositionRepository = Depends(get_position_repo),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
     closed_trade_repo: ClosedTradeRepository = Depends(get_closed_trade_repo),
     redis: RedisClient = Depends(get_redis),
 ):
-    """Manually close an OPEN position at the latest mark price.
+    """Manually close an OPEN position.
 
-    Behaviour matches the existing exit_monitor close path: marks the
-    position CLOSED in DB, computes final PnL, writes a closed_trades audit
-    row tagged with `close_reason='manual'`, and updates agent EWMA weights.
+    Default path (PRAXIS_EXCHANGE_CLOSE_ENABLED): routes the close through the
+    execution OMS as a reduce-only order — the same path stop-loss/take-profit/
+    time exits now use. The position transitions OPEN -> PENDING_CLOSE and a
+    reduce-only order is published to stream:orders; the DB close (CLOSED,
+    closed_trades audit, agent EWMA) is finalised asynchronously by the pnl
+    close consumer on fill confirmation, using the real exchange fill price.
+    Returns HTTP 202 with close_status='pending' and the close order id; poll
+    the position / recently-closed list to observe completion.
 
-    Caveat: this does NOT submit a closing order to the exchange — same
-    limitation as stop_loss/take_profit/exit_monitor today. In paper/sim
-    mode this is the correct behaviour; in live mode the real position on
-    the exchange remains open and must be flattened separately. Tracked as
-    pre-existing tech debt outside this endpoint's scope.
+    Fallback path (flag off): the legacy synchronous DB-only close (does not
+    reach the exchange) — retained only as an emergency rollback.
     """
     try:
         pid = UUID(position_id)
@@ -287,6 +291,43 @@ async def close_position(
         exchange_name = ref.split(":", 1)[0].upper()
     taker_rate = _TAKER_RATES.get(exchange_name, _DEFAULT_TAKER_RATE)
 
+    trading_mode = "PAPER" if settings.PAPER_TRADING_MODE else (
+        "TESTNET" if (settings.BINANCE_TESTNET or settings.COINBASE_SANDBOX) else "LIVE"
+    )
+
+    # Default: route the close through the OMS as a reduce-only order. The DB
+    # close is finalised asynchronously on fill confirmation by the pnl close
+    # consumer (services/pnl/src/executed_consumer.py), at the real fill price.
+    if settings.EXCHANGE_CLOSE_ENABLED:
+        # Import here to avoid module-load coupling between api_gateway and pnl
+        # service code paths during cold start.
+        from services.pnl.src.close_requester import PositionCloseRequester
+
+        requester = PositionCloseRequester(repo, StreamPublisher(redis))
+        close_order_id = await requester.request_close(pos, mark_price, close_reason="manual")
+        if close_order_id is None:
+            # Lost the OPEN->PENDING_CLOSE CAS — another path already owns the close.
+            raise HTTPException(
+                status_code=409, detail=f"Position {pid} is already closing or closed"
+            )
+
+        response.status_code = 202
+        return {
+            "status": "closing",
+            "close_status": "pending",
+            "position_id": str(pid),
+            "close_order_id": str(close_order_id),
+            "symbol": row["symbol"],
+            "side": side.value,
+            "entry_price": str(entry_price),
+            "estimated_exit_price": str(mark_price),
+            "mark_price_was_fresh": fresh,
+            "quantity": str(quantity),
+            "trading_mode": trading_mode,
+        }
+
+    # Fallback (PRAXIS_EXCHANGE_CLOSE_ENABLED off): legacy synchronous DB-only
+    # close — does NOT reach the exchange. Retained only as an emergency rollback.
     # Import here to avoid module-load coupling between api_gateway and pnl
     # service code paths during cold start.
     from services.pnl.src.closer import PositionCloser
@@ -316,7 +357,5 @@ async def close_position(
         "net_pnl_pre_tax": str(snapshot.net_pre_tax),
         "pct_return": float(snapshot.pct_return),
         "closed_at": datetime.now(timezone.utc).isoformat(),
-        "trading_mode": "PAPER" if settings.PAPER_TRADING_MODE else (
-            "TESTNET" if (settings.BINANCE_TESTNET or settings.COINBASE_SANDBOX) else "LIVE"
-        ),
+        "trading_mode": trading_mode,
     }

@@ -1,6 +1,6 @@
 import uuid
 from decimal import Decimal
-from typing import Callable, Coroutine, List, Any
+from typing import Callable, Coroutine, List, Any, Optional
 
 from ._base import ExchangeAdapter, OrderResult
 from libs.core.types import ProfileId, SymbolPair, Quantity, Price
@@ -49,8 +49,13 @@ class PaperTradingAdapter(ExchangeAdapter):
         side: OrderSide,
         qty: Quantity,
         price: Price,
+        reduce_only: bool = False,
     ) -> OrderResult:
-        # Apply directional slippage: BUY fills slightly higher, SELL slightly lower
+        # Apply directional slippage: BUY fills slightly higher, SELL slightly
+        # lower. A reduce-only close uses the OPPOSITE side of the open (SELL to
+        # close a long, BUY to close a short), so the same directional model
+        # gives a realistic simulated exit fill — which is exactly what makes
+        # paper fidelity honest (the recorded exit is a fill, not the raw mark).
         if side == OrderSide.BUY:
             fill_price = price * (Decimal("1") + self._slippage_pct)
         else:
@@ -71,6 +76,7 @@ class PaperTradingAdapter(ExchangeAdapter):
             price=str(price),
             fill_price=str(fill_price),
             slippage_pct=str(self._slippage_pct),
+            reduce_only=reduce_only,
         )
 
         return OrderResult(
@@ -79,6 +85,26 @@ class PaperTradingAdapter(ExchangeAdapter):
             fill_price=fill_price,
             filled_quantity=qty,
         )
+
+    async def place_protective_order(
+        self,
+        profile_id: ProfileId,
+        symbol: SymbolPair,
+        side: OrderSide,
+        qty: Quantity,
+        stop_price: Price,
+    ) -> Optional[OrderResult]:
+        # Paper mode keeps no exchange-resident order — the software stop
+        # (ExitMonitor) provides the simulated protection. Record intent so the
+        # gated-on path is observable in logs without hitting any API.
+        logger.info(
+            "paper_protective_stop_noop",
+            symbol=symbol,
+            side=side.value,
+            qty=str(qty),
+            stop_price=str(stop_price),
+        )
+        return None
 
     async def get_balance(self, profile_id: ProfileId) -> Any:
         # Paper balances are tracked in the positions/PnL tables, not here

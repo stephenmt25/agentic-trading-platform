@@ -75,9 +75,34 @@ class ExchangeAdapter(ABC):
         raise NotImplementedError(f"{self.name} does not implement stream_trades")
 
     @abstractmethod
-    async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price) -> OrderResult:
-        """Places an order on the exchange."""
+    async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price, reduce_only: bool = False) -> OrderResult:
+        """Places an order on the exchange.
+
+        reduce_only=True marks a position-flattening (close) order. On venues
+        that support it (futures/margin) the flag is passed through so a close
+        can never accidentally open or flip a position. On spot — this engine
+        today — the venue ignores it and reduce-only is enforced by the caller
+        sending exactly the open position quantity.
+        """
         pass
+
+    async def place_protective_order(
+        self,
+        profile_id: ProfileId,
+        symbol: SymbolPair,
+        side: OrderSide,
+        qty: Quantity,
+        stop_price: Price,
+    ) -> Optional[OrderResult]:
+        """Place a reduce-only protective STOP that flattens the position if the
+        market crosses stop_price — exchange-resident tail protection that
+        survives a process crash (defense-in-depth, see DECISIONS.md 2026-06-10).
+
+        `side` is the CLOSING side (SELL for a long, BUY for a short). Default is
+        a no-op (returns None) so adapters/venues without stop support are safe;
+        placement is gated behind PRAXIS_PROTECTIVE_STOP_ENABLED (default off).
+        """
+        return None
 
     @abstractmethod
     async def get_balance(self, profile_id: ProfileId) -> Any:

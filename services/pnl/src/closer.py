@@ -51,12 +51,40 @@ class PositionCloser:
         self._notional_cache: dict[str, Decimal] = {}
 
     async def close(self, position: Position, exit_price: Decimal, taker_rate: Decimal, close_reason: str = "stop_loss"):
-        """Close a position, persist the closed_trades audit row, and tag agent outcomes."""
-        # Single timestamp for both the DB close and the closed_trades row
-        closed_at = datetime.now(timezone.utc)
-
-        # 1. Close in DB
+        """Legacy synchronous close: mark the DB row CLOSED unconditionally, then
+        record PnL/audit/outcomes. This is the fallback path used when
+        PRAXIS_EXCHANGE_CLOSE_ENABLED is off — it does NOT reach the exchange
+        (the "phantom close"). The real-exchange-close path uses finalize_close().
+        """
+        # 1. Close in DB (unguarded legacy transition)
         await self._position_repo.close_position(position.position_id, exit_price)
+        return await self._record_close(position, exit_price, taker_rate, close_reason)
+
+    async def finalize_close(
+        self, position: Position, exit_price: Decimal, taker_rate: Decimal, close_reason: str = "stop_loss"
+    ):
+        """Finalise an in-flight close on confirmed exchange fill (PR1).
+
+        CAS-transitions PENDING_CLOSE -> CLOSED first; if the row was already
+        finalised (a duplicate fill event), this is a no-op and returns None so
+        the daily-PnL counter and agent EWMA — neither protected by the
+        closed_trades ON CONFLICT guard — run exactly once. `exit_price` is the
+        authoritative exchange fill price, not the trigger mark.
+        """
+        won = await self._position_repo.finalize_close(position.position_id, exit_price)
+        if not won:
+            logger.info("close_finalize_noop", position_id=str(position.position_id))
+            return None
+        return await self._record_close(position, exit_price, taker_rate, close_reason)
+
+    async def _record_close(
+        self, position: Position, exit_price: Decimal, taker_rate: Decimal, close_reason: str
+    ):
+        """Steps 2-7 of a close: PnL, outcome, audit row, daily-PnL bump, agent
+        outcome tagging, snapshot cleanup. Assumes the positions row has already
+        been transitioned to CLOSED by the caller (close() or finalize_close())."""
+        # Single timestamp for the closed_trades row + daily-PnL date tag
+        closed_at = datetime.now(timezone.utc)
 
         # 2. Compute final PnL
         snapshot = PnLCalculator.calculate(

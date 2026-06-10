@@ -52,6 +52,8 @@ class Order:
     filled_at: Optional[datetime] = None
     fill_price: Optional[Price] = None
     decision_event_id: Optional[UUID] = None
+    # PR1: reduce-only close order (flattens an existing position).
+    reduce_only: bool = False
 
 @dataclass(frozen=True)
 class RiskLimits:
@@ -88,3 +90,8 @@ class Position:
     exit_price: Optional[Price] = None
     order_id: Optional[UUID] = None
     decision_event_id: Optional[UUID] = None
+    # PR1 (real exchange close): the reduce-only order that closes/closed this
+    # position (our UUID), and an optional exchange-resident protective stop
+    # placed at open (the venue's order-id string, hence str not UUID).
+    close_order_id: Optional[UUID] = None
+    protective_order_id: Optional[str] = None

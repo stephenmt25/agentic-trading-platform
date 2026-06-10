@@ -4,9 +4,10 @@ import time
 import uuid
 from decimal import Decimal
 from datetime import datetime, timezone
-from libs.core.schemas import OrderApprovedEvent, OrderExecutedEvent, OrderRejectedEvent, BaseEvent, AgentScorePayload
+from typing import Optional
+from libs.core.schemas import OrderApprovedEvent, OrderExecutedEvent, OrderRejectedEvent, BaseEvent, AgentScorePayload, RiskLimitsPayload
 from libs.core.models import Order, Position
-from libs.core.enums import OrderStatus, PositionStatus
+from libs.core.enums import OrderSide, OrderStatus, PositionStatus
 from libs.core.secrets import SecretManager
 from libs.exchange import get_adapter
 from libs.messaging import StreamPublisher, StreamConsumer
@@ -159,6 +160,61 @@ class OrderExecutor:
         except Exception as e:
             logger.warning("Failed to record agent scores", error=str(e), symbol=symbol)
 
+    async def _protective_stop_pct(self, profile_id: str) -> Optional[Decimal]:
+        """Read the profile's configured stop_loss_pct (Decimal) for the
+        protective stop. Returns None when unavailable / not explicitly set."""
+        if self._profile_repo is None:
+            return None
+        try:
+            profile = await self._profile_repo.get_profile(profile_id)
+            if not profile:
+                return None
+            raw = profile.get("risk_limits", "{}")
+            if isinstance(raw, str):
+                raw = json.loads(raw) if raw else {}
+            if not isinstance(raw, dict) or "stop_loss_pct" not in raw:
+                return None
+            rl = RiskLimitsPayload.model_validate(raw)
+            return Decimal(str(rl.stop_loss_pct)) if rl.stop_loss_pct else None
+        except Exception as e:
+            logger.warning("protective_stop_pct_lookup_failed", error=str(e), profile_id=profile_id)
+            return None
+
+    async def _maybe_place_protective_stop(
+        self, adapter, position: Position, fill_price: Decimal, exchange_name: str
+    ):
+        """Best-effort exchange-resident reduce-only stop placed at open. Any
+        failure is logged and swallowed — the software stop (ExitMonitor) remains
+        the primary protection, so this must never roll back or block an open.
+        Gated by the caller on settings.PROTECTIVE_STOP_ENABLED."""
+        try:
+            stop_pct = await self._protective_stop_pct(str(position.profile_id))
+            if stop_pct is None or stop_pct <= Decimal("0"):
+                return
+            # Closing side is opposite the position; stop sits beyond entry on
+            # the loss side (below for a long, above for a short).
+            if position.side == OrderSide.BUY:
+                close_side = OrderSide.SELL
+                stop_price = fill_price * (Decimal("1") - stop_pct)
+            else:
+                close_side = OrderSide.BUY
+                stop_price = fill_price * (Decimal("1") + stop_pct)
+            res = await adapter.place_protective_order(
+                position.profile_id, position.symbol, close_side, position.quantity, stop_price
+            )
+            if res is not None and getattr(res, "order_id", None):
+                await self._position_repo.set_protective_order_id(
+                    position.position_id, str(res.order_id)
+                )
+                logger.info(
+                    "protective_stop_placed",
+                    position_id=str(position.position_id),
+                    stop_price=str(stop_price),
+                    order_id=str(res.order_id),
+                )
+        except Exception as e:
+            logger.warning("protective_stop_failed", error=str(e), symbol=position.symbol)
+
     def __post_init_supervisor__(self):
         # Updated every consume cycle. main.py's stall watchdog reads this to
         # detect a hung consume loop (a stuck await stops it advancing).
@@ -218,7 +274,10 @@ class OrderExecutor:
                     )
                     continue
 
-                if not settings.TRADING_ENABLED:
+                # A reduce-only CLOSE is exempt from the trading-enabled gate: a
+                # close reduces risk and must never be blocked from flattening a
+                # live position. Only opening orders are gated.
+                if not settings.TRADING_ENABLED and not ev.reduce_only:
                     logger.warning("TRADING_ENABLED=false, rejecting order", profile_id=str(ev.profile_id), symbol=ev.symbol)
                     fail_ev = OrderRejectedEvent(
                         profile_id=ev.profile_id,
@@ -254,6 +313,7 @@ class OrderExecutor:
                     exchange=exchange_name,
                     created_at=datetime.now(timezone.utc),
                     decision_event_id=ev.decision_event_id,
+                    reduce_only=ev.reduce_only,
                 )
 
                 await self._order_repo.create_order(order)
@@ -275,45 +335,71 @@ class OrderExecutor:
                     )
 
                 try:
-                    # 4. Execute on exchange
-                    res = await adapter.place_order(ev.profile_id, ev.symbol, ev.side, ev.quantity, ev.price)
+                    # 4. Execute on exchange. reduce_only flags a position-close
+                    # (flatten) order — see OrderApprovedEvent / PositionCloseRequester.
+                    res = await adapter.place_order(
+                        ev.profile_id, ev.symbol, ev.side, ev.quantity, ev.price,
+                        reduce_only=ev.reduce_only,
+                    )
 
                     if res.status == OrderStatus.SUBMITTED or res.status == OrderStatus.CONFIRMED:
                         fill_price = res.fill_price if res.fill_price else ev.price
 
-                        # 5. Confirm in ledger — check result
-                        confirmed = await self._ledger.confirm(
-                            order_id, fill_price=fill_price,
-                            profile_id=str(ev.profile_id), quantity=ev.quantity
-                        )
+                        # 5. Confirm in ledger — check result. For a reduce-only
+                        # CLOSE we deliberately skip the allocation increment (no
+                        # profile_id/quantity passed): a close REDUCES exposure, so
+                        # adding its quantity to allocated_qty would be wrong.
+                        # (Decrement-on-close is a separate follow-up.)
+                        if ev.reduce_only:
+                            confirmed = await self._ledger.confirm(order_id, fill_price=fill_price)
+                        else:
+                            confirmed = await self._ledger.confirm(
+                                order_id, fill_price=fill_price,
+                                profile_id=str(ev.profile_id), quantity=ev.quantity
+                            )
                         if not confirmed:
                             logger.error("Ledger confirm failed after exchange success", order_id=str(order_id))
                             await self._ledger.rollback(order_id, reason="Ledger confirm failed post-exchange")
                             raise ValueError("Ledger confirmation failed after exchange accepted order")
 
-                        # 6. Create Position immediately after Confirmation
-                        pos_id = uuid.uuid4()
-                        entry_fee = fee_rate * ev.quantity * fill_price
-                        pos = Position(
-                            position_id=pos_id,
-                            profile_id=ev.profile_id,
-                            symbol=ev.symbol,
-                            side=ev.side,
-                            entry_price=fill_price,
-                            quantity=ev.quantity,
-                            entry_fee=entry_fee,
-                            opened_at=datetime.now(timezone.utc),
-                            status=PositionStatus.OPEN,
-                            order_id=order_id,
-                            decision_event_id=ev.decision_event_id,
-                        )
-                        await self._position_repo.create_position(pos)
+                        if not ev.reduce_only:
+                            # 6. OPEN: create the Position immediately after
+                            # confirmation and snapshot agent scores (unchanged).
+                            pos_id = uuid.uuid4()
+                            entry_fee = fee_rate * ev.quantity * fill_price
+                            pos = Position(
+                                position_id=pos_id,
+                                profile_id=ev.profile_id,
+                                symbol=ev.symbol,
+                                side=ev.side,
+                                entry_price=fill_price,
+                                quantity=ev.quantity,
+                                entry_fee=entry_fee,
+                                opened_at=datetime.now(timezone.utc),
+                                status=PositionStatus.OPEN,
+                                order_id=order_id,
+                                decision_event_id=ev.decision_event_id,
+                            )
+                            await self._position_repo.create_position(pos)
 
-                        # 6b. Snapshot agent scores at time of execution for weight feedback
-                        if self._redis_client:
-                            await self._record_agent_scores(ev.symbol, str(pos_id), ev.side)
+                            # 6b. Snapshot agent scores at execution for weight feedback
+                            if self._redis_client:
+                                await self._record_agent_scores(ev.symbol, str(pos_id), ev.side)
 
-                        # 7. Emit executed event
+                            # 6c. Optional exchange-resident protective stop
+                            # (defense-in-depth; default off). Best-effort — a
+                            # failure here must never affect the open.
+                            if settings.PROTECTIVE_STOP_ENABLED:
+                                await self._maybe_place_protective_stop(
+                                    adapter, pos, fill_price, exchange_name
+                                )
+                        # else CLOSE: do NOT create a Position row — the pnl close
+                        # consumer finalises the DB close on the executed event below,
+                        # using the real exchange fill_price as the exit price.
+
+                        # 7. Emit executed event. reduce_only + close_position_id are
+                        # echoed so the pnl close consumer can correlate the fill to
+                        # the position being closed.
                         executed_ev = OrderExecutedEvent(
                             order_id=order_id,
                             profile_id=ev.profile_id,
@@ -321,6 +407,9 @@ class OrderExecutor:
                             side=ev.side,
                             fill_price=fill_price,
                             quantity=ev.quantity,
+                            reduce_only=ev.reduce_only,
+                            close_position_id=ev.close_position_id,
+                            close_reason=ev.close_reason,
                             timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
                             source_service="execution"
                         )
@@ -351,6 +440,9 @@ class OrderExecutor:
                         profile_id=ev.profile_id,
                         symbol=ev.symbol,
                         reason=f"Execution Failed: {e}",
+                        order_id=order_id,
+                        reduce_only=ev.reduce_only,
+                        close_position_id=ev.close_position_id,
                         timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
                         source_service="execution"
                     )

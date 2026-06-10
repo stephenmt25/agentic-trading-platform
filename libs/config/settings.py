@@ -22,6 +22,17 @@ class Settings(BaseSettings):
     PAPER_TRADING_MODE: bool = Field(default=False)
     LOG_LEVEL: str = Field(default="INFO")
 
+    # PR1 (real exchange close). When True (default) position closes route
+    # through the execution OMS as a reduce-only order and the DB close is
+    # finalised on fill confirmation (the real fill price is authoritative).
+    # Flip to False as an emergency rollback to the legacy synchronous DB-only
+    # close (which re-opens the phantom-close gap) without a code revert.
+    EXCHANGE_CLOSE_ENABLED: bool = Field(default=True)
+    # Optional exchange-resident reduce-only stop placed at position open
+    # (defense-in-depth that survives a process crash — see DECISIONS.md
+    # 2026-06-10 flatten-authority). Off until validated on testnet.
+    PROTECTIVE_STOP_ENABLED: bool = Field(default=False)
+
     FAST_GATE_TIMEOUT_MS: int = Field(default=50)
     CIRCUIT_BREAKER_DAILY_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
 

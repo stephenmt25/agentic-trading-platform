@@ -68,6 +68,12 @@ class SignalDirection(str, Enum):
 
 class PositionStatus(str, Enum):
     OPEN = "OPEN"
+    # In-flight close: a reduce-only close order has been published to the
+    # exchange and we are awaiting its fill. The position is removed from
+    # exit monitoring while in this state so it is not re-closed every tick.
+    # Set by PositionCloseRequester (CAS from OPEN); cleared to CLOSED on fill
+    # confirmation or reverted to OPEN on close-order rejection.
+    PENDING_CLOSE = "PENDING_CLOSE"
     CLOSED = "CLOSED"
 
 class HITLStatus(str, Enum):

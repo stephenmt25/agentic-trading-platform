@@ -49,9 +49,18 @@ class ExitMonitor:
         closed, reason = await monitor.check(position, snapshot, current_price, taker_rate)
     """
 
-    def __init__(self, closer: PositionCloser, profile_repo: ProfileRepository):
+    def __init__(
+        self,
+        closer: PositionCloser,
+        profile_repo: ProfileRepository,
+        close_requester=None,
+    ):
         self._closer = closer
         self._profile_repo = profile_repo
+        # When set (and PRAXIS_EXCHANGE_CLOSE_ENABLED), exits route through the
+        # execution OMS as a reduce-only order instead of the legacy DB-only
+        # close. Optional so older call sites / tests keep working.
+        self._close_requester = close_requester
         self._cache: dict[str, _ProfileExitThresholds] = {}
 
     # ------------------------------------------------------------------
@@ -172,6 +181,18 @@ class ExitMonitor:
             **{k: v for k, v in detail.items()},
         )
         try:
+            if self._close_requester is not None and settings.EXCHANGE_CLOSE_ENABLED:
+                # Real exchange close: publish a reduce-only order and mark the
+                # position PENDING_CLOSE. Whether we won the CAS or another path
+                # already owns the close, this position is leaving OPEN — return
+                # closed=True so the tick handler stops monitoring it. The DB
+                # close is finalised later on fill confirmation.
+                await self._close_requester.request_close(
+                    position, current_price, close_reason=reason
+                )
+                return True, reason
+
+            # Legacy synchronous DB-only fallback (PRAXIS_EXCHANGE_CLOSE_ENABLED off).
             await self._closer.close(
                 position=position,
                 exit_price=current_price,

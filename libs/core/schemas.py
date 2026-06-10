@@ -98,12 +98,28 @@ class OrderApprovedEvent(BaseEvent):
     # the executor consumes the event. Strategy/validation publishers leave
     # it None and the executor mints one (uuid.uuid4) as before.
     order_id: Optional[UUID] = None
+    # PR1 (real exchange close): when True this order FLATTENS an existing
+    # position (reduce-only) rather than opening one. close_position_id links
+    # the resulting fill back to the position being closed. A close is published
+    # straight to stream:orders by the PositionCloseRequester/api_gateway,
+    # bypassing the hot_path gate chain — a same-symbol order would otherwise be
+    # blocked by ReentryGate. Defaults keep every existing open path unchanged.
+    reduce_only: bool = False
+    close_position_id: Optional[UUID] = None
+    # Carried through so the close's audit row keeps the trigger distinction
+    # (stop_loss / take_profit / time_exit / manual). None for opening orders.
+    close_reason: Optional[str] = None
 
 class OrderRejectedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_REJECTED] = EventType.ORDER_REJECTED
     profile_id: ProfileId
     symbol: SymbolPair
     reason: str
+    # Echoed for the close path so the requester can correlate a rejected
+    # reduce-only order back to the position and revert PENDING_CLOSE -> OPEN.
+    order_id: Optional[UUID] = None
+    reduce_only: bool = False
+    close_position_id: Optional[UUID] = None
 
 class OrderExecutedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_EXECUTED] = EventType.ORDER_EXECUTED
@@ -113,6 +129,11 @@ class OrderExecutedEvent(BaseEvent):
     side: OrderSide
     fill_price: Price
     quantity: Quantity
+    # PR1: set when this fill CLOSED a position. The pnl close consumer
+    # finalises the DB close using fill_price as the authoritative exit price.
+    reduce_only: bool = False
+    close_position_id: Optional[UUID] = None
+    close_reason: Optional[str] = None
 
 class ValidationRequestEvent(BaseEvent):
     event_type: Literal[EventType.VALIDATION_PROCEED, EventType.VALIDATION_BLOCK] = EventType.VALIDATION_PROCEED

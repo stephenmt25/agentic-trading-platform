@@ -1,6 +1,6 @@
 import asyncio
 from decimal import Decimal
-from typing import Callable, Coroutine, Dict, List, Any
+from typing import Callable, Coroutine, Dict, List, Any, Optional
 import ccxt.pro as ccxt
 import time
 from ._base import ExchangeAdapter, NormalisedOrderBook, NormalisedTrade, OrderResult
@@ -234,19 +234,40 @@ class BinanceAdapter(ExchangeAdapter):
 
         await asyncio.gather(*(_watch_one(s) for s in symbols))
 
-    async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price) -> OrderResult:
+    async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price, reduce_only: bool = False) -> OrderResult:
         # CCXT requires float — convert at the exchange boundary only
+        params: Dict[str, Any] = {}
+        if reduce_only:
+            # Honoured on futures/margin so a close can't flip the position.
+            # Binance SPOT ignores reduceOnly — there we rely on sending exactly
+            # the open position quantity to guarantee a pure reduce.
+            params["reduceOnly"] = True
         res = await self.exchange.create_order(
             symbol=symbol,
             type='limit',
             side=side.name.lower(),
             amount=float(qty),  # float-ok: ccxt api requires float
             price=float(price),  # float-ok: ccxt api requires float
+            params=params,
         )
         return OrderResult(
             order_id=res['id'],
             status=OrderStatus.SUBMITTED # Mapping CCXT 'open' to SUBMITTED
         )
+
+    async def place_protective_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, stop_price: Price) -> Optional[OrderResult]:
+        # Best-effort reduce-only stop. Exact stop order type differs by venue
+        # and spot-vs-futures; this uses ccxt's unified stop params and is
+        # pending testnet validation (PRAXIS_PROTECTIVE_STOP_ENABLED off by
+        # default). float() is the ccxt boundary convention.
+        res = await self.exchange.create_order(
+            symbol=symbol,
+            type='market',
+            side=side.name.lower(),
+            amount=float(qty),  # float-ok: ccxt api requires float
+            params={'stopPrice': float(stop_price), 'reduceOnly': True},  # float-ok: ccxt boundary
+        )
+        return OrderResult(order_id=res['id'], status=OrderStatus.SUBMITTED)
 
     async def get_balance(self, profile_id: ProfileId) -> Any:
         return await self.exchange.fetch_balance()
