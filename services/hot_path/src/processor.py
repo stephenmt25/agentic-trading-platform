@@ -9,6 +9,11 @@ from libs.config import settings
 from libs.core.constants import THRESHOLD_PROXIMITY_BAND_PCT
 from libs.core.enums import SignalDirection, ValidationCheck, ValidationVerdict
 from libs.core.models import NormalisedTick
+from libs.core.portfolio import (
+    SNAPSHOT_KEY as PORTFOLIO_SNAPSHOT_KEY,
+    PortfolioExposure,
+    check_order_against_budget,
+)
 from libs.core.schemas import (
     MarketTickEvent,
     OrderApprovedEvent,
@@ -524,6 +529,49 @@ class HotPathProcessor:
                                 ),
                                 "drawdown_pct": str(profile_state.current_drawdown_pct),
                             }
+
+                        # 6a2. Portfolio gross-exposure + correlation-cluster gate
+                        # (PR4). Cross-profile cap read from the risk-service
+                        # snapshot (single GET). Fails OPEN if the snapshot is
+                        # missing/stale — the per-profile risk_gate still bounds
+                        # each profile, and halting all trading on an aggregator
+                        # hiccup would be worse; missing snapshots are logged.
+                        order_value = risk_result.suggested_quantity * tick.price
+                        if self._redis and order_value > Decimal("0"):
+                            portfolio_breach = None
+                            try:
+                                exposure = PortfolioExposure.from_json(
+                                    await self._redis.get(PORTFOLIO_SNAPSHOT_KEY)
+                                )
+                                portfolio_breach = check_order_against_budget(
+                                    exposure,
+                                    tick.symbol,
+                                    order_value,
+                                    settings.CORRELATION_CLUSTERS,
+                                    settings.PORTFOLIO_GROSS_BUDGET_USD,
+                                    settings.CORRELATION_CLUSTER_CAP_PCT,
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    "portfolio_gate_read_failed", error=str(e)
+                                )
+                            if portfolio_breach:
+                                logger.info(
+                                    "gate_block",
+                                    gate="portfolio",
+                                    symbol=tick.symbol,
+                                    reason=portfolio_breach,
+                                )
+                                if self._decision_writer:
+                                    trace["outcome"] = "BLOCKED_PORTFOLIO"
+                                    trace["gates"]["portfolio"] = {
+                                        "passed": False,
+                                        "reason": portfolio_breach,
+                                    }
+                                    await self._decision_writer.write(trace)
+                                continue
+                            if trace:
+                                trace["gates"]["portfolio"] = {"passed": True}
 
                         # 6b. HITL Gate (between risk_gate and validation)
                         if self._hitl_gate:

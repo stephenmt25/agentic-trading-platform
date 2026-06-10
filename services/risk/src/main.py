@@ -1,3 +1,4 @@
+import asyncio
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -7,9 +8,11 @@ from libs.config import settings
 from libs.core.schemas import RiskCheckResponse
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
-from libs.storage import RedisClient, TimescaleClient
+from libs.storage import PositionRepository, RedisClient, TimescaleClient
+from libs.storage.repositories import ProfileRepository
 
 from . import RiskService
+from .portfolio import PortfolioRiskAggregator
 
 logger = get_logger("risk")
 
@@ -25,11 +28,23 @@ async def lifespan(app: FastAPI):
     timescale_client = TimescaleClient(settings.DATABASE_URL)
     await timescale_client.init_pool()
 
+    # Use real repositories — previously the raw TimescaleClient was passed as
+    # both repos, so get_profile/get_open_positions raised AttributeError (caught
+    # + logged), silently skipping the profile-allocation and concentration
+    # checks. Fixed here so those checks — and the PR4 portfolio check — run.
+    position_repo = PositionRepository(timescale_client)
+    profile_repo = ProfileRepository(timescale_client)
+
     _risk_service = RiskService(
-        profile_repo=timescale_client,
-        position_repo=timescale_client,
+        profile_repo=profile_repo,
+        position_repo=position_repo,
         redis_client=redis_conn,
     )
+
+    # PR4: portfolio-exposure aggregator — snapshots cross-profile gross + per-
+    # cluster exposure to Redis for the hot-path gate to read.
+    aggregator = PortfolioRiskAggregator(position_repo, redis_conn)
+    aggregator_task = asyncio.create_task(aggregator.run_loop())
 
     _telemetry = TelemetryPublisher(redis_conn, "risk", "risk")
     await _telemetry.start_health_loop()
@@ -38,6 +53,8 @@ async def lifespan(app: FastAPI):
 
     yield
 
+    aggregator_task.cancel()
+    await asyncio.gather(aggregator_task, return_exceptions=True)
     await _telemetry.stop()
     await timescale_client.close()
     logger.info("Risk Service shutdown gracefully")

@@ -100,6 +100,57 @@ class HaltController:
             n = await self.flatten_all_open()
             if n:
                 await self._alert(f"HALT FLATTEN — {n} position(s) close-requested")
+        elif effective == HaltLevel.NEUTRALIZE:
+            n = await self.neutralize_to_target()
+            if n:
+                await self._alert(
+                    f"HALT NEUTRALIZE — trimmed {n} position(s) toward gross target"
+                )
+
+    async def neutralize_to_target(self) -> int:
+        """Reduce-only trims (PR4) to bring total gross exposure under
+        NEUTRALIZE_GROSS_TARGET_PCT of the portfolio budget. Closes the largest-
+        notional positions first (fastest gross reduction per close) until the
+        projected gross is under target. Idempotent via the begin_close CAS.
+        Returns the number of close orders published. (Worst-PnL / correlation-
+        aware ordering is a refinement.)"""
+        target = Decimal(str(settings.NEUTRALIZE_GROSS_TARGET_PCT)) * Decimal(
+            str(settings.PORTFOLIO_GROSS_BUDGET_USD)
+        )
+        rows = await self._position_repo.get_open_positions()
+        items = []
+        gross = Decimal("0")
+        for row in rows:
+            d = dict(row) if not isinstance(row, dict) else row
+            try:
+                notional = Decimal(str(d.get("quantity", 0))) * Decimal(
+                    str(d.get("entry_price", 0))
+                )
+            except Exception:
+                continue
+            gross += notional
+            items.append((notional, d))
+
+        if gross <= target:
+            return 0
+
+        items.sort(key=lambda x: x[0], reverse=True)  # largest notional first
+        projected = gross
+        closed = 0
+        for notional, d in items:
+            if projected <= target:
+                break
+            try:
+                pos = record_to_position(d)
+                coid = await self._close_requester.request_close(
+                    pos, pos.entry_price, close_reason="halt_neutralize"
+                )
+                if coid is not None:
+                    closed += 1
+                    projected -= notional
+            except Exception:
+                logger.exception("neutralize trim failed for a position")
+        return closed
 
     async def flatten_all_open(self) -> int:
         """Close every OPEN position via the reduce-only path. Idempotent: a

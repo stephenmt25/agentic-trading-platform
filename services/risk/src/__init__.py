@@ -8,8 +8,11 @@ from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
 
+from libs.config import settings
 from libs.core.notional import profile_notional
 from libs.observability import get_logger
+
+from .portfolio import PortfolioExposure, check_order_against_budget
 
 logger = get_logger("risk")
 
@@ -133,6 +136,27 @@ class RiskService:
                 logger.error(
                     "Failed to check positions for concentration limit", error=str(e)
                 )
+
+            # 4b. Portfolio-wide gross-exposure budget + correlation-cluster cap
+            # (PR4). Cross-profile, not per-profile: bounds total book size and
+            # stops N correlated positions each sneaking under the per-symbol cap.
+            try:
+                all_positions = await self._position_repo.get_unsettled_positions()
+                exposure = PortfolioExposure.from_positions(
+                    all_positions, settings.CORRELATION_CLUSTERS
+                )
+                breach = check_order_against_budget(
+                    exposure,
+                    symbol,
+                    order_value,
+                    settings.CORRELATION_CLUSTERS,
+                    settings.PORTFOLIO_GROSS_BUDGET_USD,
+                    settings.CORRELATION_CLUSTER_CAP_PCT,
+                )
+                if breach:
+                    return RiskCheckResult(allowed=False, reason=breach)
+            except Exception as e:
+                logger.error("Failed portfolio exposure check", error=str(e))
 
         # 5. Circuit breaker — check daily loss from Redis
         if self._redis:

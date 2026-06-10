@@ -46,6 +46,24 @@ class Settings(BaseSettings):
     # daily realised loss-as-fraction-of-equity counter (pnl:daily:<pid>).
     AUTO_FLATTEN_DRAWDOWN_PCT: Decimal = Field(default=Decimal("0.15"))
 
+    # PR4 portfolio risk + stress-correlation concentration (closes 0.4, 2.12).
+    # Portfolio-wide cap on total open notional across ALL profiles.
+    PORTFOLIO_GROSS_BUDGET_USD: Decimal = Field(default=Decimal("100000"))
+    # A correlation cluster's combined open exposure is capped at this fraction of
+    # the gross budget — stops N correlated assets each sneaking under the
+    # per-symbol cap. Stress assumption: correlated crypto moves together.
+    CORRELATION_CLUSTER_CAP_PCT: Decimal = Field(default=Decimal("0.40"))
+    # Stress-correlation cluster map (symbol or base -> cluster). Unmapped symbols
+    # fall into the conservative shared "ALT" cluster. Initial values; tunable, and
+    # replaceable with live-computed correlations later (see DECISIONS / brief §2).
+    CORRELATION_CLUSTERS: dict = Field(
+        default_factory=lambda: {"BTC/USDT": "MAJORS", "ETH/USDT": "MAJORS"}
+    )
+    # NEUTRALIZE (PR3 verb) trims gross exposure down to this fraction of the budget.
+    NEUTRALIZE_GROSS_TARGET_PCT: Decimal = Field(default=Decimal("0.50"))
+    # Cadence for the portfolio-exposure aggregator snapshot (risk service).
+    PORTFOLIO_AGGREGATOR_INTERVAL_S: float = Field(default=10.0)
+
     FAST_GATE_TIMEOUT_MS: int = Field(default=50)
     CIRCUIT_BREAKER_DAILY_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
 
