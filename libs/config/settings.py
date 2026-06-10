@@ -64,6 +64,15 @@ class Settings(BaseSettings):
     # Cadence for the portfolio-exposure aggregator snapshot (risk service).
     PORTFOLIO_AGGREGATOR_INTERVAL_S: float = Field(default=10.0)
 
+    # PR7 strategy-decay tracking (live vs backtest). Decay fires when live win
+    # rate falls more than DECAY_WIN_RATE_DROP below backtest, or live avg return
+    # drops below DECAY_AVG_FACTOR of backtest — once enough live trades exist.
+    DECAY_WINDOW_HOURS: int = Field(default=168)
+    DECAY_MIN_LIVE_TRADES: int = Field(default=20)
+    DECAY_WIN_RATE_DROP: float = Field(default=0.15)
+    DECAY_AVG_FACTOR: float = Field(default=0.5)
+    DECAY_TRACKER_INTERVAL_S: float = Field(default=3600.0)
+
     FAST_GATE_TIMEOUT_MS: int = Field(default=50)
     CIRCUIT_BREAKER_DAILY_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
 

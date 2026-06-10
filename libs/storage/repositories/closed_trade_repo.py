@@ -129,7 +129,8 @@ class ClosedTradeRepository(BaseRepository):
             SUM(realized_pnl)::NUMERIC(20,8)                      AS net_pnl,
             SUM(entry_fee + exit_fee)::NUMERIC(20,8)              AS total_fees,
             SUM(slippage_cost)::NUMERIC(20,8)                     AS total_slippage,
-            SUM(funding_cost)::NUMERIC(20,8)                      AS total_funding
+            SUM(funding_cost)::NUMERIC(20,8)                      AS total_funding,
+            AVG(realized_pnl_pct)::NUMERIC(10,6)                  AS avg_pnl_pct
         FROM closed_trades
         {where}
         GROUP BY profile_id
@@ -143,7 +144,13 @@ class ClosedTradeRepository(BaseRepository):
             net = d.get("net_pnl")
             d["win_rate"] = (d["win_count"] / n) if n else None
             d["profile_id"] = str(d["profile_id"])
-            for key in ("net_pnl", "total_fees", "total_slippage", "total_funding"):
+            for key in (
+                "net_pnl",
+                "total_fees",
+                "total_slippage",
+                "total_funding",
+                "avg_pnl_pct",
+            ):
                 v = d.get(key)
                 if v is not None:
                     d[key] = float(v)

@@ -12,16 +12,20 @@ from libs.core.agent_registry import (
     AgentPerformanceTracker,
     _decode_hash,
 )
+from libs.messaging import PubSubBroadcaster
 from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
 from libs.storage import RedisClient
 from libs.storage._timescale_client import TimescaleClient
+from libs.storage.repositories.backtest_repo import BacktestRepository
+from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
 from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
 
+from .decay_tracker import DecayTracker
 from .insight_engine import insight_engine_loop
 
 logger = get_logger("analyst")
@@ -92,8 +96,19 @@ async def lifespan(app: FastAPI):
     decision_repo = DecisionRepository(timescale)
     market_repo = MarketDataRepository(timescale)
     gate_repo = GateEfficacyRepository(timescale)
+    closed_trade_repo = ClosedTradeRepository(timescale)
+    backtest_repo = BacktestRepository(timescale)
+    # PR7: live-vs-backtest decay tracking + shadow-flag consumption.
+    decay_tracker = DecayTracker(
+        closed_trade_repo,
+        decision_repo,
+        backtest_repo,
+        profile_repo,
+        redis_client=redis_conn,
+        pubsub=PubSubBroadcaster(redis_conn),
+    )
 
-    logger.info("Analyst Agent started — weight computation + insight engine")
+    logger.info("Analyst Agent started — weight computation + insight engine + decay")
     weight_task = supervised_task(
         weight_recompute_loop, name="analyst.weight_recompute"
     )
@@ -103,12 +118,17 @@ async def lifespan(app: FastAPI):
         ),
         name="analyst.insight_engine",
     )
+    decay_task = supervised_task(
+        lambda: decay_tracker.run_loop(),
+        name="analyst.decay_tracker",
+    )
 
     yield
 
     weight_task.cancel()
     insight_task.cancel()
-    await asyncio.gather(weight_task, insight_task, return_exceptions=True)
+    decay_task.cancel()
+    await asyncio.gather(weight_task, insight_task, decay_task, return_exceptions=True)
     await telemetry.stop()
     await timescale.close()
     logger.info("Analyst Agent shutdown")

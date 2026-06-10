@@ -135,3 +135,18 @@ class BacktestRepository(BaseRepository):
         """
         rows = await self._fetch(query, *params)
         return [dict(r) for r in rows]
+
+    async def latest_for_profile(self, profile_id: str) -> Optional[Dict[str, Any]]:
+        """Most recent backtest result for a profile — the baseline the decay
+        tracker (PR7) compares live performance against. profile_id is stored as
+        TEXT in backtest_results, so we match on the string form."""
+        query = """
+        SELECT job_id, profile_id, symbol, total_trades,
+               win_rate, avg_return, max_drawdown, sharpe, profit_factor, created_at
+        FROM backtest_results
+        WHERE profile_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+        row = await self._fetchrow(query, str(profile_id))
+        return dict(row) if row else None

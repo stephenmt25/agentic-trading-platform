@@ -218,3 +218,37 @@ class DecisionRepository(BaseRepository):
                 d["percent"] = float(v)
             out.append(d)
         return out
+
+    async def shadow_summary_by_profile(
+        self, *, window_hours: int = 168, profile_id: Optional[UUID] = None
+    ) -> List[Dict[str, Any]]:
+        """Consume the shadow flag (PR7): per profile, how many decisions passed
+        the strategy rules but were BLOCKED (shadow=true) vs total, over a window.
+        A high shadow share means the strategy keeps firing into conditions the
+        gates reject — a would-have-traded signal for the decay tracker."""
+        conditions = ["created_at >= NOW() - ($1 || ' hours')::INTERVAL"]
+        params: list = [str(window_hours)]
+        idx = 2
+        if profile_id:
+            conditions.append(f"profile_id = ${idx}")
+            params.append(profile_id)
+            idx += 1
+        where = "WHERE " + " AND ".join(conditions)
+        query = f"""
+        SELECT
+            profile_id,
+            COUNT(*)::INT                       AS total_decisions,
+            COUNT(*) FILTER (WHERE shadow)::INT AS shadow_count
+        FROM trade_decisions
+        {where}
+        GROUP BY profile_id
+        """
+        rows = await self._fetch(query, *params)
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            t = d["total_decisions"] or 0
+            d["profile_id"] = str(d["profile_id"])
+            d["shadow_share"] = (d["shadow_count"] / t) if t else None
+            out.append(d)
+        return out
