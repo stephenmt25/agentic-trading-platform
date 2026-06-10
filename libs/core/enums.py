@@ -1,8 +1,10 @@
-from enum import Enum, auto
+from enum import Enum
+
 
 class OrderSide(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
+
 
 class OrderStatus(str, Enum):
     PENDING = "PENDING"
@@ -11,6 +13,7 @@ class OrderStatus(str, Enum):
     ROLLED_BACK = "ROLLED_BACK"
     REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
+
 
 class EventType(str, Enum):
     MARKET_TICK = "MARKET_TICK"
@@ -37,12 +40,14 @@ class EventType(str, Enum):
     ORDERBOOK_SNAPSHOT = "ORDERBOOK_SNAPSHOT"
     TRADE_TICK = "TRADE_TICK"
 
+
 class Regime(str, Enum):
     TRENDING_UP = "TRENDING_UP"
     TRENDING_DOWN = "TRENDING_DOWN"
     RANGE_BOUND = "RANGE_BOUND"
     HIGH_VOLATILITY = "HIGH_VOLATILITY"
     CRISIS = "CRISIS"
+
 
 class ValidationCheck(str, Enum):
     CHECK_1_STRATEGY = "CHECK_1_STRATEGY"
@@ -52,19 +57,23 @@ class ValidationCheck(str, Enum):
     CHECK_5_ESCALATION = "CHECK_5_ESCALATION"
     CHECK_6_RISK_LEVEL = "CHECK_6_RISK_LEVEL"
 
+
 class ValidationVerdict(str, Enum):
     GREEN = "GREEN"
     AMBER = "AMBER"
     RED = "RED"
 
+
 class ValidationMode(str, Enum):
     FAST_GATE = "FAST_GATE"
     ASYNC_AUDIT = "ASYNC_AUDIT"
+
 
 class SignalDirection(str, Enum):
     BUY = "BUY"
     SELL = "SELL"
     ABSTAIN = "ABSTAIN"
+
 
 class PositionStatus(str, Enum):
     OPEN = "OPEN"
@@ -76,11 +85,13 @@ class PositionStatus(str, Enum):
     PENDING_CLOSE = "PENDING_CLOSE"
     CLOSED = "CLOSED"
 
+
 class HITLStatus(str, Enum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
     EXPIRED = "EXPIRED"
+
 
 class TradingMode(str, Enum):
     PAPER = "PAPER"

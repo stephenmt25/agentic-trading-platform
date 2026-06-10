@@ -1,13 +1,20 @@
-from typing import List
-from fastapi import APIRouter, Depends, HTTPException
 import json
-import ccxt.async_support as ccxt
+from typing import List
 
-from libs.core.schemas import ExchangeKeyCreate, ExchangeKeyTest, ExchangeKeyResponse, ExchangeTestResponse
-from libs.core.secrets import SecretManager
+import ccxt.async_support as ccxt
+from fastapi import APIRouter, Depends, HTTPException
+
 from libs.config import settings
+from libs.core.schemas import (
+    ExchangeKeyCreate,
+    ExchangeKeyResponse,
+    ExchangeKeyTest,
+    ExchangeTestResponse,
+)
+from libs.core.secrets import SecretManager
 from libs.observability import get_logger
-from services.api_gateway.src.deps import get_timescale as get_db, get_current_user as require_user
+from services.api_gateway.src.deps import get_current_user as require_user
+from services.api_gateway.src.deps import get_timescale as get_db
 
 logger = get_logger("exchange-keys")
 
@@ -25,10 +32,7 @@ def _get_secret_manager() -> SecretManager:
 
 
 @router.get("/", response_model=List[ExchangeKeyResponse])
-async def list_exchange_keys(
-    db=Depends(get_db),
-    user_id: str = Depends(require_user)
-):
+async def list_exchange_keys(db=Depends(get_db), user_id: str = Depends(require_user)):
     """List connected exchange keys for the current user."""
     query = """
         SELECT id, exchange_name, label, is_active, created_at
@@ -42,7 +46,7 @@ async def list_exchange_keys(
             "exchange_name": r["exchange_name"],
             "label": r["label"] or r["exchange_name"],
             "is_active": r["is_active"],
-            "created_at": str(r["created_at"])
+            "created_at": str(r["created_at"]),
         }
         for r in records
     ]
@@ -52,7 +56,9 @@ async def list_exchange_keys(
 async def test_exchange_connection(data: ExchangeKeyTest):
     """Test API keys with CCXT before saving them."""
     if not hasattr(ccxt, data.exchange_id):
-        raise HTTPException(status_code=400, detail=f"Exchange '{data.exchange_id}' not supported")
+        raise HTTPException(
+            status_code=400, detail=f"Exchange '{data.exchange_id}' not supported"
+        )
 
     exchange_class = getattr(ccxt, data.exchange_id)
     exchange_params = {
@@ -77,15 +83,14 @@ async def test_exchange_connection(data: ExchangeKeyTest):
 
         # Verify withdrawal permissions are NOT enabled — PRAXIS should never have withdrawal access
         # Skip this check on testnet/sandbox — testnet keys always have full permissions
-        is_sandbox = (
-            (data.exchange_id == "binance" and settings.BINANCE_TESTNET) or
-            (data.exchange_id == "coinbase" and settings.COINBASE_SANDBOX)
+        is_sandbox = (data.exchange_id == "binance" and settings.BINANCE_TESTNET) or (
+            data.exchange_id == "coinbase" and settings.COINBASE_SANDBOX
         )
         if not is_sandbox:
             has_withdraw = False
             try:
-                permissions = getattr(exchange, 'has', {})
-                if permissions.get('withdraw') or permissions.get('fetchWithdrawals'):
+                permissions = getattr(exchange, "has", {})
+                if permissions.get("withdraw") or permissions.get("fetchWithdrawals"):
                     has_withdraw = True
             except Exception:
                 pass
@@ -98,27 +103,35 @@ async def test_exchange_connection(data: ExchangeKeyTest):
                 raise HTTPException(
                     status_code=422,
                     detail="API key has withdrawal permissions enabled. "
-                           "For security, PRAXIS requires keys with ONLY trading and balance read permissions. "
-                           "Please create a new API key with withdrawals disabled."
+                    "For security, PRAXIS requires keys with ONLY trading and balance read permissions. "
+                    "Please create a new API key with withdrawals disabled.",
                 )
 
-        return {"status": "success", "message": "Connection verified successfully — no withdrawal permissions detected"}
+        return {
+            "status": "success",
+            "message": "Connection verified successfully — no withdrawal permissions detected",
+        }
     except HTTPException:
         raise
     except ccxt.AuthenticationError:
-        raise HTTPException(status_code=422, detail="Exchange rejected the API key or secret")
+        raise HTTPException(
+            status_code=422, detail="Exchange rejected the API key or secret"
+        )
     except Exception as e:
-        logger.error("Exchange connection test failed", exchange=data.exchange_id, error=str(e))
-        raise HTTPException(status_code=400, detail="Connection test failed. Check your credentials and try again.")
+        logger.error(
+            "Exchange connection test failed", exchange=data.exchange_id, error=str(e)
+        )
+        raise HTTPException(
+            status_code=400,
+            detail="Connection test failed. Check your credentials and try again.",
+        )
     finally:
         await exchange.close()
 
 
 @router.post("/")
 async def save_exchange_key(
-    data: ExchangeKeyCreate,
-    db=Depends(get_db),
-    user_id: str = Depends(require_user)
+    data: ExchangeKeyCreate, db=Depends(get_db), user_id: str = Depends(require_user)
 ):
     """Securely store an exchange key in Secret Manager and save reference to DB."""
     payload = {
@@ -135,7 +148,9 @@ async def save_exchange_key(
         await secret_manager.store_secret(secret_ref, json.dumps(payload))
     except Exception as e:
         logger.error("Failed to store exchange secret", error=str(e), user_id=user_id)
-        raise HTTPException(status_code=500, detail="Failed to store credentials securely")
+        raise HTTPException(
+            status_code=500, detail="Failed to store credentials securely"
+        )
 
     query = """
         INSERT INTO exchange_keys (user_id, exchange_name, gcp_secret_id, label)
@@ -144,16 +159,20 @@ async def save_exchange_key(
         DO UPDATE SET gcp_secret_id = EXCLUDED.gcp_secret_id, deleted_at = NULL
         RETURNING id
     """
-    row = await db.fetchrow(query, user_id, data.exchange_id, secret_ref, data.exchange_id)
+    row = await db.fetchrow(
+        query, user_id, data.exchange_id, secret_ref, data.exchange_id
+    )
 
-    return {"status": "success", "id": str(row["id"]), "message": "Exchange keys securely stored"}
+    return {
+        "status": "success",
+        "id": str(row["id"]),
+        "message": "Exchange keys securely stored",
+    }
 
 
 @router.delete("/{key_id}")
 async def delete_exchange_key(
-    key_id: str,
-    db=Depends(get_db),
-    user_id: str = Depends(require_user)
+    key_id: str, db=Depends(get_db), user_id: str = Depends(require_user)
 ):
     """Destroy exchange key from Secret Manager and soft-delete from DB."""
     query = "SELECT gcp_secret_id FROM exchange_keys WHERE id = $1::uuid AND user_id = $2::uuid"

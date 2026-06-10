@@ -1,9 +1,20 @@
-import numpy as np
 from typing import Optional
+
+import numpy as np
+
 from libs.core.enums import Regime
 
+
 class SimpleRegimeClassifier:
-    __slots__ = ('sma_period', 'vol_lookback', 'prices', 'atrs', 'price_count', 'atr_count', 'sum_price')
+    __slots__ = (
+        "sma_period",
+        "vol_lookback",
+        "prices",
+        "atrs",
+        "price_count",
+        "atr_count",
+        "sum_price",
+    )
 
     def __init__(self, sma_period: int = 200, vol_lookback: int = 90):
         self.sma_period = sma_period
@@ -31,8 +42,8 @@ class SimpleRegimeClassifier:
             return None
 
         sma = self.sum_price / self.sma_period
-        
-        # Calculate percentiles dynamically. 
+
+        # Calculate percentiles dynamically.
         # Using numpy percentile on the pre-filled window
         p95_atr = np.percentile(self.atrs, 95)
         p75_atr = np.percentile(self.atrs, 75)
@@ -43,15 +54,15 @@ class SimpleRegimeClassifier:
         # Assuming price < SMA * 0.90
         if atr > p95_atr and price < (sma * 0.90):
             return Regime.CRISIS
-            
+
         if atr > p75_atr:
             return Regime.HIGH_VOLATILITY
-            
+
         # RANGE_BOUND: within 2% of SMA, vol < 50th
         if abs(price - sma) / sma <= 0.02 and atr < p50_atr:
             return Regime.RANGE_BOUND
-            
+
         if price > sma:
             return Regime.TRENDING_UP
-            
+
         return Regime.TRENDING_DOWN

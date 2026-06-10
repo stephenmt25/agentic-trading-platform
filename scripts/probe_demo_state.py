@@ -5,8 +5,10 @@ Reads:
 - live indicator state for ETH/USDT (does the rule match?)
 - any other active profiles competing
 """
+
 import asyncio
 from pathlib import Path
+
 import asyncpg
 
 PROFILE_ID = "c557fcdc-2bc2-4ef3-8004-102cd71859c0"
@@ -15,8 +17,12 @@ PROFILE_ID = "c557fcdc-2bc2-4ef3-8004-102cd71859c0"
 def url() -> str:
     for line in Path(".env").read_text().splitlines():
         if line.startswith("PRAXIS_DATABASE_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'").replace(
-                "postgresql+asyncpg://", "postgresql://"
+            return (
+                line.split("=", 1)[1]
+                .strip()
+                .strip('"')
+                .strip("'")
+                .replace("postgresql+asyncpg://", "postgresql://")
             )
 
 
@@ -38,7 +44,9 @@ async def main() -> None:
         for r in rows:
             print(f"  {r['profile_id'][:8]}  is_active={r['is_active']}  {r['name']}")
 
-        print("\n=== latest indicators on each symbol from trade_decisions (any profile) ===")
+        print(
+            "\n=== latest indicators on each symbol from trade_decisions (any profile) ==="
+        )
         rows = await c.fetch(
             """
             SELECT DISTINCT ON (symbol)

@@ -117,27 +117,45 @@ class UserSessionRepository(BaseRepository):
         if not ua:
             return None, None
         device = (
-            "Mac" if "Macintosh" in ua or "Mac OS X" in ua
-            else "Windows" if "Windows NT" in ua
-            else "iPhone" if "iPhone" in ua
-            else "Android" if "Android" in ua
-            else "Linux" if "Linux" in ua
-            else None
+            "Mac"
+            if "Macintosh" in ua or "Mac OS X" in ua
+            else (
+                "Windows"
+                if "Windows NT" in ua
+                else (
+                    "iPhone"
+                    if "iPhone" in ua
+                    else (
+                        "Android"
+                        if "Android" in ua
+                        else "Linux" if "Linux" in ua else None
+                    )
+                )
+            )
         )
         # Order matters — Edge identifies as Chrome too, so check Edg/ first.
         browser = (
-            "Edge" if "Edg/" in ua
-            else "Chrome" if "Chrome/" in ua
-            else "Firefox" if "Firefox/" in ua
-            else "Safari" if "Safari/" in ua
-            else None
+            "Edge"
+            if "Edg/" in ua
+            else (
+                "Chrome"
+                if "Chrome/" in ua
+                else (
+                    "Firefox"
+                    if "Firefox/" in ua
+                    else "Safari" if "Safari/" in ua else None
+                )
+            )
         )
         return device, browser
 
     @staticmethod
-    def to_response(row: Dict[str, Any], current_jti: Optional[str] = None) -> Dict[str, Any]:
+    def to_response(
+        row: Dict[str, Any], current_jti: Optional[str] = None
+    ) -> Dict[str, Any]:
         """Serialize a row for the API. Adds `is_current` flag if the supplied
         jti matches — used by the FE to mark the row representing 'this browser'."""
+
         def _iso(v: Any) -> Optional[str]:
             if v is None:
                 return None

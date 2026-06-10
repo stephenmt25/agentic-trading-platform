@@ -10,8 +10,6 @@ import json
 import uuid
 from decimal import Decimal
 
-import pytest
-
 from libs.core.enums import OrderSide
 from libs.core.schemas import OrderApprovedEvent
 

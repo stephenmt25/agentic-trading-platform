@@ -1,6 +1,8 @@
-from decimal import Decimal
-from .state import ProfileState
 import datetime
+from decimal import Decimal
+
+from .state import ProfileState
+
 
 class CircuitBreaker:
     # Track the last date we checked per profile to detect day rollover

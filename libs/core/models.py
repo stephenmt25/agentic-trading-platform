@@ -1,11 +1,20 @@
-from dataclasses import dataclass, field
-from decimal import Decimal
-from typing import Any, Dict, List, Optional
-from uuid import UUID
+from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
+from typing import Optional
+from uuid import UUID
 
 from .enums import OrderSide, OrderStatus, PositionStatus
-from .types import ExchangeName, Percentage, Price, ProfileId, Quantity, SymbolPair, Timestamp
+from .types import (
+    ExchangeName,
+    Percentage,
+    Price,
+    ProfileId,
+    Quantity,
+    SymbolPair,
+    Timestamp,
+)
+
 
 @dataclass(frozen=True, slots=True)
 class Tick:
@@ -14,6 +23,7 @@ class Tick:
     timestamp: Timestamp
     price: Price
     volume: Quantity
+
 
 @dataclass(frozen=True, slots=True)
 class NormalisedTick:
@@ -25,18 +35,20 @@ class NormalisedTick:
     bid: Optional[Price] = None
     ask: Optional[Price] = None
 
+
 @dataclass(frozen=True, slots=True)
 class NormalisedCandle:
     symbol: SymbolPair
     exchange: ExchangeName
-    timeframe: str            # e.g. "1m"
-    bucket_ms: int            # start-of-bar in UTC ms since epoch
+    timeframe: str  # e.g. "1m"
+    bucket_ms: int  # start-of-bar in UTC ms since epoch
     open: Price
     high: Price
     low: Price
     close: Price
     volume: Quantity
-    closed: bool              # True only after the bar has rolled over
+    closed: bool  # True only after the bar has rolled over
+
 
 @dataclass(frozen=True)
 class Order:
@@ -55,12 +67,14 @@ class Order:
     # PR1: reduce-only close order (flattens an existing position).
     reduce_only: bool = False
 
+
 @dataclass(frozen=True)
 class RiskLimits:
     max_drawdown_pct: Percentage
     stop_loss_pct: Percentage
     circuit_breaker_daily_loss_pct: Percentage
     max_allocation_pct: Percentage
+
 
 @dataclass(frozen=True)
 class TradingProfile:
@@ -74,6 +88,7 @@ class TradingProfile:
     jurisdiction: str
     exchange_key_ref: str
     is_active: bool
+
 
 @dataclass(frozen=True)
 class Position:

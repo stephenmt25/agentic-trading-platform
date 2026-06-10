@@ -1,12 +1,14 @@
-from typing import Optional
 from ._base import ExchangeAdapter, OrderResult
 from ._binance import BinanceAdapter
 from ._coinbase import CoinbaseAdapter
-from ._paper import PaperTradingAdapter
 from ._normaliser import normalise_binance_tick, normalise_coinbase_tick
+from ._paper import PaperTradingAdapter
 from ._rate_limiter_client import RateLimiterClient, RateLimitResult
 
-def get_adapter(exchange_name: str, api_key: str = "", secret: str = "", testnet: bool = True) -> ExchangeAdapter:
+
+def get_adapter(
+    exchange_name: str, api_key: str = "", secret: str = "", testnet: bool = True
+) -> ExchangeAdapter:
     env_name = exchange_name.upper()
     if env_name == "PAPER":
         return PaperTradingAdapter()
@@ -16,6 +18,7 @@ def get_adapter(exchange_name: str, api_key: str = "", secret: str = "", testnet
         return CoinbaseAdapter(api_key=api_key, secret=secret, testnet=testnet)
     else:
         raise ValueError(f"Unsupported exchange: {exchange_name}")
+
 
 __all__ = [
     "ExchangeAdapter",
@@ -27,5 +30,5 @@ __all__ = [
     "RateLimitResult",
     "normalise_binance_tick",
     "normalise_coinbase_tick",
-    "get_adapter"
+    "get_adapter",
 ]

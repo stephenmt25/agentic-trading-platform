@@ -1,19 +1,23 @@
 import json
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, field_validator
-from ..deps import get_timescale, get_current_user, get_decision_repo
+
+from libs.config import settings
 from libs.reports.daily import generate_for_date
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.decision_repo import DecisionRepository
-from libs.config import settings
+
+from ..deps import get_current_user, get_decision_repo, get_timescale
 
 router = APIRouter(tags=["paper-trading"])
 
 
 class GenerateReportRequest(BaseModel):
     """Body for POST /paper-trading/reports/generate."""
+
     date: str  # YYYY-MM-DD, UTC
 
     @field_validator("date")
@@ -58,11 +62,16 @@ async def get_paper_trading_status(
         FROM paper_trading_reports
         """,
     )
-    days_elapsed = int(days_row["days_count"]) if days_row and days_row["days_count"] else 0
-    start_date = str(days_row["start_date"]) if days_row and days_row["start_date"] else None
+    days_elapsed = (
+        int(days_row["days_count"]) if days_row and days_row["days_count"] else 0
+    )
+    start_date = (
+        str(days_row["start_date"]) if days_row and days_row["start_date"] else None
+    )
 
     # Get aggregate metrics
-    metrics_row = await db.fetchrow("""
+    metrics_row = await db.fetchrow(
+        """
         SELECT
             COALESCE(SUM(total_trades), 0) as total_trades,
             COALESCE(AVG(win_rate), 0) as avg_win_rate,
@@ -71,7 +80,8 @@ async def get_paper_trading_status(
             COALESCE(MAX(max_drawdown), 0) as max_drawdown,
             COALESCE(AVG(sharpe_ratio), 0) as avg_sharpe
         FROM paper_trading_reports
-    """)
+    """
+    )
 
     # Get daily reports (most recent first)
     reports = await db.fetch(
@@ -87,11 +97,21 @@ async def get_paper_trading_status(
         "start_date": start_date,
         "metrics": {
             "total_trades": int(metrics_row["total_trades"]) if metrics_row else 0,
-            "avg_win_rate": round(float(metrics_row["avg_win_rate"]), 2) if metrics_row else 0,
-            "total_gross_pnl": round(float(metrics_row["total_gross_pnl"]), 2) if metrics_row else 0,
-            "total_net_pnl": round(float(metrics_row["total_net_pnl"]), 2) if metrics_row else 0,
-            "max_drawdown": round(float(metrics_row["max_drawdown"]), 4) if metrics_row else 0,
-            "avg_sharpe": round(float(metrics_row["avg_sharpe"]), 2) if metrics_row else 0,
+            "avg_win_rate": (
+                round(float(metrics_row["avg_win_rate"]), 2) if metrics_row else 0
+            ),
+            "total_gross_pnl": (
+                round(float(metrics_row["total_gross_pnl"]), 2) if metrics_row else 0
+            ),
+            "total_net_pnl": (
+                round(float(metrics_row["total_net_pnl"]), 2) if metrics_row else 0
+            ),
+            "max_drawdown": (
+                round(float(metrics_row["max_drawdown"]), 4) if metrics_row else 0
+            ),
+            "avg_sharpe": (
+                round(float(metrics_row["avg_sharpe"]), 2) if metrics_row else 0
+            ),
         },
         "daily_reports": [
             {
@@ -261,8 +281,14 @@ async def get_report_detail(
     def _build_order(r) -> Optional[dict]:
         if r["order_id"] is None:
             return None
-        intended = float(r["order_intended_price"]) if r["order_intended_price"] is not None else None
-        fill = float(r["order_fill_price"]) if r["order_fill_price"] is not None else None
+        intended = (
+            float(r["order_intended_price"])
+            if r["order_intended_price"] is not None
+            else None
+        )
+        fill = (
+            float(r["order_fill_price"]) if r["order_fill_price"] is not None else None
+        )
         # Slippage = (fill - intended) / intended, signed. Positive on a BUY
         # means we paid more than intended; positive on a SELL means we got
         # better than intended. Caller can interpret with the side.
@@ -271,18 +297,28 @@ async def get_report_detail(
             slippage_pct = (fill - intended) / intended
         latency_ms: Optional[float] = None
         if r["order_created_at"] and r["order_filled_at"]:
-            latency_ms = (r["order_filled_at"] - r["order_created_at"]).total_seconds() * 1000.0
+            latency_ms = (
+                r["order_filled_at"] - r["order_created_at"]
+            ).total_seconds() * 1000.0
         return {
             "order_id": r["order_id"],
             "intended_price": intended,
             "fill_price": fill,
-            "quantity": float(r["order_quantity"]) if r["order_quantity"] is not None else None,
+            "quantity": (
+                float(r["order_quantity"]) if r["order_quantity"] is not None else None
+            ),
             "status": r["order_status"],
             "exchange": r["order_exchange"],
-            "created_at": r["order_created_at"].isoformat() if r["order_created_at"] else None,
-            "filled_at": r["order_filled_at"].isoformat() if r["order_filled_at"] else None,
+            "created_at": (
+                r["order_created_at"].isoformat() if r["order_created_at"] else None
+            ),
+            "filled_at": (
+                r["order_filled_at"].isoformat() if r["order_filled_at"] else None
+            ),
             "fill_latency_ms": round(latency_ms, 1) if latency_ms is not None else None,
-            "slippage_pct": round(slippage_pct, 6) if slippage_pct is not None else None,
+            "slippage_pct": (
+                round(slippage_pct, 6) if slippage_pct is not None else None
+            ),
         }
 
     trades = [
@@ -379,10 +415,16 @@ def _serialize_decision(row: dict) -> dict:
     result = dict(row)
     result["event_id"] = str(result["event_id"])
     result["profile_id"] = str(result["profile_id"])
-    result["input_price"] = float(result["input_price"]) if result.get("input_price") else None
-    result["input_volume"] = float(result["input_volume"]) if result.get("input_volume") else None
+    result["input_price"] = (
+        float(result["input_price"]) if result.get("input_price") else None
+    )
+    result["input_volume"] = (
+        float(result["input_volume"]) if result.get("input_volume") else None
+    )
     result["order_id"] = str(result["order_id"]) if result.get("order_id") else None
-    result["created_at"] = result["created_at"].isoformat() if result.get("created_at") else None
+    result["created_at"] = (
+        result["created_at"].isoformat() if result.get("created_at") else None
+    )
     # JSONB columns come as dicts from asyncpg — ensure they're dicts not strings
     for col in ("indicators", "strategy", "regime", "agents", "gates", "profile_rules"):
         val = result.get(col)

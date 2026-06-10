@@ -1,8 +1,11 @@
 """Sprint 8.6: Backtest engine verification tests."""
-import pytest
+
 from decimal import Decimal
+
 from services.backtesting.src.simulator import (
-    TradingSimulator, BacktestJob, parse_preferred_regimes,
+    BacktestJob,
+    TradingSimulator,
+    parse_preferred_regimes,
 )
 from services.backtesting.src.vectorbt_runner import VectorBTRunner
 
@@ -11,6 +14,7 @@ def _make_candles(n: int, base_price: float = 100.0) -> list:
     """Generate synthetic candles with an oscillating pattern to trigger RSI signals."""
     candles = []
     import math
+
     for i in range(n):
         # Create oscillating pattern: price swings to trigger RSI oversold/overbought
         phase = math.sin(i * 0.15) * 20  # Oscillation
@@ -18,14 +22,16 @@ def _make_candles(n: int, base_price: float = 100.0) -> list:
         close = base_price + phase + trend
         high = close + abs(math.sin(i * 0.3)) * 2
         low = close - abs(math.cos(i * 0.3)) * 2
-        candles.append({
-            "time": f"2025-01-01T00:{i // 60:02d}:{i % 60:02d}",
-            "open": close - 0.5,
-            "high": high,
-            "low": low,
-            "close": close,
-            "volume": 100.0,
-        })
+        candles.append(
+            {
+                "time": f"2025-01-01T00:{i // 60:02d}:{i % 60:02d}",
+                "open": close - 0.5,
+                "high": high,
+                "low": low,
+                "close": close,
+                "volume": 100.0,
+            }
+        )
     return candles
 
 
@@ -140,7 +146,13 @@ class TestTradingSimulator:
 # Row 18 — backtester honours preferred_regimes
 # ---------------------------------------------------------------------------
 
-_ALL_REGIMES = {"RANGE_BOUND", "TRENDING_UP", "TRENDING_DOWN", "HIGH_VOLATILITY", "CRISIS"}
+_ALL_REGIMES = {
+    "RANGE_BOUND",
+    "TRENDING_UP",
+    "TRENDING_DOWN",
+    "HIGH_VOLATILITY",
+    "CRISIS",
+}
 
 
 def _observed_regimes(candles: list) -> set:
@@ -148,7 +160,8 @@ def _observed_regimes(candles: list) -> set:
     backtester uses (fed only once ATR has primed) and collect every regime it
     actually emits. Lets the gating tests self-calibrate to whatever the
     synthetic data classifies as, instead of hard-coding a regime."""
-    from libs.indicators import SimpleRegimeClassifier, ATRCalculator
+    from libs.indicators import ATRCalculator, SimpleRegimeClassifier
+
     clf = SimpleRegimeClassifier()
     atr = ATRCalculator()
     seen: set = set()
@@ -171,6 +184,7 @@ class TestParsePreferredRegimes:
 
     def test_known_regimes_parsed(self):
         from libs.core.enums import Regime
+
         result = parse_preferred_regimes(
             {"preferred_regimes": ["RANGE_BOUND", "TRENDING_UP"]}
         )
@@ -178,6 +192,7 @@ class TestParsePreferredRegimes:
 
     def test_unknown_regime_silently_dropped(self):
         from libs.core.enums import Regime
+
         result = parse_preferred_regimes(
             {"preferred_regimes": ["RANGE_BOUND", "BANANA"]}
         )
@@ -214,7 +229,9 @@ class TestRegimeGating:
         candles, matched, excluded = self._setup()
 
         def run(preferred):
-            job = BacktestJob("rg-seq", "BTC/USDT", self._rules(preferred), Decimal("0.001"))
+            job = BacktestJob(
+                "rg-seq", "BTC/USDT", self._rules(preferred), Decimal("0.001")
+            )
             return TradingSimulator.run(job, candles).total_trades
 
         ungated = run(None)
@@ -229,7 +246,9 @@ class TestRegimeGating:
         candles, matched, excluded = self._setup()
 
         def run(preferred):
-            job = BacktestJob("rg-vbt", "BTC/USDT", self._rules(preferred), Decimal("0.001"))
+            job = BacktestJob(
+                "rg-vbt", "BTC/USDT", self._rules(preferred), Decimal("0.001")
+            )
             return VectorBTRunner.run(job, candles).total_trades
 
         ungated = run(None)

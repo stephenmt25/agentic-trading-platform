@@ -6,7 +6,7 @@ route layer feeds into UserRiskDefaultsPayload for validation/defaulting.
 
 import json
 import uuid
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from ._repository_base import BaseRepository
 

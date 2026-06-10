@@ -3,6 +3,7 @@
 Checks the position lifecycle from decision → order → position → close to find
 where the chain stalled.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,9 @@ async def main() -> int:
             "FROM positions GROUP BY status ORDER BY status"
         )
         for r in rows:
-            print(f"  status={r['status']:<10}  n={r['n']}  first={r['first']}  last={r['last']}")
+            print(
+                f"  status={r['status']:<10}  n={r['n']}  first={r['first']}  last={r['last']}"
+            )
 
         print("\n=== open positions detail ===")
         rows = await conn.fetch(
@@ -42,7 +45,9 @@ async def main() -> int:
             "       opened_at FROM positions WHERE status='OPEN' ORDER BY opened_at DESC LIMIT 10"
         )
         for r in rows:
-            print(f"  {r['symbol']:<10}  {r['side']:<4}  qty={r['quantity']}  entry=${r['entry_price']}  opened={r['opened_at']}")
+            print(
+                f"  {r['symbol']:<10}  {r['side']:<4}  qty={r['quantity']}  entry=${r['entry_price']}  opened={r['opened_at']}"
+            )
         if not rows:
             print("  (none)")
 
@@ -52,7 +57,9 @@ async def main() -> int:
             "FROM orders ORDER BY created_at DESC LIMIT 10"
         )
         for r in rows:
-            print(f"  {r['created_at']}  {r['symbol']:<10}  {r['side']:<4}  qty={r['quantity']}  status={r['status']}")
+            print(
+                f"  {r['created_at']}  {r['symbol']:<10}  {r['side']:<4}  qty={r['quantity']}  status={r['status']}"
+            )
         if not rows:
             print("  (none)")
 
@@ -61,7 +68,9 @@ async def main() -> int:
             "SELECT COUNT(*) AS total, MIN(created_at) AS first, MAX(created_at) AS last "
             "FROM trade_decisions WHERE created_at > NOW() - INTERVAL '24 hours'"
         )
-        print(f"  last 24h: total={row['total']}  first={row['first']}  last={row['last']}")
+        print(
+            f"  last 24h: total={row['total']}  first={row['first']}  last={row['last']}"
+        )
 
         rows = await conn.fetch(
             "SELECT outcome, COUNT(*) AS n FROM trade_decisions "
@@ -76,8 +85,10 @@ async def main() -> int:
             "WHERE deleted_at IS NULL ORDER BY created_at"
         )
         for r in rows:
-            mark = "*" if r['is_active'] else " "
-            print(f"  {mark} {r['profile_id'][:8]}  alloc={r['allocation_pct']}  {r['name']}")
+            mark = "*" if r["is_active"] else " "
+            print(
+                f"  {mark} {r['profile_id'][:8]}  alloc={r['allocation_pct']}  {r['name']}"
+            )
 
     finally:
         await conn.close()

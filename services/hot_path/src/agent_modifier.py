@@ -1,19 +1,23 @@
 import json
 from dataclasses import dataclass
 from typing import Dict, Optional
-from libs.observability import get_logger
-from .strategy_eval import SignalResult
+
+from libs.core.agent_registry import AGENT_DEFAULTS
 from libs.core.enums import SignalDirection
-from libs.core.agent_registry import AgentPerformanceTracker, AGENT_DEFAULTS
+from libs.observability import get_logger
+
+from .strategy_eval import SignalResult
 
 
 @dataclass(frozen=True)
 class AgentModifierTrace:
     """Trace output from apply_traced() capturing per-agent details."""
+
     signal: SignalResult
     agents: Dict[str, dict]  # {name: {score, weight, adjustment}}
     confidence_before: float
     confidence_after: float
+
 
 logger = get_logger("hot-path.agent-modifier")
 
@@ -91,7 +95,9 @@ class AgentModifier:
             rule_matched=signal.rule_matched,
         )
 
-    async def apply_traced(self, symbol: str, signal: SignalResult) -> AgentModifierTrace:
+    async def apply_traced(
+        self, symbol: str, signal: SignalResult
+    ) -> AgentModifierTrace:
         """Same as apply() but returns full per-agent trace for decision logging."""
         pipe = self._redis.pipeline(transaction=False)
         for key_pattern, _, _ in self.AGENTS:

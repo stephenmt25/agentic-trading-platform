@@ -18,10 +18,10 @@ from libs.core.models import NormalisedCandle
 from libs.exchange.backfill import COLD_START_LIMIT, fill_gap
 from services.ingestion.src.candle_aggregator import CandleAggregator
 
-
 # ---------------------------------------------------------------------------
 # CandleAggregator
 # ---------------------------------------------------------------------------
+
 
 def _make_1m(
     bucket_minute: int,
@@ -160,6 +160,7 @@ async def test_fill_gap_failure_does_not_propagate():
 # backfill.fill_gap
 # ---------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_fill_gap_cold_start_fetches_bounded_history():
     repo = AsyncMock()
@@ -167,10 +168,12 @@ async def test_fill_gap_cold_start_fetches_bounded_history():
     repo.write_candle = AsyncMock()
 
     rest = MagicMock()
-    rest.fetch_ohlcv = MagicMock(return_value=[
-        [1704067200_000, 100.0, 110.0, 95.0, 105.0, 1.5],
-        [1704067260_000, 105.0, 115.0, 100.0, 110.0, 2.0],
-    ])
+    rest.fetch_ohlcv = MagicMock(
+        return_value=[
+            [1704067200_000, 100.0, 110.0, 95.0, 105.0, 1.5],
+            [1704067260_000, 105.0, 115.0, 100.0, 110.0, 2.0],
+        ]
+    )
 
     n = await fill_gap(repo, rest, "BTC/USDT", "1m")
     assert n == 2
@@ -217,9 +220,11 @@ async def test_fill_gap_writes_bars_as_utc_datetime():
     repo.write_candle = AsyncMock()
 
     rest = MagicMock()
-    rest.fetch_ohlcv = MagicMock(return_value=[
-        [1704067200_000, 100.0, 110.0, 95.0, 105.0, 1.5],
-    ])
+    rest.fetch_ohlcv = MagicMock(
+        return_value=[
+            [1704067200_000, 100.0, 110.0, 95.0, 105.0, 1.5],
+        ]
+    )
 
     await fill_gap(repo, rest, "BTC/USDT", "1m")
     args = repo.write_candle.call_args.args

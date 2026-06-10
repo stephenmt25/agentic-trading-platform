@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from libs.config import settings
 from libs.observability import get_logger
@@ -37,8 +37,8 @@ from .gate_efficacy import (
 logger = get_logger("analyst.insight_engine")
 
 INSIGHT_RUN_INTERVAL_S = 6 * 60 * 60  # 6 hours
-ANALYSIS_WINDOW_HOURS = 24 * 7        # last 7 days
-DECISION_FETCH_LIMIT = 5000           # safety cap; one symbol+profile rarely exceeds
+ANALYSIS_WINDOW_HOURS = 24 * 7  # last 7 days
+DECISION_FETCH_LIMIT = 5000  # safety cap; one symbol+profile rarely exceeds
 
 
 def _parse_jsonb(value: Any) -> Dict[str, Any]:
@@ -72,6 +72,7 @@ async def _fetch_decisions_in_window(
     LIMIT $5
     """
     from uuid import UUID
+
     records = await decision_repo._fetch(  # noqa: SLF001 — same package, scoped read
         query, UUID(profile_id), symbol, window_start, window_end, DECISION_FETCH_LIMIT
     )
@@ -97,7 +98,9 @@ async def _candle_lookup(
         decision_ts = decision_ts.replace(tzinfo=timezone.utc)
     bar_seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}.get(timeframe, 60)
     end = decision_ts + timedelta(seconds=bar_seconds * (lookahead_bars + 5))
-    candles = await market_repo.get_candles_by_range(symbol, timeframe, decision_ts, end)
+    candles = await market_repo.get_candles_by_range(
+        symbol, timeframe, decision_ts, end
+    )
     return candles[:lookahead_bars]
 
 
@@ -151,7 +154,9 @@ async def run_once(
             async def candles_after(ts):  # noqa: ANN001 — closure
                 if ts in candles_cache:
                     return candles_cache[ts]
-                fetched = await _candle_lookup(market_repo, symbol, timeframe, ts, lookahead_bars)
+                fetched = await _candle_lookup(
+                    market_repo, symbol, timeframe, ts, lookahead_bars
+                )
                 candles_cache[ts] = fetched
                 return fetched
 
@@ -214,7 +219,9 @@ async def insight_engine_loop(
     """Forever-loop driver. Runs ``run_once`` every INSIGHT_RUN_INTERVAL_S."""
     while True:
         try:
-            written = await run_once(profile_repo, decision_repo, market_repo, gate_repo)
+            written = await run_once(
+                profile_repo, decision_repo, market_repo, gate_repo
+            )
             logger.info("Insight Engine pass complete", reports_written=written)
         except Exception as e:
             logger.error("Insight Engine pass failed", error=str(e))

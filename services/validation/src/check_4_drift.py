@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any
+from typing import Any, Dict
+
 from .check_1_strategy import CheckResult
+
 
 class DriftCheck:
     def __init__(self, pnl_repo, backtest_repo=None):
@@ -19,11 +21,15 @@ class DriftCheck:
         try:
             snapshots = await self._pnl_repo.get_snapshots(profile_id, week_ago, now)
             if snapshots and len(snapshots) >= 2:
-                returns = [float(s["pct_return"]) for s in snapshots if s.get("pct_return") is not None]  # float-ok: statistical computation (Sharpe ratio)
+                returns = [
+                    float(s["pct_return"])
+                    for s in snapshots
+                    if s.get("pct_return") is not None
+                ]  # float-ok: statistical computation (Sharpe ratio)
                 if returns and len(returns) >= 2:
                     mean_ret = sum(returns) / len(returns)
                     variance = sum((r - mean_ret) ** 2 for r in returns) / len(returns)
-                    std_ret = variance ** 0.5
+                    std_ret = variance**0.5
                     live_sharpe = (mean_ret / std_ret) if std_ret > 0 else 0.0
         except Exception:
             pass
@@ -36,7 +42,9 @@ class DriftCheck:
                 # Backtest repo stores results keyed by job_id; we use profile_id convention
                 result = await self._backtest_repo.get_result(f"latest-{profile_id}")
                 if result:
-                    backtest_sharpe = float(result.get("sharpe", 0.0))  # float-ok: statistical metric
+                    backtest_sharpe = float(
+                        result.get("sharpe", 0.0)
+                    )  # float-ok: statistical metric
             except Exception:
                 pass
 
@@ -57,12 +65,12 @@ class DriftCheck:
         if drop_pct >= halt_threshold:
             return CheckResult(
                 passed=False,
-                reason=f"Drift RED: Live Sharpe ({live_sharpe:.2f}) dropped {drop_pct*100:.1f}% vs backtest ({backtest_sharpe:.2f}), exceeding halt threshold of {halt_threshold*100:.1f}%"
+                reason=f"Drift RED: Live Sharpe ({live_sharpe:.2f}) dropped {drop_pct*100:.1f}% vs backtest ({backtest_sharpe:.2f}), exceeding halt threshold of {halt_threshold*100:.1f}%",
             )
         elif drop_pct >= amber_threshold:
             return CheckResult(
                 passed=False,
-                reason=f"Drift AMBER: Live Sharpe ({live_sharpe:.2f}) dropped {drop_pct*100:.1f}% vs backtest ({backtest_sharpe:.2f})"
+                reason=f"Drift AMBER: Live Sharpe ({live_sharpe:.2f}) dropped {drop_pct*100:.1f}% vs backtest ({backtest_sharpe:.2f})",
             )
 
         return CheckResult(passed=True)

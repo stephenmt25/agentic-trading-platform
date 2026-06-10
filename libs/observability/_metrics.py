@@ -1,43 +1,32 @@
-from typing import Dict, Any
-import structlog
 import time
+from typing import Any, Dict
+
+import structlog
 
 logger = structlog.get_logger("system.metrics")
+
 
 class MetricsCollector:
     @staticmethod
     def track_latency(op: str, duration_ms: float, tags: Dict[str, Any] = None):
         t = tags or {}
         # Structured log emitted which can be parsed by Datadog or Prometheus log bridge
-        logger.info(
-            "metrics.latency",
-            operation=op,
-            duration_ms=duration_ms,
-            **t
-        )
+        logger.info("metrics.latency", operation=op, duration_ms=duration_ms, **t)
 
     @staticmethod
     def increment_counter(metric: str, tags: Dict[str, Any] = None):
         t = tags or {}
-        logger.info(
-            "metrics.counter",
-            metric=metric,
-            count=1,
-            **t
-        )
+        logger.info("metrics.counter", metric=metric, count=1, **t)
 
     @staticmethod
     def set_gauge(metric: str, value: float, tags: Dict[str, Any] = None):
         t = tags or {}
-        logger.info(
-            "metrics.gauge",
-            metric=metric,
-            value=value,
-            **t
-        )
+        logger.info("metrics.gauge", metric=metric, value=value, **t)
+
 
 class timer:
     """Context manager to easily track latency of a block."""
+
     def __init__(self, op_name: str, **tags):
         self.op_name = op_name
         self.tags = tags

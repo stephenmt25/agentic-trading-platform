@@ -22,7 +22,6 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from libs.config import settings
 from libs.storage._timescale_client import TimescaleClient
 
-
 # Order matters: child tables before parents to respect FK constraints even without CASCADE.
 # Hypertables (orders, pnl_snapshots, trade_decisions, validation_events, agent_score_history,
 # agent_weight_history) are truncated via TRUNCATE which Timescale handles natively.

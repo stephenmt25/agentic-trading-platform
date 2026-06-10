@@ -1,19 +1,19 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
-import uvicorn
-
-from libs.config import settings
 from decimal import Decimal
 
-from libs.storage import RedisClient
-from libs.storage.repositories.market_data_repo import MarketDataRepository
-from libs.storage.repositories.agent_score_repo import AgentScoreRepository
-from libs.storage._timescale_client import TimescaleClient
+import uvicorn
+from fastapi import FastAPI
+
+from libs.config import settings
 from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
+from libs.storage import RedisClient
+from libs.storage._timescale_client import TimescaleClient
+from libs.storage.repositories.agent_score_repo import AgentScoreRepository
+from libs.storage.repositories.market_data_repo import MarketDataRepository
+
 from .checkpoint import load_checkpoint
 from .hmm_model import HMMRegimeModel
 from .regime_mapper import map_state_to_regime
@@ -34,7 +34,12 @@ HMM_PREDICT_WINDOW = 1
 CONFIDENCE_THRESHOLD = settings.REGIME_HMM_CONFIDENCE_THRESHOLD
 
 
-async def classification_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
+async def classification_loop(
+    redis_client,
+    market_repo: MarketDataRepository,
+    telemetry: TelemetryPublisher,
+    score_repo: AgentScoreRepository = None,
+):
     """Periodically classify market regime using HMM and write to Redis.
 
     On startup, prefer an offline checkpoint at ``models/regime_hmm_<SYM>.pkl``
@@ -56,19 +61,29 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository, t
             )
         else:
             if cp is not None:
-                logger.warning("HMM checkpoint stale; will refit in-process", symbol=sym, trained_at=cp.trained_at.isoformat())
+                logger.warning(
+                    "HMM checkpoint stale; will refit in-process",
+                    symbol=sym,
+                    trained_at=cp.trained_at.isoformat(),
+                )
             models[sym] = HMMRegimeModel()
 
     while True:
         try:
             for symbol in symbols:
-                await telemetry.emit("input_received", {"symbol": symbol, "message_type": "candle_load"}, source_agent="ingestion")
+                await telemetry.emit(
+                    "input_received",
+                    {"symbol": symbol, "message_type": "candle_load"},
+                    source_agent="ingestion",
+                )
                 # Fetch recent 1h candles for regime classification
                 candles = await market_repo.get_candles(symbol, "1h", limit=500)
                 if not candles:
                     continue
 
-                prices = [float(c["close"]) for c in candles]  # float-ok: numpy/hmmlearn requires float
+                prices = [
+                    float(c["close"]) for c in candles
+                ]  # float-ok: numpy/hmmlearn requires float
                 model = models[symbol]
 
                 # Split: train on all but last N points, predict on full series
@@ -93,11 +108,20 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository, t
                     regime = map_state_to_regime(model, state)
                     if regime:
                         confidence = model.predict_confidence(prices, state)
-                        if confidence is not None and confidence >= CONFIDENCE_THRESHOLD:
+                        if (
+                            confidence is not None
+                            and confidence >= CONFIDENCE_THRESHOLD
+                        ):
                             key = f"agent:regime_hmm:{symbol}"
                             await redis_client.set(
                                 key,
-                                json.dumps({"regime": regime.value, "state_index": state, "confidence": confidence}),
+                                json.dumps(
+                                    {
+                                        "regime": regime.value,
+                                        "state_index": state,
+                                        "confidence": confidence,
+                                    }
+                                ),
                                 ex=SCORE_TTL_S,
                             )
                             # Persist to TimescaleDB for charting overlays
@@ -108,13 +132,19 @@ async def classification_loop(redis_client, market_repo: MarketDataRepository, t
                                     # frontend's `score !== 0` hydration check to mark regime "dark").
                                     # Categorical regime label + state index live in metadata.
                                     await score_repo.write_score(
-                                        symbol, "regime_hmm",
+                                        symbol,
+                                        "regime_hmm",
                                         Decimal(str(confidence)),
                                         confidence=Decimal(str(confidence)),
-                                        metadata={"regime": regime.value, "state_index": state},
+                                        metadata={
+                                            "regime": regime.value,
+                                            "state_index": state,
+                                        },
                                     )
                                 except Exception as pe:
-                                    logger.warning("Failed to persist regime score", error=str(pe))
+                                    logger.warning(
+                                        "Failed to persist regime score", error=str(pe)
+                                    )
                             logger.info(
                                 "HMM regime updated",
                                 symbol=symbol,

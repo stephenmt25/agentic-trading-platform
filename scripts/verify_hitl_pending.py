@@ -1,4 +1,5 @@
 """Hit GET /hitl/pending and report what the Approvals panel will see at first paint."""
+
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
@@ -28,12 +29,17 @@ async def first_user_id() -> str:
 
 def main() -> None:
     token = jwt.encode(
-        {"sub": asyncio.run(first_user_id()),
-         "exp": datetime.now(timezone.utc) + timedelta(hours=1)},
-        env("PRAXIS_SECRET_KEY"), algorithm="HS256",
+        {
+            "sub": asyncio.run(first_user_id()),
+            "exp": datetime.now(timezone.utc) + timedelta(hours=1),
+        },
+        env("PRAXIS_SECRET_KEY"),
+        algorithm="HS256",
     )
-    req = Request("http://localhost:8000/hitl/pending",
-                  headers={"Authorization": f"Bearer {token}"})
+    req = Request(
+        "http://localhost:8000/hitl/pending",
+        headers={"Authorization": f"Bearer {token}"},
+    )
     try:
         with urlopen(req, timeout=5) as r:
             print(f"HTTP {r.status}")
@@ -47,7 +53,9 @@ def main() -> None:
                 print(f"    trigger={item.get('trigger_reason')}")
                 ts = item.get("timestamp_us", 0) // 1000
                 if ts:
-                    print(f"    when: {datetime.fromtimestamp(ts/1000, tz=timezone.utc)}")
+                    print(
+                        f"    when: {datetime.fromtimestamp(ts/1000, tz=timezone.utc)}"
+                    )
     except HTTPError as e:
         print(f"HTTP {e.code}: {e.read().decode()}")
 

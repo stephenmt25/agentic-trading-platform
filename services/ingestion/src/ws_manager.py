@@ -14,15 +14,23 @@ class WebSocketManager:
         self._tasks: List[asyncio.Task] = []
         self._tick_cb: Callable[[NormalisedTick], Coroutine[Any, Any, None]] = None
         self._candle_cb: Callable[[NormalisedCandle], Coroutine[Any, Any, None]] = None
-        self._orderbook_cb: Optional[Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]]] = None
-        self._trade_cb: Optional[Callable[[NormalisedTrade], Coroutine[Any, Any, None]]] = None
+        self._orderbook_cb: Optional[
+            Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]]
+        ] = None
+        self._trade_cb: Optional[
+            Callable[[NormalisedTrade], Coroutine[Any, Any, None]]
+        ] = None
 
     async def start(
         self,
         tick_callback: Callable[[NormalisedTick], Coroutine[Any, Any, None]],
         candle_callback: Callable[[NormalisedCandle], Coroutine[Any, Any, None]] = None,
-        orderbook_callback: Optional[Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]]] = None,
-        trade_callback: Optional[Callable[[NormalisedTrade], Coroutine[Any, Any, None]]] = None,
+        orderbook_callback: Optional[
+            Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]]
+        ] = None,
+        trade_callback: Optional[
+            Callable[[NormalisedTrade], Coroutine[Any, Any, None]]
+        ] = None,
     ):
         """Start one concurrent task per adapter per stream.
 

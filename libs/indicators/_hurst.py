@@ -47,7 +47,7 @@ class HurstCalculator:
         if self._count < cap:
             prices = self._buf[: self._count]
         else:
-            prices = self._buf[self._idx:] + self._buf[: self._idx]
+            prices = self._buf[self._idx :] + self._buf[: self._idx]
 
         # Log returns
         n = self.window

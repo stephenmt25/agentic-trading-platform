@@ -1,18 +1,21 @@
 import json as _json
 from decimal import Decimal
-from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Request
 from typing import List
-from ..deps import get_profile_repo, get_current_user
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException
+
 from libs.core.schemas import (
     ProfileCreate,
-    ProfileUpdate,
-    ProfileToggle,
     ProfileResponse,
-    strategy_rules_to_canonical,
+    ProfileToggle,
+    ProfileUpdate,
     strategy_rules_from_canonical,
+    strategy_rules_to_canonical,
 )
 from libs.storage.repositories.profile_repo import ProfileRepository
+
+from ..deps import get_current_user, get_profile_repo
 
 router = APIRouter(tags=["profiles"])
 
@@ -54,17 +57,21 @@ async def get_profiles(
                 raw_risk = {}
         if not isinstance(raw_risk, dict):
             raw_risk = {}
-        results.append(ProfileResponse(
-            profile_id=str(p.get("profile_id", "")),
-            name=p.get("name", ""),
-            is_active=p.get("is_active", False),
-            rules_json=rules_dict,
-            rules_json_canonical=raw_rules,
-            allocation_pct=Decimal(str(p.get("allocation_pct", 0))),
-            risk_limits=raw_risk,
-            created_at=str(p.get("created_at", "")),
-            deleted_at=str(p.get("deleted_at", "")) if p.get("deleted_at") else None,
-        ))
+        results.append(
+            ProfileResponse(
+                profile_id=str(p.get("profile_id", "")),
+                name=p.get("name", ""),
+                is_active=p.get("is_active", False),
+                rules_json=rules_dict,
+                rules_json_canonical=raw_rules,
+                allocation_pct=Decimal(str(p.get("allocation_pct", 0))),
+                risk_limits=raw_risk,
+                created_at=str(p.get("created_at", "")),
+                deleted_at=(
+                    str(p.get("deleted_at", "")) if p.get("deleted_at") else None
+                ),
+            )
+        )
     return results
 
 
@@ -84,7 +91,11 @@ async def create_profile(
             risk_limits=profile_data.risk_limits,
             allocation_pct=profile_data.allocation_pct,
         )
-        return {"status": "created", "id": str(created.get("profile_id", "")), "profile": created}
+        return {
+            "status": "created",
+            "id": str(created.get("profile_id", "")),
+            "profile": created,
+        }
     except Exception:
         raise HTTPException(status_code=500, detail="Failed to create profile")
 

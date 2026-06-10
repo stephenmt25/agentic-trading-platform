@@ -10,6 +10,7 @@ typesetting layer).
 Run from the project root:
     python scripts/build_ui_walkthrough_redesign_pdf.py
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -20,8 +21,8 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.platypus import Image as RLImage
 from reportlab.platypus import (
-    Image as RLImage,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -29,7 +30,6 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
-
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRNSHTS = ROOT / "scrnshts" / "redesign"
@@ -125,7 +125,9 @@ def fit_image(path: Path, max_w: float, max_h: float):
 
 def hr() -> Table:
     t = Table([[""]], colWidths=[USABLE_W], rowHeights=[1])
-    t.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4d9"))]))
+    t.setStyle(
+        TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4d9"))])
+    )
     return t
 
 
@@ -144,7 +146,11 @@ def section(
     story.append(Paragraph(title, s["h2"]))
     if status_tag:
         story.append(Paragraph(status_tag, s["tag"]))
-    story.append(Paragraph(f"<i>Screenshot:</i> <font face='Courier'>{file_label}</font>", s["caption"]))
+    story.append(
+        Paragraph(
+            f"<i>Screenshot:</i> <font face='Courier'>{file_label}</font>", s["caption"]
+        )
+    )
     story.append(fit_image(image, USABLE_W, 5.5 * inch))
     story.append(Spacer(1, 6))
     story.append(Paragraph(summary, s["body"]))
@@ -155,7 +161,9 @@ def section(
     if code_refs:
         story.append(Paragraph("<b>Source of truth (code)</b>", s["h3"]))
         for c in code_refs:
-            story.append(Paragraph(f"<font face='Courier' size='9'>{c}</font>", s["body"]))
+            story.append(
+                Paragraph(f"<font face='Courier' size='9'>{c}</font>", s["body"])
+            )
     story.append(Spacer(1, 8))
     story.append(hr())
     story.append(Spacer(1, 8))
@@ -180,46 +188,62 @@ def build() -> None:
     story.append(Paragraph("Praxis Trading Platform", s["h1"]))
     story.append(Paragraph("UI Walkthrough &mdash; Partner Brief (Redesign)", s["h2"]))
     story.append(Spacer(1, 0.15 * inch))
-    story.append(Paragraph(
-        "This document walks through the redesigned Praxis dashboard one surface at a time. "
-        "The frontend was rebuilt over Phases 1&ndash;9 of the redesign program; the merged "
-        "design portfolio (<font face='Courier'>docs/design/</font>) governs visual and IA "
-        "decisions. Every behavior described below is grounded in source code &mdash; file "
-        "paths and line ranges are listed under each section.",
-        s["body"],
-    ))
+    story.append(
+        Paragraph(
+            "This document walks through the redesigned Praxis dashboard one surface at a time. "
+            "The frontend was rebuilt over Phases 1&ndash;9 of the redesign program; the merged "
+            "design portfolio (<font face='Courier'>docs/design/</font>) governs visual and IA "
+            "decisions. Every behavior described below is grounded in source code &mdash; file "
+            "paths and line ranges are listed under each section.",
+            s["body"],
+        )
+    )
     story.append(Spacer(1, 0.1 * inch))
-    story.append(Paragraph(
-        "The redesign is organized around <b>five canonical surfaces</b> and a shared chrome:",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Hot Trading</b> &mdash; <font face='Courier'>/hot/{symbol}</font> &mdash; the cockpit, max density. 70%+ of session time.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Agent Observatory</b> &mdash; <font face='Courier'>/agents/observatory</font> &mdash; the analyst&apos;s workbench. 15&ndash;25% of session.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Risk Control</b> &mdash; <font face='Courier'>/risk</font> &mdash; highest-stakes surface; must stay responsive when others degrade.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Backtesting</b> &mdash; <font face='Courier'>/backtests</font> + detail / compare &mdash; validate profile changes before they go live.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Settings</b> &mdash; <font face='Courier'>/settings/{section}</font> &mdash; CALM mode; configure intent, not react to markets.",
-        s["body"],
-    ))
+    story.append(
+        Paragraph(
+            "The redesign is organized around <b>five canonical surfaces</b> and a shared chrome:",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Hot Trading</b> &mdash; <font face='Courier'>/hot/{symbol}</font> &mdash; the cockpit, max density. 70%+ of session time.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Agent Observatory</b> &mdash; <font face='Courier'>/agents/observatory</font> &mdash; the analyst&apos;s workbench. 15&ndash;25% of session.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Risk Control</b> &mdash; <font face='Courier'>/risk</font> &mdash; highest-stakes surface; must stay responsive when others degrade.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Backtesting</b> &mdash; <font face='Courier'>/backtests</font> + detail / compare &mdash; validate profile changes before they go live.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Settings</b> &mdash; <font face='Courier'>/settings/{section}</font> &mdash; CALM mode; configure intent, not react to markets.",
+            s["body"],
+        )
+    )
     story.append(Spacer(1, 0.15 * inch))
-    story.append(Paragraph(
-        "<b>Mode contract.</b> Every surface declares <font face='Courier'>data-mode=\"hot|cool|calm\"</font> on its root. "
-        "The three modes share a token vocabulary but differ in density, visual budget, and tone. "
-        "HOT is the cockpit; COOL is the analyst&apos;s workbench; CALM is the office where you configure intent.",
-        s["body"],
-    ))
+    story.append(
+        Paragraph(
+            "<b>Mode contract.</b> Every surface declares <font face='Courier'>data-mode=\"hot|cool|calm\"</font> on its root. "
+            "The three modes share a token vocabulary but differ in density, visual budget, and tone. "
+            "HOT is the cockpit; COOL is the analyst&apos;s workbench; CALM is the office where you configure intent.",
+            s["body"],
+        )
+    )
     story.append(Spacer(1, 0.2 * inch))
     story.append(Paragraph("Contents", s["h3"]))
     toc = [
@@ -255,7 +279,8 @@ def build() -> None:
 
     # ── 1. Hot Trading default ──────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="1. Hot Trading &mdash; cockpit",
         file_label="hot_trading_default.png",
         image=SCRNSHTS / "hot_trading_default.png",
@@ -288,7 +313,8 @@ def build() -> None:
 
     # ── 1A. Chrome — Engine-totals pill (Phase 10.1) ────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="Chrome &mdash; Engine-totals pill <i>(new, Phase 10.1)</i>",
         file_label="chrome_engine_pill_expanded.png",
         image=SCRNSHTS / "chrome_engine_pill_expanded.png",
@@ -316,7 +342,8 @@ def build() -> None:
 
     # ── 1B. Profile comparison grid (Phase 10.2) ────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="Hot Trading &mdash; Profile comparison grid <i>(new, Phase 10.2)</i>",
         file_label="hot_profiles_grid.png",
         image=SCRNSHTS / "hot_profiles_grid.png",
@@ -342,7 +369,8 @@ def build() -> None:
 
     # ── 1C. Profile cockpit — Decisions tab (Phase 10.3) ────────────────
     section(
-        story, s,
+        story,
+        s,
         title="Profile cockpit &mdash; Decisions tab <i>(new, Phase 10.3)</i>",
         file_label="cockpit_decisions.png",
         image=SCRNSHTS / "cockpit_decisions.png",
@@ -370,7 +398,8 @@ def build() -> None:
 
     # ── 1C-drawer. Decision drill-down drawer ───────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="Profile cockpit &mdash; Decision drill-down drawer <i>(new, Phase 10.3)</i>",
         file_label="cockpit_decisions_drawer.png",
         image=SCRNSHTS / "cockpit_decisions_drawer.png",
@@ -398,7 +427,8 @@ def build() -> None:
 
     # ── 1D. Profile cockpit — Positions tab (Phase 10.3) ────────────────
     section(
-        story, s,
+        story,
+        s,
         title="Profile cockpit &mdash; Positions tab <i>(new, Phase 10.3)</i>",
         file_label="cockpit_positions.png",
         image=SCRNSHTS / "cockpit_positions.png",
@@ -422,7 +452,8 @@ def build() -> None:
 
     # ── 1D-drawer. Position chain drill-down drawer ─────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="Profile cockpit &mdash; Position chain drill-down drawer <i>(new, Phase 10.3)</i>",
         file_label="cockpit_positions_drawer.png",
         image=SCRNSHTS / "cockpit_positions_drawer.png",
@@ -450,7 +481,8 @@ def build() -> None:
 
     # ── 1E. Profile cockpit — Daily P&L tab (Phase 10.4) ────────────────
     section(
-        story, s,
+        story,
+        s,
         title="Profile cockpit &mdash; Daily P&amp;L tab <i>(new, Phase 10.4)</i>",
         file_label="cockpit_daily_pnl.png",
         image=SCRNSHTS / "cockpit_daily_pnl.png",
@@ -475,7 +507,8 @@ def build() -> None:
 
     # ── 1E-drawer. Day transparency drill-down drawer ───────────────────
     section(
-        story, s,
+        story,
+        s,
         title="Profile cockpit &mdash; Day transparency drill-down drawer <i>(new, Phase 10.4)</i>",
         file_label="cockpit_daily_pnl_drawer.png",
         image=SCRNSHTS / "cockpit_daily_pnl_drawer.png",
@@ -503,7 +536,8 @@ def build() -> None:
 
     # ── 1F. Profile cockpit — Attribution tab (Phase 10.4) ──────────────
     section(
-        story, s,
+        story,
+        s,
         title="Profile cockpit &mdash; Attribution tab <i>(new, Phase 10.4)</i>",
         file_label="cockpit_attribution.png",
         image=SCRNSHTS / "cockpit_attribution.png",
@@ -527,7 +561,8 @@ def build() -> None:
 
     # ── 2. Agent Observatory default ────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="2. Agent Observatory",
         file_label="observatory_default.png",
         image=SCRNSHTS / "observatory_default.png",
@@ -556,7 +591,8 @@ def build() -> None:
 
     # ── 3. Risk Control ─────────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="3. Risk Control",
         file_label="risk_control_default.png",
         image=SCRNSHTS / "risk_control_default.png",
@@ -584,7 +620,8 @@ def build() -> None:
 
     # ── 3A. Risk Control — all-profiles matrix (Phase 10.1) ─────────────
     section(
-        story, s,
+        story,
+        s,
         title="Risk Control &mdash; All-profiles risk matrix <i>(new, Phase 10.1)</i>",
         file_label="risk_profiles_matrix.png",
         image=SCRNSHTS / "risk_profiles_matrix.png",
@@ -612,7 +649,8 @@ def build() -> None:
 
     # ── 4. Backtests list ───────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="4. Backtesting &mdash; run list",
         file_label="backtests_list.png",
         image=SCRNSHTS / "backtests_list.png",
@@ -639,7 +677,8 @@ def build() -> None:
 
     # ── 5. Backtest detail ──────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="5. Backtesting &mdash; run detail",
         file_label="backtests_detail.png",
         image=SCRNSHTS / "backtests_detail.png",
@@ -664,7 +703,8 @@ def build() -> None:
 
     # ── 6. Backtests compare ────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="6. Backtesting &mdash; compare view",
         file_label="backtests_compare.png",
         image=SCRNSHTS / "backtests_compare.png",
@@ -689,7 +729,8 @@ def build() -> None:
 
     # ── 7. Settings nav ─────────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="7. Settings &mdash; navigation",
         file_label="settings_nav.png",
         image=SCRNSHTS / "settings_nav.png",
@@ -714,7 +755,8 @@ def build() -> None:
 
     # ── 8. Settings profiles ────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="8. Settings &mdash; Profiles",
         file_label="settings_profiles.png",
         image=SCRNSHTS / "settings_profiles.png",
@@ -734,7 +776,8 @@ def build() -> None:
 
     # ── 9. Settings exchange keys ───────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="9. Settings &mdash; Exchange keys",
         file_label="settings_exchange_keys.png",
         image=SCRNSHTS / "settings_exchange_keys.png",
@@ -757,7 +800,8 @@ def build() -> None:
 
     # ── 10. Settings risk defaults (NEWLY WIRED) ────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="10. Settings &mdash; Risk defaults",
         file_label="settings_risk_defaults.png",
         image=SCRNSHTS / "settings_risk_defaults.png",
@@ -787,7 +831,8 @@ def build() -> None:
 
     # ── 11. Settings notifications ──────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="11. Settings &mdash; Notifications",
         file_label="settings_notifications.png",
         image=SCRNSHTS / "settings_notifications.png",
@@ -812,7 +857,8 @@ def build() -> None:
 
     # ── 12. Settings tax ────────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="12. Settings &mdash; Tax",
         file_label="settings_tax.png",
         image=SCRNSHTS / "settings_tax.png",
@@ -837,7 +883,8 @@ def build() -> None:
 
     # ── 13. Settings account ────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="13. Settings &mdash; Account",
         file_label="settings_account.png",
         image=SCRNSHTS / "settings_account.png",
@@ -854,7 +901,8 @@ def build() -> None:
 
     # ── 14. Settings sessions (NEWLY WIRED) ─────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="14. Settings &mdash; Sessions / API",
         file_label="settings_sessions.png",
         image=SCRNSHTS / "settings_sessions.png",
@@ -892,7 +940,8 @@ def build() -> None:
 
     # ── 15. Settings audit ──────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="15. Settings &mdash; Audit log",
         file_label="settings_audit.png",
         image=SCRNSHTS / "settings_audit.png",
@@ -923,37 +972,51 @@ def build() -> None:
     # ── Closer ─────────────────────────────────────────────────────────
     story.append(PageBreak())
     story.append(Paragraph("What ships next", s["h2"]))
-    story.append(Paragraph(
-        "Five Pending items remain on the post-cutover backlog. Two of the five (Risk defaults, Sessions) "
-        "were wired in this push; three remain:",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Risk defaults &mdash; recompile fan-out</b> &mdash; propagate user-level saves to running profiles. Today defaults apply to new profiles only.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Notifications matrix</b> &mdash; replace the two coarse booleans with email &times; push &times; audible per event.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Tax report generator</b> &mdash; service-side persistence + FIFO / HIFO / LIFO export + year-history.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>API tokens + webhook destinations</b> &mdash; on the Sessions page. Builds on the session-revocation pattern that landed today.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>Audit log per-source emitters</b> &mdash; profile changes, API-key rotations, agent overrides, failed sign-ins.",
-        s["body"],
-    ))
+    story.append(
+        Paragraph(
+            "Five Pending items remain on the post-cutover backlog. Two of the five (Risk defaults, Sessions) "
+            "were wired in this push; three remain:",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Risk defaults &mdash; recompile fan-out</b> &mdash; propagate user-level saves to running profiles. Today defaults apply to new profiles only.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Notifications matrix</b> &mdash; replace the two coarse booleans with email &times; push &times; audible per event.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Tax report generator</b> &mdash; service-side persistence + FIFO / HIFO / LIFO export + year-history.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>API tokens + webhook destinations</b> &mdash; on the Sessions page. Builds on the session-revocation pattern that landed today.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>Audit log per-source emitters</b> &mdash; profile changes, API-key rotations, agent overrides, failed sign-ins.",
+            s["body"],
+        )
+    )
     story.append(Spacer(1, 0.2 * inch))
-    story.append(Paragraph(
-        "Each is its own backlog project. The FE shells already render with honest Pending tags per ADR-013 &mdash; "
-        "render structure, never fake. As each backend lands, the corresponding panel populates with no UI change needed.",
-        s["body"],
-    ))
+    story.append(
+        Paragraph(
+            "Each is its own backlog project. The FE shells already render with honest Pending tags per ADR-013 &mdash; "
+            "render structure, never fake. As each backend lands, the corresponding panel populates with no UI change needed.",
+            s["body"],
+        )
+    )
 
     doc.build(story)
     print(f"Wrote {OUT_PDF.relative_to(ROOT)} ({OUT_PDF.stat().st_size / 1024:.0f} KB)")

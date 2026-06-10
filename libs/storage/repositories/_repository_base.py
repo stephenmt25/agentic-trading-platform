@@ -1,5 +1,7 @@
 from typing import Any, List, Optional
+
 from .._timescale_client import TimescaleClient
+
 
 class BaseRepository:
     def __init__(self, db_client: TimescaleClient):

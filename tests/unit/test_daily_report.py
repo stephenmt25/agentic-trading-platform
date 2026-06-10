@@ -6,6 +6,7 @@ fragility found during the Phase 0 boot smoke-test (run_all.sh boots all 19
 services + migrations concurrently, and the backfill query timed out against
 the cold, contended TimescaleDB).
 """
+
 import asyncio
 import importlib.util
 from pathlib import Path
@@ -28,18 +29,23 @@ class TestInitialBackfill:
             if calls["n"] < 3:
                 raise TimeoutError("cold DB")
 
-        with patch.object(daily_report, "backfill", flaky), \
-             patch.object(daily_report.asyncio, "sleep", AsyncMock()):
+        with (
+            patch.object(daily_report, "backfill", flaky),
+            patch.object(daily_report.asyncio, "sleep", AsyncMock()),
+        ):
             asyncio.run(daily_report._initial_backfill(object(), attempts=5))
         assert calls["n"] == 3
 
     def test_survives_when_all_attempts_fail(self):
         """After exhausting retries the daemon proceeds — it must NOT raise."""
+
         async def always_fail(_db):
             raise TimeoutError("cold DB")
 
-        with patch.object(daily_report, "backfill", always_fail), \
-             patch.object(daily_report.asyncio, "sleep", AsyncMock()):
+        with (
+            patch.object(daily_report, "backfill", always_fail),
+            patch.object(daily_report.asyncio, "sleep", AsyncMock()),
+        ):
             # No exception escapes — the daemon falls through to its loop.
             asyncio.run(daily_report._initial_backfill(object(), attempts=3))
 
@@ -50,7 +56,9 @@ class TestInitialBackfill:
         async def ok(_db):
             return None
 
-        with patch.object(daily_report, "backfill", ok), \
-             patch.object(daily_report.asyncio, "sleep", sleep_mock):
+        with (
+            patch.object(daily_report, "backfill", ok),
+            patch.object(daily_report.asyncio, "sleep", sleep_mock),
+        ):
             asyncio.run(daily_report._initial_backfill(object(), attempts=5))
         sleep_mock.assert_not_awaited()

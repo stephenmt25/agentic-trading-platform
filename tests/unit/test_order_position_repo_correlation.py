@@ -114,7 +114,9 @@ class TestPositionRepoCorrelation:
     @pytest.mark.asyncio
     async def test_nulls_pass_through(self):
         repo, db = _make_position_repo()
-        await repo.create_position(_make_position(order_id=None, decision_event_id=None))
+        await repo.create_position(
+            _make_position(order_id=None, decision_event_id=None)
+        )
         _, *args = db.execute.call_args.args
         assert args[-2] is None
         assert args[-1] is None

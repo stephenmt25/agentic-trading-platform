@@ -4,22 +4,24 @@ Tests the AgentPerformanceTracker EWMA logic and the updated AgentModifier
 with dynamic weights. Uses a FakeRedis-like in-memory mock.
 """
 
-import pytest
 import json
-import time
-from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 from libs.core.agent_registry import (
-    AgentPerformanceTracker, AGENT_DEFAULTS, MIN_WEIGHT, MAX_WEIGHT,
-    EWMA_ALPHA, MIN_SAMPLES, WEIGHTS_KEY, CLOSED_KEY, TRACKER_KEY,
+    AGENT_DEFAULTS,
+    MAX_WEIGHT,
+    MIN_WEIGHT,
+    AgentPerformanceTracker,
 )
+from libs.core.enums import SignalDirection
 from services.hot_path.src.agent_modifier import AgentModifier
 from services.hot_path.src.strategy_eval import SignalResult
-from libs.core.enums import SignalDirection
-
 
 # ---------------------------------------------------------------------------
 # Fake Redis for unit testing
 # ---------------------------------------------------------------------------
+
 
 class FakeRedis:
     """Minimal async Redis mock supporting get/set/hset/hgetall/xadd/xrevrange/pipeline/expire/delete."""
@@ -96,11 +98,13 @@ class BytesFakeRedis(FakeRedis):
     """FakeRedis variant that returns bytes-keyed/-valued hash dicts.
     Matches the default decode_responses=False behaviour of redis-py, which
     is what the shared RedisClient uses in production."""
+
     async def hgetall(self, key):
         d = self._store.get(key, {})
         return {
-            (k.encode() if isinstance(k, str) else k):
-            (v.encode() if isinstance(v, str) else v)
+            (k.encode() if isinstance(k, str) else k): (
+                v.encode() if isinstance(v, str) else v
+            )
             for k, v in d.items()
         }
 
@@ -108,6 +112,7 @@ class BytesFakeRedis(FakeRedis):
 # ---------------------------------------------------------------------------
 # AgentPerformanceTracker tests
 # ---------------------------------------------------------------------------
+
 
 class TestAgentPerformanceTracker:
 
@@ -121,10 +126,13 @@ class TestAgentPerformanceTracker:
 
     @pytest.mark.asyncio
     async def test_record_agent_scores(self, tracker, redis):
-        await tracker.record_agent_scores("BTC/USDT", {
-            "ta": {"direction": "BUY", "score": 0.7},
-            "sentiment": {"direction": "BUY", "score": 0.3},
-        })
+        await tracker.record_agent_scores(
+            "BTC/USDT",
+            {
+                "ta": {"direction": "BUY", "score": 0.7},
+                "sentiment": {"direction": "BUY", "score": 0.3},
+            },
+        )
         stream_key = "agent:outcomes:BTC/USDT"
         assert stream_key in redis._streams
         assert len(redis._streams[stream_key]) == 2
@@ -172,7 +180,9 @@ class TestAgentPerformanceTracker:
         assert MIN_WEIGHT <= ta_weight <= MAX_WEIGHT
 
     @pytest.mark.asyncio
-    async def test_recompute_weights_below_min_samples_uses_defaults(self, tracker, redis):
+    async def test_recompute_weights_below_min_samples_uses_defaults(
+        self, tracker, redis
+    ):
         # Only 3 outcomes — below MIN_SAMPLES
         for i in range(3):
             await tracker.record_position_close(
@@ -197,9 +207,13 @@ class TestAgentPerformanceTracker:
 
     @pytest.mark.asyncio
     async def test_get_weights_reads_from_redis(self, redis):
-        await redis.hset("agent:weights:BTC/USDT", mapping={
-            "ta": "0.30", "sentiment": "0.10",
-        })
+        await redis.hset(
+            "agent:weights:BTC/USDT",
+            mapping={
+                "ta": "0.30",
+                "sentiment": "0.10",
+            },
+        )
         weights = await AgentPerformanceTracker.get_weights(redis, "BTC/USDT")
         assert weights["ta"] == 0.30
         assert weights["sentiment"] == 0.10
@@ -208,10 +222,13 @@ class TestAgentPerformanceTracker:
 
     @pytest.mark.asyncio
     async def test_get_weights_clamps_values(self, redis):
-        await redis.hset("agent:weights:BTC/USDT", mapping={
-            "ta": "5.0",  # above MAX
-            "sentiment": "0.001",  # below MIN
-        })
+        await redis.hset(
+            "agent:weights:BTC/USDT",
+            mapping={
+                "ta": "5.0",  # above MAX
+                "sentiment": "0.001",  # below MIN
+            },
+        )
         weights = await AgentPerformanceTracker.get_weights(redis, "BTC/USDT")
         assert weights["ta"] == MAX_WEIGHT
         assert weights["sentiment"] == MIN_WEIGHT
@@ -236,10 +253,16 @@ class TestAgentPerformanceTracker:
             )
         await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
         first_pass = bytes_redis._store["agent:tracker:BTC/USDT:ta"]
-        first_samples = int((first_pass[b"sample_count"]
-                             if isinstance(list(first_pass.keys())[0], bytes)
-                             else first_pass["sample_count"]))
-        assert first_samples == 11, f"expected 11 samples after first pass, got {first_samples}"
+        first_samples = int(
+            (
+                first_pass[b"sample_count"]
+                if isinstance(list(first_pass.keys())[0], bytes)
+                else first_pass["sample_count"]
+            )
+        )
+        assert (
+            first_samples == 11
+        ), f"expected 11 samples after first pass, got {first_samples}"
 
         # Second pass with no new outcomes: sample_count must NOT regress
         # (if last_ts is decoded properly, no entries match ts > last_ts)
@@ -249,12 +272,14 @@ class TestAgentPerformanceTracker:
         assert second_pass == first_pass, (
             "second recompute mutated tracker despite no new outcomes — "
             "indicates last_ts is being read as the default 0 instead of the "
-            "stored bytes value")
+            "stored bytes value"
+        )
 
 
 # ---------------------------------------------------------------------------
 # AgentModifier dynamic weight tests
 # ---------------------------------------------------------------------------
+
 
 class TestAgentModifierDynamic:
 
@@ -263,7 +288,9 @@ class TestAgentModifierDynamic:
         return FakeRedis()
 
     def _make_signal(self, direction=SignalDirection.BUY, confidence=0.5):
-        return SignalResult(direction=direction, confidence=confidence, rule_matched=True)
+        return SignalResult(
+            direction=direction, confidence=confidence, rule_matched=True
+        )
 
     @pytest.mark.asyncio
     async def test_uses_default_weights_when_no_dynamic(self, redis):
@@ -302,7 +329,9 @@ class TestAgentModifierDynamic:
     async def test_multiple_agents(self, redis):
         """Multiple agents contribute additively."""
         await redis.set("agent:ta_score:BTC/USDT", json.dumps({"score": 0.5}))
-        await redis.set("agent:sentiment:BTC/USDT", json.dumps({"score": 0.8, "confidence": 1.0}))
+        await redis.set(
+            "agent:sentiment:BTC/USDT", json.dumps({"score": 0.8, "confidence": 1.0})
+        )
         modifier = AgentModifier(redis)
         signal = self._make_signal(confidence=0.5)
 
@@ -327,8 +356,12 @@ class TestAgentModifierDynamic:
         """Confidence should never go below 0 or above 1."""
         # Max positive: all agents agree strongly
         await redis.set("agent:ta_score:BTC/USDT", json.dumps({"score": 1.0}))
-        await redis.set("agent:sentiment:BTC/USDT", json.dumps({"score": 1.0, "confidence": 1.0}))
-        await redis.set("agent:debate:BTC/USDT", json.dumps({"score": 1.0, "confidence": 1.0}))
+        await redis.set(
+            "agent:sentiment:BTC/USDT", json.dumps({"score": 1.0, "confidence": 1.0})
+        )
+        await redis.set(
+            "agent:debate:BTC/USDT", json.dumps({"score": 1.0, "confidence": 1.0})
+        )
         modifier = AgentModifier(redis)
 
         signal = self._make_signal(confidence=0.9)
@@ -337,14 +370,18 @@ class TestAgentModifierDynamic:
 
         signal = self._make_signal(confidence=0.1)
         # With opposing direction
-        result_sell = await modifier.apply("BTC/USDT",
-            self._make_signal(direction=SignalDirection.SELL, confidence=0.1))
+        result_sell = await modifier.apply(
+            "BTC/USDT",
+            self._make_signal(direction=SignalDirection.SELL, confidence=0.1),
+        )
         assert result_sell.confidence >= 0.0
 
     @pytest.mark.asyncio
     async def test_debate_agent_included(self, redis):
         """Debate agent score is picked up when present."""
-        await redis.set("agent:debate:BTC/USDT", json.dumps({"score": 0.9, "confidence": 0.8}))
+        await redis.set(
+            "agent:debate:BTC/USDT", json.dumps({"score": 0.9, "confidence": 0.8})
+        )
         modifier = AgentModifier(redis)
         signal = self._make_signal(confidence=0.5)
 

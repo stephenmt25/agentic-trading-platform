@@ -1,9 +1,13 @@
-from typing import List, Dict, Any
 from datetime import datetime
+from typing import Any, Dict, List
+
 from ._repository_base import BaseRepository
 
+
 class MarketDataRepository(BaseRepository):
-    async def get_candles(self, symbol: str, timeframe: str, limit: int) -> List[Dict[str, Any]]:
+    async def get_candles(
+        self, symbol: str, timeframe: str, limit: int
+    ) -> List[Dict[str, Any]]:
         query = """
         SELECT bucket as "time", open, high, low, close, volume
         FROM market_data_ohlcv
@@ -27,7 +31,9 @@ class MarketDataRepository(BaseRepository):
         records = await self._fetch(query, symbol, timeframe, start, end)
         return [dict(r) for r in records]
 
-    async def write_candle(self, symbol: str, timeframe: str, ohlcv: Dict[str, Any], bucket: datetime):
+    async def write_candle(
+        self, symbol: str, timeframe: str, ohlcv: Dict[str, Any], bucket: datetime
+    ):
         query = """
         INSERT INTO market_data_ohlcv (symbol, timeframe, open, high, low, close, volume, bucket)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -39,10 +45,10 @@ class MarketDataRepository(BaseRepository):
             query,
             symbol,
             timeframe,
-            ohlcv['open'],
-            ohlcv['high'],
-            ohlcv['low'],
-            ohlcv['close'],
-            ohlcv['volume'],
-            bucket
+            ohlcv["open"],
+            ohlcv["high"],
+            ohlcv["low"],
+            ohlcv["close"],
+            ohlcv["volume"],
+            bucket,
         )

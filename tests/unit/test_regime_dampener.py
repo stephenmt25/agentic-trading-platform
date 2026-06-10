@@ -1,27 +1,30 @@
 """Sprint 9.7: Regime dampener and agent modifier verification tests."""
-import json
-import pytest
-import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
 
-from services.hot_path.src.regime_dampener import RegimeDampener, DampenerResult
-from services.hot_path.src.agent_modifier import AgentModifier
-from services.hot_path.src.strategy_eval import SignalResult, EvaluatedIndicators
-from services.hot_path.src.state import ProfileState
-from services.strategy.src.compiler import RuleCompiler
-from libs.indicators import create_indicator_set
-from libs.core.enums import Regime, SignalDirection, EventType
-from libs.core.models import NormalisedTick, RiskLimits
+import json
 from decimal import Decimal
+from unittest.mock import AsyncMock
+
+import pytest
+
+from libs.core.enums import Regime, SignalDirection
+from libs.core.models import NormalisedTick, RiskLimits
+from libs.indicators import create_indicator_set
+from services.hot_path.src.agent_modifier import AgentModifier
+from services.hot_path.src.regime_dampener import DampenerResult, RegimeDampener
+from services.hot_path.src.state import ProfileState
+from services.hot_path.src.strategy_eval import EvaluatedIndicators, SignalResult
+from services.strategy.src.compiler import RuleCompiler
 
 
 def _make_state(profile_id="test-profile"):
-    rules = RuleCompiler.compile({
-        "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-        "logic": "AND",
-        "direction": "BUY",
-        "base_confidence": 0.85,
-    })
+    rules = RuleCompiler.compile(
+        {
+            "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
+        }
+    )
     limits = RiskLimits(
         max_drawdown_pct=Decimal("0.10"),
         stop_loss_pct=Decimal("0.05"),
@@ -44,11 +47,15 @@ def _make_tick(symbol="BTC/USDT", price=50000.0):
 
 
 def _make_signal():
-    return SignalResult(direction=SignalDirection.BUY, confidence=0.85, rule_matched=True)
+    return SignalResult(
+        direction=SignalDirection.BUY, confidence=0.85, rule_matched=True
+    )
 
 
 def _make_indicators():
-    return EvaluatedIndicators(rsi=28.0, macd_line=0.5, signal_line=0.3, histogram=0.2, atr=100.0)
+    return EvaluatedIndicators(
+        rsi=28.0, macd_line=0.5, signal_line=0.3, histogram=0.2, atr=100.0
+    )
 
 
 class TestRegimeDampener:
@@ -59,7 +66,9 @@ class TestRegimeDampener:
         pubsub = AsyncMock()
 
         # HMM says HIGH_VOLATILITY
-        redis.get = AsyncMock(return_value=json.dumps({"regime": "HIGH_VOLATILITY", "state_index": 3}))
+        redis.get = AsyncMock(
+            return_value=json.dumps({"regime": "HIGH_VOLATILITY", "state_index": 3})
+        )
 
         dampener = RegimeDampener(redis_client=redis, pubsub=pubsub)
         state = _make_state()
@@ -85,7 +94,9 @@ class TestRegimeDampener:
         pubsub = AsyncMock()
 
         # HMM says CRISIS
-        redis.get = AsyncMock(return_value=json.dumps({"regime": "CRISIS", "state_index": 4}))
+        redis.get = AsyncMock(
+            return_value=json.dumps({"regime": "CRISIS", "state_index": 4})
+        )
 
         dampener = RegimeDampener(redis_client=redis, pubsub=pubsub)
         state = _make_state()
@@ -129,6 +140,7 @@ class TestRegimeDampener:
 
 class _FakePipeline:
     """Minimal pipeline mock for AgentModifier tests."""
+
     def __init__(self, store):
         self._store = store
         self._commands = []
@@ -151,6 +163,7 @@ class _FakePipeline:
 
 class _FakeRedisForModifier:
     """Fake Redis that supports pipeline() for AgentModifier tests."""
+
     def __init__(self, store=None):
         self._store = store or {}
 
@@ -173,11 +186,15 @@ class TestAgentModifier:
     @pytest.mark.asyncio
     async def test_bullish_ta_boosts_buy_confidence(self):
         """Positive TA score should boost BUY signal confidence."""
-        redis = _FakeRedisForModifier({
-            "agent:ta_score:BTC/USDT": json.dumps({"score": 0.8}),
-        })
+        redis = _FakeRedisForModifier(
+            {
+                "agent:ta_score:BTC/USDT": json.dumps({"score": 0.8}),
+            }
+        )
         modifier = AgentModifier(redis)
-        signal = SignalResult(direction=SignalDirection.BUY, confidence=0.8, rule_matched=True)
+        signal = SignalResult(
+            direction=SignalDirection.BUY, confidence=0.8, rule_matched=True
+        )
 
         result = await modifier.apply("BTC/USDT", signal)
         assert result.confidence > signal.confidence
@@ -185,11 +202,15 @@ class TestAgentModifier:
     @pytest.mark.asyncio
     async def test_bearish_ta_dampens_buy_confidence(self):
         """Negative TA score should dampen BUY signal confidence."""
-        redis = _FakeRedisForModifier({
-            "agent:ta_score:BTC/USDT": json.dumps({"score": -0.8}),
-        })
+        redis = _FakeRedisForModifier(
+            {
+                "agent:ta_score:BTC/USDT": json.dumps({"score": -0.8}),
+            }
+        )
         modifier = AgentModifier(redis)
-        signal = SignalResult(direction=SignalDirection.BUY, confidence=0.8, rule_matched=True)
+        signal = SignalResult(
+            direction=SignalDirection.BUY, confidence=0.8, rule_matched=True
+        )
 
         result = await modifier.apply("BTC/USDT", signal)
         assert result.confidence < signal.confidence

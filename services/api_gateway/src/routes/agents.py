@@ -1,11 +1,14 @@
 """API routes for ML agent status and risk monitoring (Phase 3)."""
+
 import json
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from libs.core.schemas import AgentScore, RiskStatus
-from ..deps import get_redis, get_current_user, get_profile_repo
 from libs.storage.repositories.profile_repo import ProfileRepository
+
+from ..deps import get_current_user, get_profile_repo, get_redis
 
 router = APIRouter()
 

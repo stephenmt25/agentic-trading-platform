@@ -1,10 +1,15 @@
 """Print the specific block reason cited on recent BLOCKED_RISK decisions
 plus the per-profile open-position cost basis."""
-import asyncio, json, sys
+
+import asyncio
+import json
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from libs.config import settings
 import asyncpg
+
+from libs.config import settings
 
 
 async def main() -> int:
@@ -20,8 +25,14 @@ async def main() -> int:
         )
         for r in rows:
             gates = json.loads(r["gates_json"]) if r["gates_json"] else {}
-            reason = gates.get("risk", {}).get("reason") or gates.get("risk_gate", {}).get("reason") or "?"
-            print(f"  {r['created_at'].strftime('%m-%d %H:%M:%S')}  {r['symbol']:<10}  prof={r['pid'][:8]}  reason={reason}")
+            reason = (
+                gates.get("risk", {}).get("reason")
+                or gates.get("risk_gate", {}).get("reason")
+                or "?"
+            )
+            print(
+                f"  {r['created_at'].strftime('%m-%d %H:%M:%S')}  {r['symbol']:<10}  prof={r['pid'][:8]}  reason={reason}"
+            )
 
         print("\n=== Open positions per profile — cost basis vs notional ===")
         rows = await c.fetch(
@@ -30,7 +41,9 @@ async def main() -> int:
         )
         for r in rows:
             cb = float(r["cb"]) if r["cb"] else 0.0
-            print(f"  prof={r['pid'][:8]}  open={r['n']}  cost_basis=${cb:.2f}  ($10k notional → {cb/10000*100:.1f}%)")
+            print(
+                f"  prof={r['pid'][:8]}  open={r['n']}  cost_basis=${cb:.2f}  ($10k notional → {cb/10000*100:.1f}%)"
+            )
 
         print("\n=== Most recent APPROVED in last 24h ===")
         rows = await c.fetch(

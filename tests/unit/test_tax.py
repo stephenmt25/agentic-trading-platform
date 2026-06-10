@@ -2,15 +2,13 @@
 
 from decimal import Decimal
 
-import pytest
-
-from services.tax.src.us_tax import USTaxCalculator, TaxEstimate
-from services.tax.src.tax_brackets import get_rate, SHORT_TERM_RATES, LONG_TERM_RATES
-
+from services.tax.src.tax_brackets import LONG_TERM_RATES, SHORT_TERM_RATES, get_rate
+from services.tax.src.us_tax import TaxEstimate, USTaxCalculator
 
 # ---------------------------------------------------------------------------
 # get_rate tests
 # ---------------------------------------------------------------------------
+
 
 class TestGetRate:
     def test_short_term_known_bracket(self):
@@ -43,6 +41,7 @@ class TestGetRate:
 # ---------------------------------------------------------------------------
 # USTaxCalculator tests
 # ---------------------------------------------------------------------------
+
 
 class TestUSTaxCalculator:
     def test_short_term_gain(self):

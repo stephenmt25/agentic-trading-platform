@@ -1,7 +1,24 @@
-import msgpack
 from typing import Any, Dict
-from libs.core.schemas import BaseEvent, MarketTickEvent, SignalEvent, OrderApprovedEvent, OrderRejectedEvent, OrderExecutedEvent, ValidationRequestEvent, ValidationResponseEvent, PnlUpdateEvent, CircuitBreakerEvent, AlertEvent, ThresholdProximityEvent, OrderBookSnapshotEvent, TradeTickEvent
+
+import msgpack
+
 from libs.core.exceptions import SchemaVersionMismatchError
+from libs.core.schemas import (
+    AlertEvent,
+    BaseEvent,
+    CircuitBreakerEvent,
+    MarketTickEvent,
+    OrderApprovedEvent,
+    OrderBookSnapshotEvent,
+    OrderExecutedEvent,
+    OrderRejectedEvent,
+    PnlUpdateEvent,
+    SignalEvent,
+    ThresholdProximityEvent,
+    TradeTickEvent,
+    ValidationRequestEvent,
+    ValidationResponseEvent,
+)
 
 EVENT_MAP = {
     "MARKET_TICK": MarketTickEvent,
@@ -9,8 +26,8 @@ EVENT_MAP = {
     "ORDER_APPROVED": OrderApprovedEvent,
     "ORDER_REJECTED": OrderRejectedEvent,
     "ORDER_EXECUTED": OrderExecutedEvent,
-    "VALIDATION_PROCEED": ValidationRequestEvent, # Fallback, same type structure roughly, handled manually
-    "VALIDATION_BLOCK": ValidationRequestEvent,   # But validation response differs
+    "VALIDATION_PROCEED": ValidationRequestEvent,  # Fallback, same type structure roughly, handled manually
+    "VALIDATION_BLOCK": ValidationRequestEvent,  # But validation response differs
     "PNL_UPDATE": PnlUpdateEvent,
     "CIRCUIT_BREAKER_TRIGGERED": CircuitBreakerEvent,
     "ALERT_AMBER": AlertEvent,
@@ -24,15 +41,16 @@ EVENT_MAP = {
 # Add explicitly validation event schemas that share same enum name but different types
 # We will use class type for serialization
 
+
 def encode_event(event: BaseEvent) -> bytes:
     # Fast path: use __dict__ directly for internal events, avoiding Pydantic overhead
     try:
         raw = {}
         for k, v in event.__dict__.items():
             # Convert non-serializable types for msgpack
-            if hasattr(v, 'value'):  # Enum
+            if hasattr(v, "value"):  # Enum
                 raw[k] = v.value
-            elif hasattr(v, 'hex'):  # UUID
+            elif hasattr(v, "hex"):  # UUID
                 raw[k] = str(v)
             else:
                 raw[k] = v
@@ -41,7 +59,10 @@ def encode_event(event: BaseEvent) -> bytes:
     except Exception:
         # Fallback to Pydantic model_dump for complex cases
         data = event.model_dump(mode="json")
-        return msgpack.packb({"__type__": event.__class__.__name__, **data}, use_bin_type=True)
+        return msgpack.packb(
+            {"__type__": event.__class__.__name__, **data}, use_bin_type=True
+        )
+
 
 def decode_event(data: bytes) -> BaseEvent:
     raw: Dict[str, Any] = msgpack.unpackb(data, raw=False)
@@ -50,9 +71,11 @@ def decode_event(data: bytes) -> BaseEvent:
 
     event_type_str = raw.pop("__type__")
     schema_version = raw.get("schema_version", 1)
-    
+
     if schema_version != 1:
-        raise SchemaVersionMismatchError(f"Unsupported schema version: {schema_version}")
+        raise SchemaVersionMismatchError(
+            f"Unsupported schema version: {schema_version}"
+        )
 
     models = {
         "BaseEvent": BaseEvent,

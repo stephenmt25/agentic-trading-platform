@@ -3,6 +3,7 @@
 Used to verify whether the LLM is actually failing or whether the failure
 is upstream (cache poisoning, request shape, etc.).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -61,7 +62,12 @@ async def test_anthropic() -> None:
                 json={
                     "model": "claude-haiku-4-5-20251001",
                     "max_tokens": 50,
-                    "messages": [{"role": "user", "content": "Reply with the word OK and nothing else."}],
+                    "messages": [
+                        {
+                            "role": "user",
+                            "content": "Reply with the word OK and nothing else.",
+                        }
+                    ],
                 },
                 timeout=15.0,
             )

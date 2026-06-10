@@ -11,11 +11,11 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
+from libs.config import settings
 from libs.core.models import Position
 from libs.core.schemas import RiskLimitsPayload
-from libs.config import settings
-from libs.storage.repositories import ProfileRepository
 from libs.observability import get_logger
+from libs.storage.repositories import ProfileRepository
 
 from .calculator import PnLSnapshot
 from .closer import PositionCloser
@@ -27,6 +27,7 @@ _ZERO = Decimal("0")
 
 class _ProfileExitThresholds:
     """Cached exit thresholds for a single profile."""
+
     __slots__ = ("stop_loss_pct", "take_profit_pct", "max_holding_hours")
 
     def __init__(
@@ -82,6 +83,7 @@ class ExitMonitor:
                 raw_limits = profile.get("risk_limits", "{}")
                 if isinstance(raw_limits, str):
                     import json as _json
+
                     raw_dict = _json.loads(raw_limits) if raw_limits else {}
                     rl = RiskLimitsPayload.model_validate(raw_dict)
                 elif isinstance(raw_limits, dict):
@@ -100,7 +102,9 @@ class ExitMonitor:
                 if "max_holding_hours" in raw_dict and rl.max_holding_hours is not None:
                     max_hours = rl.max_holding_hours
         except Exception as e:
-            logger.error("Failed to load exit thresholds", profile_id=profile_id, error=str(e))
+            logger.error(
+                "Failed to load exit thresholds", profile_id=profile_id, error=str(e)
+            )
 
         thresholds = _ProfileExitThresholds(stop_loss, take_profit, max_hours)
         self._cache[profile_id] = thresholds
@@ -133,28 +137,45 @@ class ExitMonitor:
             loss_pct = abs(snapshot.pct_return)
             if loss_pct >= thresholds.stop_loss_pct:
                 return await self._close(
-                    position, current_price, taker_rate,
+                    position,
+                    current_price,
+                    taker_rate,
                     reason="stop_loss",
-                    detail={"loss_pct": str(loss_pct), "threshold": str(thresholds.stop_loss_pct)},
+                    detail={
+                        "loss_pct": str(loss_pct),
+                        "threshold": str(thresholds.stop_loss_pct),
+                    },
                 )
 
         # --- 2. Take-profit (positive return exceeds threshold) ---
         if snapshot.pct_return > _ZERO:
             if snapshot.pct_return >= thresholds.take_profit_pct:
                 return await self._close(
-                    position, current_price, taker_rate,
+                    position,
+                    current_price,
+                    taker_rate,
                     reason="take_profit",
-                    detail={"gain_pct": str(snapshot.pct_return), "threshold": str(thresholds.take_profit_pct)},
+                    detail={
+                        "gain_pct": str(snapshot.pct_return),
+                        "threshold": str(thresholds.take_profit_pct),
+                    },
                 )
 
         # --- 3. Time-based exit (position held too long) ---
         if position.opened_at:
-            age_hours = (datetime.now(timezone.utc) - position.opened_at).total_seconds() / 3600.0
+            age_hours = (
+                datetime.now(timezone.utc) - position.opened_at
+            ).total_seconds() / 3600.0
             if age_hours >= thresholds.max_holding_hours:
                 return await self._close(
-                    position, current_price, taker_rate,
+                    position,
+                    current_price,
+                    taker_rate,
                     reason="time_exit",
-                    detail={"age_hours": f"{age_hours:.1f}", "threshold_hours": str(thresholds.max_holding_hours)},
+                    detail={
+                        "age_hours": f"{age_hours:.1f}",
+                        "threshold_hours": str(thresholds.max_holding_hours),
+                    },
                 )
 
         return False, None

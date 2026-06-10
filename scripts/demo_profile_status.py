@@ -1,6 +1,8 @@
 """Comprehensive status snapshot for the demo profile."""
+
 import asyncio
 from pathlib import Path
+
 import asyncpg
 
 PROFILE_ID = "c557fcdc-2bc2-4ef3-8004-102cd71859c0"
@@ -9,8 +11,12 @@ PROFILE_ID = "c557fcdc-2bc2-4ef3-8004-102cd71859c0"
 def url() -> str:
     for line in Path(".env").read_text().splitlines():
         if line.startswith("PRAXIS_DATABASE_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'").replace(
-                "postgresql+asyncpg://", "postgresql://"
+            return (
+                line.split("=", 1)[1]
+                .strip()
+                .strip('"')
+                .strip("'")
+                .replace("postgresql+asyncpg://", "postgresql://")
             )
     raise SystemExit("missing")
 
@@ -19,13 +25,16 @@ async def main() -> None:
     c = await asyncpg.connect(url())
     try:
         first = await c.fetchval(
-            "SELECT MIN(created_at) FROM trade_decisions WHERE profile_id = $1::uuid", PROFILE_ID
+            "SELECT MIN(created_at) FROM trade_decisions WHERE profile_id = $1::uuid",
+            PROFILE_ID,
         )
         last = await c.fetchval(
-            "SELECT MAX(created_at) FROM trade_decisions WHERE profile_id = $1::uuid", PROFILE_ID
+            "SELECT MAX(created_at) FROM trade_decisions WHERE profile_id = $1::uuid",
+            PROFILE_ID,
         )
         total = await c.fetchval(
-            "SELECT COUNT(*) FROM trade_decisions WHERE profile_id = $1::uuid", PROFILE_ID
+            "SELECT COUNT(*) FROM trade_decisions WHERE profile_id = $1::uuid",
+            PROFILE_ID,
         )
         print(f"=== Demo · Pullback Long ({PROFILE_ID[:8]}…) ===")
         print(f"first decision: {first}")
@@ -86,9 +95,15 @@ async def main() -> None:
             print("  hitl_pending table does not exist — HITL state may live in Redis")
 
         print("\n=== orders / positions / closed ===")
-        n_o = await c.fetchval("SELECT COUNT(*) FROM orders WHERE profile_id = $1::uuid", PROFILE_ID)
-        n_p = await c.fetchval("SELECT COUNT(*) FROM positions WHERE profile_id = $1::uuid", PROFILE_ID)
-        n_c = await c.fetchval("SELECT COUNT(*) FROM closed_trades WHERE profile_id = $1::uuid", PROFILE_ID)
+        n_o = await c.fetchval(
+            "SELECT COUNT(*) FROM orders WHERE profile_id = $1::uuid", PROFILE_ID
+        )
+        n_p = await c.fetchval(
+            "SELECT COUNT(*) FROM positions WHERE profile_id = $1::uuid", PROFILE_ID
+        )
+        n_c = await c.fetchval(
+            "SELECT COUNT(*) FROM closed_trades WHERE profile_id = $1::uuid", PROFILE_ID
+        )
         print(f"  orders:         {n_o}")
         print(f"  positions:      {n_p}")
         print(f"  closed_trades:  {n_c}")
@@ -105,8 +120,8 @@ async def main() -> None:
             PROFILE_ID,
         )
         for r in rows:
-            rsi = float(r['rsi']) if r['rsi'] else None
-            mh = float(r['macd_hist']) if r['macd_hist'] else None
+            rsi = float(r["rsi"]) if r["rsi"] else None
+            mh = float(r["macd_hist"]) if r["macd_hist"] else None
             print(
                 f"  {r['created_at']}  {r['symbol']}  {r['outcome']:<20} "
                 f"rsi={rsi:.1f if rsi else None}  macd_hist={mh:.3f if mh else None}"

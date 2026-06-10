@@ -1,28 +1,36 @@
 import asyncio
-from decimal import Decimal
-from typing import Callable, Coroutine, Dict, List, Any, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional
+
 import ccxt.pro as ccxt
-import time
+
+from libs.core.enums import OrderSide, OrderStatus
+from libs.core.models import NormalisedCandle, NormalisedTick
+from libs.core.types import Price, ProfileId, Quantity, SymbolPair
+
 from ._base import ExchangeAdapter, OrderResult
 from ._binance import _to_candle
 from ._normaliser import normalise_coinbase_tick
-from libs.core.types import ProfileId, SymbolPair, Quantity, Price
-from libs.core.enums import OrderSide, OrderStatus
-from libs.core.models import NormalisedCandle, NormalisedTick
+
 
 class CoinbaseAdapter(ExchangeAdapter):
     def __init__(self, api_key: str = "", secret: str = "", testnet: bool = True):
         super().__init__("COINBASE")
-        self.exchange = ccxt.coinbase({
-            'apiKey': api_key,
-            'secret': secret,
-            'enableRateLimit': True,
-        })
+        self.exchange = ccxt.coinbase(
+            {
+                "apiKey": api_key,
+                "secret": secret,
+                "enableRateLimit": True,
+            }
+        )
         if testnet:
             self.exchange.set_sandbox_mode(True)
         self.reconnect_delay = 1.0
 
-    async def connect_websocket(self, symbols: List[SymbolPair], callback: Callable[[NormalisedTick], Coroutine[Any, Any, None]]):
+    async def connect_websocket(
+        self,
+        symbols: List[SymbolPair],
+        callback: Callable[[NormalisedTick], Coroutine[Any, Any, None]],
+    ):
         self.is_connected = True
         while self.is_connected:
             try:
@@ -34,7 +42,7 @@ class CoinbaseAdapter(ExchangeAdapter):
             except ccxt.NetworkError as e:
                 print(f"[{self.name}] NetworkError: {e}")
                 await self._handle_reconnect()
-            except ccxt.ExchangeClosedByUser as e:
+            except ccxt.ExchangeClosedByUser:
                 self.is_connected = False
                 break
             except Exception as e:
@@ -64,12 +72,16 @@ class CoinbaseAdapter(ExchangeAdapter):
                     )
                 except Exception as e:
                     if attempt == 2:
-                        print(f"[{self.name}] fetch_ohlcv failed for {symbol}@{bucket_ms}: {e}")
+                        print(
+                            f"[{self.name}] fetch_ohlcv failed for {symbol}@{bucket_ms}: {e}"
+                        )
                         return
                     await asyncio.sleep(0.5 * (attempt + 1))
                     continue
                 if bars and int(bars[0][0]) == bucket_ms:
-                    await callback(_to_candle(symbol, self.name, timeframe, bars[0], closed=True))
+                    await callback(
+                        _to_candle(symbol, self.name, timeframe, bars[0], closed=True)
+                    )
                     return
 
         async def _watch_one(symbol: str):
@@ -96,7 +108,15 @@ class CoinbaseAdapter(ExchangeAdapter):
 
         await asyncio.gather(*(_watch_one(s) for s in symbols))
 
-    async def place_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, price: Price, reduce_only: bool = False) -> OrderResult:
+    async def place_order(
+        self,
+        profile_id: ProfileId,
+        symbol: SymbolPair,
+        side: OrderSide,
+        qty: Quantity,
+        price: Price,
+        reduce_only: bool = False,
+    ) -> OrderResult:
         # CCXT requires float — convert at the exchange boundary only
         params: Dict[str, Any] = {}
         if reduce_only:
@@ -106,28 +126,35 @@ class CoinbaseAdapter(ExchangeAdapter):
             params["reduceOnly"] = True
         res = await self.exchange.create_order(
             symbol=symbol,
-            type='limit',
+            type="limit",
             side=side.name.lower(),
             amount=float(qty),  # float-ok: ccxt api requires float
             price=float(price),  # float-ok: ccxt api requires float
             params=params,
         )
-        return OrderResult(
-            order_id=res['id'],
-            status=OrderStatus.SUBMITTED
-        )
+        return OrderResult(order_id=res["id"], status=OrderStatus.SUBMITTED)
 
-    async def place_protective_order(self, profile_id: ProfileId, symbol: SymbolPair, side: OrderSide, qty: Quantity, stop_price: Price) -> Optional[OrderResult]:
+    async def place_protective_order(
+        self,
+        profile_id: ProfileId,
+        symbol: SymbolPair,
+        side: OrderSide,
+        qty: Quantity,
+        stop_price: Price,
+    ) -> Optional[OrderResult]:
         # Best-effort reduce-only stop; venue stop semantics pending testnet
         # validation (PRAXIS_PROTECTIVE_STOP_ENABLED off by default).
         res = await self.exchange.create_order(
             symbol=symbol,
-            type='market',
+            type="market",
             side=side.name.lower(),
             amount=float(qty),  # float-ok: ccxt api requires float
-            params={'stopPrice': float(stop_price), 'reduceOnly': True},  # float-ok: ccxt boundary
+            params={
+                "stopPrice": float(stop_price),
+                "reduceOnly": True,
+            },  # float-ok: ccxt boundary
         )
-        return OrderResult(order_id=res['id'], status=OrderStatus.SUBMITTED)
+        return OrderResult(order_id=res["id"], status=OrderStatus.SUBMITTED)
 
     async def get_balance(self, profile_id: ProfileId) -> Any:
         return await self.exchange.fetch_balance()
@@ -137,14 +164,14 @@ class CoinbaseAdapter(ExchangeAdapter):
 
     async def get_order_status(self, order_id: str, symbol: str) -> OrderStatus:
         order = await self.exchange.fetch_order(order_id, symbol)
-        ccxt_stat = order.get('status', 'unknown')
-        if ccxt_stat == 'open':
+        ccxt_stat = order.get("status", "unknown")
+        if ccxt_stat == "open":
             return OrderStatus.SUBMITTED
-        elif ccxt_stat == 'closed':
+        elif ccxt_stat == "closed":
             return OrderStatus.CONFIRMED
-        elif ccxt_stat == 'canceled':
+        elif ccxt_stat == "canceled":
             return OrderStatus.CANCELLED
-        elif ccxt_stat == 'rejected':
+        elif ccxt_stat == "rejected":
             return OrderStatus.REJECTED
         return OrderStatus.PENDING
 

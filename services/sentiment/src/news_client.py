@@ -30,7 +30,11 @@ _FEEDS = [
 # Symbol → list of name aliases to match against title+body. Lowercased compare.
 _SYMBOL_ALIASES = {
     "BTC": ["btc", "bitcoin"],
-    "ETH": ["eth", "ethereum", "ether "],   # trailing space avoids "etheridge", "etherscan" prefix matches don't matter
+    "ETH": [
+        "eth",
+        "ethereum",
+        "ether ",
+    ],  # trailing space avoids "etheridge", "etherscan" prefix matches don't matter
     "SOL": ["sol", "solana"],
     "XRP": ["xrp", "ripple"],
     "DOGE": ["doge", "dogecoin"],
@@ -124,7 +128,9 @@ class NewsClient:
                 snippet = body.strip()
                 if len(snippet) > 300:
                     snippet = snippet[:297] + "..."
-                matched.append(f"{title.strip()} - {snippet}" if snippet else title.strip())
+                matched.append(
+                    f"{title.strip()} - {snippet}" if snippet else title.strip()
+                )
                 if len(matched) >= limit:
                     return matched
         return matched

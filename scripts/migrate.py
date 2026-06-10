@@ -1,12 +1,13 @@
 import asyncio
+import glob
 import os
 import sys
-import glob
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from libs.config import settings
 from libs.storage._timescale_client import TimescaleClient
+
 
 async def apply_migrations():
     print("Starting Database Migrations...")
@@ -21,9 +22,10 @@ async def apply_migrations():
                 await client.execute(sql)
             except Exception as e:
                 print(f"Failed to execute {file}: {str(e)}")
-                    
+
     await client.close()
     print("Migrations complete.")
+
 
 if __name__ == "__main__":
     asyncio.run(apply_migrations())

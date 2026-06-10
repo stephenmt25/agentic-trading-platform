@@ -105,10 +105,10 @@ class TestWriteClosedTrade:
         )
         db.execute.assert_awaited_once()
         _, *args = db.execute.call_args.args
-        assert args[4] is None      # decision_event_id
-        assert args[5] is None      # order_id
-        assert args[9] is None      # entry_regime
-        assert args[10] is None     # entry_agent_scores serializes None -> None
+        assert args[4] is None  # decision_event_id
+        assert args[5] is None  # order_id
+        assert args[9] is None  # entry_regime
+        assert args[10] is None  # entry_agent_scores serializes None -> None
 
     @pytest.mark.asyncio
     async def test_decimal_in_agent_scores_serializes_to_float(self):
@@ -237,27 +237,30 @@ class TestAggregateCloseReasons:
     @pytest.mark.asyncio
     async def test_post_processing_computes_win_rate_and_floats(self):
         from decimal import Decimal as D
+
         db = AsyncMock()
-        db.fetch = AsyncMock(return_value=[
-            {
-                "close_reason": "stop_loss",
-                "count": 19,
-                "win_count": 0,
-                "loss_count": 19,
-                "breakeven_count": 0,
-                "avg_pnl_pct": D("-0.096767"),
-                "median_holding_s": 19009,
-            },
-            {
-                "close_reason": "take_profit",
-                "count": 14,
-                "win_count": 14,
-                "loss_count": 0,
-                "breakeven_count": 0,
-                "avg_pnl_pct": D("0.095932"),
-                "median_holding_s": 149538,
-            },
-        ])
+        db.fetch = AsyncMock(
+            return_value=[
+                {
+                    "close_reason": "stop_loss",
+                    "count": 19,
+                    "win_count": 0,
+                    "loss_count": 19,
+                    "breakeven_count": 0,
+                    "avg_pnl_pct": D("-0.096767"),
+                    "median_holding_s": 19009,
+                },
+                {
+                    "close_reason": "take_profit",
+                    "count": 14,
+                    "win_count": 14,
+                    "loss_count": 0,
+                    "breakeven_count": 0,
+                    "avg_pnl_pct": D("0.095932"),
+                    "median_holding_s": 149538,
+                },
+            ]
+        )
         repo = ClosedTradeRepository(db)
         out = await repo.aggregate_close_reasons()
         assert out[0]["win_rate"] == 0.0
@@ -270,17 +273,19 @@ class TestAggregateCloseReasons:
     async def test_empty_count_yields_null_win_rate(self):
         """Defensive: zero-count row (theoretical) shouldn't divide-by-zero."""
         db = AsyncMock()
-        db.fetch = AsyncMock(return_value=[
-            {
-                "close_reason": "manual",
-                "count": 0,
-                "win_count": 0,
-                "loss_count": 0,
-                "breakeven_count": 0,
-                "avg_pnl_pct": None,
-                "median_holding_s": None,
-            },
-        ])
+        db.fetch = AsyncMock(
+            return_value=[
+                {
+                    "close_reason": "manual",
+                    "count": 0,
+                    "win_count": 0,
+                    "loss_count": 0,
+                    "breakeven_count": 0,
+                    "avg_pnl_pct": None,
+                    "median_holding_s": None,
+                },
+            ]
+        )
         repo = ClosedTradeRepository(db)
         out = await repo.aggregate_close_reasons()
         assert out[0]["win_rate"] is None
@@ -333,35 +338,38 @@ class TestAggregateAgentAttribution:
     @pytest.mark.asyncio
     async def test_post_processing_computes_win_rate_and_floats(self):
         from decimal import Decimal as D
+
         db = AsyncMock()
-        db.fetch = AsyncMock(return_value=[
-            {
-                "pattern": "TA_BULL+SENT_BULL+DBT_BULL",
-                "ta_bucket": "TA_BULL",
-                "sent_bucket": "SENT_BULL",
-                "debate_bucket": "DBT_BULL",
-                "count": 8,
-                "win_count": 6,
-                "loss_count": 2,
-                "breakeven_count": 0,
-                "avg_pnl_pct": D("0.014321"),
-                "avg_pnl_usd": D("12.5678"),
-                "avg_confidence_lift": D("0.084500"),
-            },
-            {
-                "pattern": "TA_BEAR+SENT_BULL+DBT_NEUTRAL",
-                "ta_bucket": "TA_BEAR",
-                "sent_bucket": "SENT_BULL",
-                "debate_bucket": "DBT_NEUTRAL",
-                "count": 2,
-                "win_count": 0,
-                "loss_count": 2,
-                "breakeven_count": 0,
-                "avg_pnl_pct": D("-0.002728"),
-                "avg_pnl_usd": D("-12.11"),
-                "avg_confidence_lift": D("0.0699"),
-            },
-        ])
+        db.fetch = AsyncMock(
+            return_value=[
+                {
+                    "pattern": "TA_BULL+SENT_BULL+DBT_BULL",
+                    "ta_bucket": "TA_BULL",
+                    "sent_bucket": "SENT_BULL",
+                    "debate_bucket": "DBT_BULL",
+                    "count": 8,
+                    "win_count": 6,
+                    "loss_count": 2,
+                    "breakeven_count": 0,
+                    "avg_pnl_pct": D("0.014321"),
+                    "avg_pnl_usd": D("12.5678"),
+                    "avg_confidence_lift": D("0.084500"),
+                },
+                {
+                    "pattern": "TA_BEAR+SENT_BULL+DBT_NEUTRAL",
+                    "ta_bucket": "TA_BEAR",
+                    "sent_bucket": "SENT_BULL",
+                    "debate_bucket": "DBT_NEUTRAL",
+                    "count": 2,
+                    "win_count": 0,
+                    "loss_count": 2,
+                    "breakeven_count": 0,
+                    "avg_pnl_pct": D("-0.002728"),
+                    "avg_pnl_usd": D("-12.11"),
+                    "avg_confidence_lift": D("0.0699"),
+                },
+            ]
+        )
         repo = ClosedTradeRepository(db)
         out = await repo.aggregate_agent_attribution()
         assert out[0]["win_rate"] == pytest.approx(0.75)
@@ -409,24 +417,28 @@ class TestAggregateRuleHeatmap:
 
     @pytest.mark.asyncio
     async def test_post_processing_computes_win_rate_and_isoformat(self):
+        from datetime import datetime as dt
+        from datetime import timezone as tz
         from decimal import Decimal as D
-        from datetime import datetime as dt, timezone as tz
+
         first = dt(2026, 5, 1, 10, 0, tzinfo=tz.utc)
         last = dt(2026, 5, 6, 16, 30, tzinfo=tz.utc)
         db = AsyncMock()
-        db.fetch = AsyncMock(return_value=[
-            {
-                "fingerprint": "rsi:LT:50.0 | macd.histogram:GT:0.0",
-                "trade_count": 4,
-                "win_count": 3,
-                "loss_count": 1,
-                "breakeven_count": 0,
-                "avg_pnl_pct": D("0.018500"),
-                "avg_pnl_usd": D("18.50"),
-                "first_trade_at": first,
-                "last_trade_at": last,
-            },
-        ])
+        db.fetch = AsyncMock(
+            return_value=[
+                {
+                    "fingerprint": "rsi:LT:50.0 | macd.histogram:GT:0.0",
+                    "trade_count": 4,
+                    "win_count": 3,
+                    "loss_count": 1,
+                    "breakeven_count": 0,
+                    "avg_pnl_pct": D("0.018500"),
+                    "avg_pnl_usd": D("18.50"),
+                    "first_trade_at": first,
+                    "last_trade_at": last,
+                },
+            ]
+        )
         repo = ClosedTradeRepository(db)
         out = await repo.aggregate_rule_heatmap()
         assert out[0]["win_rate"] == 0.75
@@ -459,7 +471,7 @@ class TestAggregateByAttribute:
         sql = db.fetch.call_args.args[0]
         assert "holding_duration_s < 3600" in sql
         assert "'< 1h'" in sql
-        assert "'1–6h'" in sql        # en-dash matches the source
+        assert "'1–6h'" in sql  # en-dash matches the source
         assert "'≥ 24h'" in sql
 
     @pytest.mark.asyncio
@@ -504,18 +516,21 @@ class TestAggregateByAttribute:
     @pytest.mark.asyncio
     async def test_post_processing_computes_win_rate(self):
         from decimal import Decimal as D
+
         db = AsyncMock()
-        db.fetch = AsyncMock(return_value=[
-            {
-                "bucket": "BUY",
-                "count": 10,
-                "win_count": 7,
-                "loss_count": 3,
-                "breakeven_count": 0,
-                "avg_pnl_pct": D("0.025"),
-                "avg_pnl_usd": D("12.50"),
-            },
-        ])
+        db.fetch = AsyncMock(
+            return_value=[
+                {
+                    "bucket": "BUY",
+                    "count": 10,
+                    "win_count": 7,
+                    "loss_count": 3,
+                    "breakeven_count": 0,
+                    "avg_pnl_pct": D("0.025"),
+                    "avg_pnl_usd": D("12.50"),
+                },
+            ]
+        )
         repo = ClosedTradeRepository(db)
         out = await repo.aggregate_by_attribute(dimension="side")
         assert out[0]["win_rate"] == 0.7

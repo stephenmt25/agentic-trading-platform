@@ -1,19 +1,21 @@
 """Tests for Sentiment service: LLM scorer, JSON extraction, fallback chain."""
 
 import json
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from services.sentiment.src.scorer import (
-    LLMSentimentScorer, SentimentResult,
-    CloudLLMBackend, LocalLLMBackend, create_backend,
+    CloudLLMBackend,
+    LLMSentimentScorer,
+    LocalLLMBackend,
+    create_backend,
 )
-
 
 # ---------------------------------------------------------------------------
 # JSON extraction tests
 # ---------------------------------------------------------------------------
+
 
 class TestExtractJson:
     def test_clean_json(self):
@@ -50,13 +52,20 @@ class TestExtractJson:
 # LLMSentimentScorer tests
 # ---------------------------------------------------------------------------
 
+
 class TestLLMSentimentScorer:
     @pytest.mark.asyncio
     async def test_cached_result_returned(self):
         cache = AsyncMock()
-        cache.get = AsyncMock(return_value=json.dumps({
-            "score": 0.5, "confidence": 0.8, "source": "cloud",
-        }))
+        cache.get = AsyncMock(
+            return_value=json.dumps(
+                {
+                    "score": 0.5,
+                    "confidence": 0.8,
+                    "source": "cloud",
+                }
+            )
+        )
         scorer = LLMSentimentScorer(cache_client=cache, backends=[])
         result = await scorer.score("BTC/USDT", ["headline"])
         assert result.score == 0.5
@@ -84,7 +93,9 @@ class TestLLMSentimentScorer:
         bad_backend = AsyncMock()
         bad_backend.complete = AsyncMock(return_value=None)
         good_backend = AsyncMock()
-        good_backend.complete = AsyncMock(return_value='{"score": 0.3, "confidence": 0.7}')
+        good_backend.complete = AsyncMock(
+            return_value='{"score": 0.3, "confidence": 0.7}'
+        )
         scorer = LLMSentimentScorer(backends=[bad_backend, good_backend])
         result = await scorer.score("BTC/USDT", ["headline"])
         assert result.score == 0.3
@@ -114,7 +125,9 @@ class TestLLMSentimentScorer:
         cache = AsyncMock()
         cache.get = AsyncMock(return_value=None)
         cache.set = AsyncMock()
-        scorer = LLMSentimentScorer(cache_client=cache, cache_ttl=900, backends=[backend])
+        scorer = LLMSentimentScorer(
+            cache_client=cache, cache_ttl=900, backends=[backend]
+        )
         await scorer.score("BTC/USDT", ["headline"])
         cache.set.assert_called_once()
 
@@ -149,6 +162,7 @@ class TestLLMSentimentScorer:
 # ---------------------------------------------------------------------------
 # create_backend tests
 # ---------------------------------------------------------------------------
+
 
 class TestCreateBackend:
     @patch("services.sentiment.src.scorer.settings")

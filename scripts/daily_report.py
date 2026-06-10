@@ -12,10 +12,11 @@ Modes:
 Generation logic lives in libs/reports/daily.py so the API gateway's
 on-demand "generate report" endpoint shares the same code path.
 """
+
 import argparse
 import asyncio
 import logging
-from datetime import datetime, timedelta, UTC
+from datetime import UTC, datetime, timedelta
 
 from libs.config import settings
 from libs.reports.daily import backfill, generate_for_date
@@ -32,7 +33,9 @@ def _seconds_until_next_run() -> float:
     """Seconds until 00:05 UTC tomorrow (5-minute buffer after midnight)."""
     now = datetime.now(UTC)
     tomorrow = (now + timedelta(days=1)).date()
-    target = datetime.combine(tomorrow, datetime.min.time(), tzinfo=UTC) + timedelta(minutes=5)
+    target = datetime.combine(tomorrow, datetime.min.time(), tzinfo=UTC) + timedelta(
+        minutes=5
+    )
     return max(60.0, (target - now).total_seconds())
 
 
@@ -54,12 +57,17 @@ async def _initial_backfill(db: TimescaleClient, attempts: int = 5) -> None:
             if attempt == attempts:
                 logger.exception(
                     "Initial backfill failed after %d attempts: %s — continuing "
-                    "to the scheduled loop without it.", attempts, exc,
+                    "to the scheduled loop without it.",
+                    attempts,
+                    exc,
                 )
                 return
             logger.warning(
                 "Initial backfill attempt %d/%d failed (%s); retrying in %.0fs.",
-                attempt, attempts, exc, delay,
+                attempt,
+                attempts,
+                exc,
+                delay,
             )
             await asyncio.sleep(delay)
             delay = min(delay * 2, 60.0)
@@ -75,7 +83,9 @@ async def daemon(db: TimescaleClient) -> None:
         logger.info(
             "Next report run in %.1fs (at %s).",
             wait_s,
-            (datetime.now(UTC) + timedelta(seconds=wait_s)).isoformat(timespec="seconds"),
+            (datetime.now(UTC) + timedelta(seconds=wait_s)).isoformat(
+                timespec="seconds"
+            ),
         )
         await asyncio.sleep(wait_s)
 
@@ -91,11 +101,19 @@ async def daemon(db: TimescaleClient) -> None:
 
 
 async def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate paper trading daily reports.")
+    parser = argparse.ArgumentParser(
+        description="Generate paper trading daily reports."
+    )
     grp = parser.add_mutually_exclusive_group()
     grp.add_argument("--date", help="Generate report for this YYYY-MM-DD date.")
-    grp.add_argument("--backfill", action="store_true", help="Generate reports for every day with missing activity.")
-    grp.add_argument("--daemon", action="store_true", help="Run as a long-lived daily scheduler.")
+    grp.add_argument(
+        "--backfill",
+        action="store_true",
+        help="Generate reports for every day with missing activity.",
+    )
+    grp.add_argument(
+        "--daemon", action="store_true", help="Run as a long-lived daily scheduler."
+    )
     args = parser.parse_args()
 
     logger.info("Connecting to TimescaleDB...")

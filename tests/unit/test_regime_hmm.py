@@ -1,16 +1,15 @@
 """Tests for Regime HMM service: model fit, state prediction, regime mapping."""
 
 import numpy as np
-import pytest
 
 from libs.core.enums import Regime
 from services.regime_hmm.src.hmm_model import HMMRegimeModel
 from services.regime_hmm.src.regime_mapper import map_state_to_regime
 
-
 # ---------------------------------------------------------------------------
 # HMMRegimeModel tests
 # ---------------------------------------------------------------------------
+
 
 class TestHMMRegimeModel:
     def _noisy_prices(self, n=500, start=100.0):
@@ -25,9 +24,9 @@ class TestHMMRegimeModel:
         for i in range(n - 1):
             phase = i % 150
             if phase < 50:
-                pct = rng.normal(0.005, 0.01)   # calm uptrend ~0.5%/step
+                pct = rng.normal(0.005, 0.01)  # calm uptrend ~0.5%/step
             elif phase < 100:
-                pct = rng.normal(0.0, 0.04)     # high volatility ~4%
+                pct = rng.normal(0.0, 0.04)  # high volatility ~4%
             else:
                 pct = rng.normal(-0.003, 0.015)  # mild downtrend
             prices.append(prices[-1] * (1 + pct))
@@ -109,6 +108,7 @@ class TestHMMRegimeModel:
 # ---------------------------------------------------------------------------
 # Regime mapper tests
 # ---------------------------------------------------------------------------
+
 
 class TestRegimeMapper:
     def _fitted_model(self):

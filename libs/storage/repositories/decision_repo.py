@@ -2,6 +2,7 @@ import json
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 from uuid import UUID
+
 from ._repository_base import BaseRepository
 
 
@@ -170,9 +171,11 @@ class DecisionRepository(BaseRepository):
             raise ValueError(f"Unknown dimension: {dimension!r}")
         bucket_expr = bucket_exprs[dimension]
 
-        conditions: list = ["d.created_at >= NOW() - ($1 || ' hours')::INTERVAL",
-                            "d.outcome = 'APPROVED'",
-                            "d.shadow = FALSE"]
+        conditions: list = [
+            "d.created_at >= NOW() - ($1 || ' hours')::INTERVAL",
+            "d.outcome = 'APPROVED'",
+            "d.shadow = FALSE",
+        ]
         params: list = [str(window_hours)]
         idx = 2
         if profile_id:

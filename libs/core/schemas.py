@@ -1,11 +1,20 @@
-from decimal import Decimal
-from typing import Any, Dict, List, Optional, Literal
-from uuid import UUID, uuid4
 import os
 import threading
-from pydantic import BaseModel, Field, ConfigDict, model_validator, root_validator
+from decimal import Decimal
+from typing import Any, Dict, List, Literal, Optional
+from uuid import UUID
 
-from .enums import EventType, OrderSide, OrderStatus, SignalDirection, ValidationCheck, ValidationMode, ValidationVerdict, HITLStatus
+from pydantic import BaseModel, ConfigDict, Field, model_validator, root_validator
+
+from .enums import (
+    EventType,
+    HITLStatus,
+    OrderSide,
+    SignalDirection,
+    ValidationCheck,
+    ValidationMode,
+    ValidationVerdict,
+)
 from .types import Percentage, Price, ProfileId, Quantity, SymbolPair, Timestamp
 
 
@@ -46,12 +55,14 @@ class BaseEvent(BaseModel):
     source_service: str
     schema_version: int = 1
 
+
 class MarketTickEvent(BaseEvent):
     event_type: Literal[EventType.MARKET_TICK] = EventType.MARKET_TICK
     symbol: SymbolPair
     exchange: str
     price: Price
     volume: Quantity
+
 
 class OrderBookSnapshotEvent(BaseEvent):
     """Top-N levels of an exchange orderbook.
@@ -61,14 +72,17 @@ class OrderBookSnapshotEvent(BaseEvent):
       asks ascending price (best ask first).
     Decimal values cross the wire as strings via msgpack default=str.
     """
+
     event_type: Literal[EventType.ORDERBOOK_SNAPSHOT] = EventType.ORDERBOOK_SNAPSHOT
     symbol: SymbolPair
     exchange: str
     bids: List[List[Decimal]]
     asks: List[List[Decimal]]
 
+
 class TradeTickEvent(BaseEvent):
     """A single public trade printed on the exchange tape."""
+
     event_type: Literal[EventType.TRADE_TICK] = EventType.TRADE_TICK
     symbol: SymbolPair
     exchange: str
@@ -78,12 +92,14 @@ class TradeTickEvent(BaseEvent):
     trade_id: Optional[str] = None
     trade_ts_ms: int
 
+
 class SignalEvent(BaseEvent):
     event_type: Literal[EventType.SIGNAL_GENERATED] = EventType.SIGNAL_GENERATED
     profile_id: ProfileId
     symbol: SymbolPair
     direction: Literal["BUY", "SELL", "ABSTAIN"]
     confidence: Percentage
+
 
 class OrderApprovedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_APPROVED] = EventType.ORDER_APPROVED
@@ -110,6 +126,7 @@ class OrderApprovedEvent(BaseEvent):
     # (stop_loss / take_profit / time_exit / manual). None for opening orders.
     close_reason: Optional[str] = None
 
+
 class OrderRejectedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_REJECTED] = EventType.ORDER_REJECTED
     profile_id: ProfileId
@@ -120,6 +137,7 @@ class OrderRejectedEvent(BaseEvent):
     order_id: Optional[UUID] = None
     reduce_only: bool = False
     close_position_id: Optional[UUID] = None
+
 
 class OrderExecutedEvent(BaseEvent):
     event_type: Literal[EventType.ORDER_EXECUTED] = EventType.ORDER_EXECUTED
@@ -135,20 +153,27 @@ class OrderExecutedEvent(BaseEvent):
     close_position_id: Optional[UUID] = None
     close_reason: Optional[str] = None
 
+
 class ValidationRequestEvent(BaseEvent):
-    event_type: Literal[EventType.VALIDATION_PROCEED, EventType.VALIDATION_BLOCK] = EventType.VALIDATION_PROCEED
+    event_type: Literal[EventType.VALIDATION_PROCEED, EventType.VALIDATION_BLOCK] = (
+        EventType.VALIDATION_PROCEED
+    )
     profile_id: ProfileId
     symbol: SymbolPair
     check_type: ValidationCheck
     payload: Dict[str, Any]
 
+
 class ValidationResponseEvent(BaseEvent):
-    event_type: Literal[EventType.VALIDATION_PROCEED, EventType.VALIDATION_BLOCK] = EventType.VALIDATION_PROCEED
+    event_type: Literal[EventType.VALIDATION_PROCEED, EventType.VALIDATION_BLOCK] = (
+        EventType.VALIDATION_PROCEED
+    )
     verdict: ValidationVerdict
     check_type: ValidationCheck
     mode: ValidationMode
     reason: Optional[str] = None
     response_time_ms: float
+
 
 class PnlUpdateEvent(BaseEvent):
     event_type: Literal[EventType.PNL_UPDATE] = EventType.PNL_UPDATE
@@ -158,16 +183,26 @@ class PnlUpdateEvent(BaseEvent):
     net_pnl: Price
     pct_return: Percentage
 
+
 class CircuitBreakerEvent(BaseEvent):
-    event_type: Literal[EventType.CIRCUIT_BREAKER_TRIGGERED] = EventType.CIRCUIT_BREAKER_TRIGGERED
+    event_type: Literal[EventType.CIRCUIT_BREAKER_TRIGGERED] = (
+        EventType.CIRCUIT_BREAKER_TRIGGERED
+    )
     profile_id: ProfileId
     reason: str
 
+
 class AlertEvent(BaseEvent):
-    event_type: Literal[EventType.ALERT_AMBER, EventType.ALERT_RED, EventType.SYSTEM_ALERT, EventType.REGIME_DISAGREEMENT]
+    event_type: Literal[
+        EventType.ALERT_AMBER,
+        EventType.ALERT_RED,
+        EventType.SYSTEM_ALERT,
+        EventType.REGIME_DISAGREEMENT,
+    ]
     message: str
     level: str
     profile_id: Optional[ProfileId] = None
+
 
 class ThresholdProximityEvent(BaseEvent):
     event_type: Literal[EventType.THRESHOLD_PROXIMITY] = EventType.THRESHOLD_PROXIMITY
@@ -203,6 +238,7 @@ class HITLApprovalResponse(BaseEvent):
 # ---------------------------------------------------------------------------
 # API Gateway — Profile Models
 # ---------------------------------------------------------------------------
+
 
 class ProfileCreate(BaseModel):
     name: str = Field(default="Untitled Profile", min_length=1, max_length=200)
@@ -245,6 +281,7 @@ class ProfileResponse(BaseModel):
 # API Gateway — Exchange Key Models
 # ---------------------------------------------------------------------------
 
+
 class ExchangeKeyCreate(BaseModel):
     exchange_id: str
     api_key: str
@@ -268,8 +305,10 @@ class ExchangeKeyResponse(BaseModel):
 # API Gateway — Auth Models
 # ---------------------------------------------------------------------------
 
+
 class OAuthCallbackRequest(BaseModel):
     """Payload sent from the NextAuth.js frontend after OAuth completion."""
+
     email: str
     name: str
     image: Optional[str] = None
@@ -280,6 +319,7 @@ class OAuthCallbackRequest(BaseModel):
 
 class AuthResponse(BaseModel):
     """JWT tokens returned to the frontend for API authentication."""
+
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
@@ -293,6 +333,7 @@ class RefreshRequest(BaseModel):
 
 class UserProfile(BaseModel):
     """Current user profile returned by /auth/me."""
+
     user_id: str
     email: str
     display_name: str
@@ -303,6 +344,7 @@ class UserProfile(BaseModel):
 # ---------------------------------------------------------------------------
 # API Gateway — Backtest Models
 # ---------------------------------------------------------------------------
+
 
 class BacktestRequest(BaseModel):
     symbol: str = Field(..., example="BTC/USDT")
@@ -321,6 +363,7 @@ class BacktestResponse(BaseModel):
 # ---------------------------------------------------------------------------
 # API Gateway — Agent & Risk Models
 # ---------------------------------------------------------------------------
+
 
 class AgentScore(BaseModel):
     symbol: str
@@ -344,6 +387,7 @@ class RiskStatus(BaseModel):
 # API Gateway — Command Models
 # ---------------------------------------------------------------------------
 
+
 class CommandIntent(BaseModel):
     natural_language: str
 
@@ -351,6 +395,7 @@ class CommandIntent(BaseModel):
 # ---------------------------------------------------------------------------
 # Service Models — Tax
 # ---------------------------------------------------------------------------
+
 
 class TaxRequest(BaseModel):
     holding_duration_days: int
@@ -361,6 +406,7 @@ class TaxRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Service Models — Backtesting
 # ---------------------------------------------------------------------------
+
 
 class SweepRequest(BaseModel):
     symbol: str = "BTC/USDT"
@@ -374,6 +420,7 @@ class SweepRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Service Models — SLM Inference
 # ---------------------------------------------------------------------------
+
 
 class CompletionRequest(BaseModel):
     prompt: str
@@ -405,12 +452,27 @@ class SentimentResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 SUPPORTED_INDICATORS = {
-    'rsi', 'macd.macd_line', 'macd.signal_line', 'macd.histogram', 'atr',
-    'adx', 'bb.pct_b', 'bb.bandwidth', 'bb.upper', 'bb.lower', 'obv', 'choppiness',
-    'vwap', 'keltner.upper', 'keltner.middle', 'keltner.lower',
-    'rvol', 'z_score', 'hurst',
+    "rsi",
+    "macd.macd_line",
+    "macd.signal_line",
+    "macd.histogram",
+    "atr",
+    "adx",
+    "bb.pct_b",
+    "bb.bandwidth",
+    "bb.upper",
+    "bb.lower",
+    "obv",
+    "choppiness",
+    "vwap",
+    "keltner.upper",
+    "keltner.middle",
+    "keltner.lower",
+    "rvol",
+    "z_score",
+    "hurst",
 }
-SUPPORTED_OPERATORS = {'LT', 'GT', 'LTE', 'GTE', 'EQ'}
+SUPPORTED_OPERATORS = {"LT", "GT", "LTE", "GTE", "EQ"}
 
 
 class RuleCondition(BaseModel):
@@ -421,9 +483,9 @@ class RuleCondition(BaseModel):
     @root_validator(pre=True)
     def check_support(cls, values):
         errors = []
-        if values.get('indicator') not in SUPPORTED_INDICATORS:
+        if values.get("indicator") not in SUPPORTED_INDICATORS:
             errors.append(f"Unsupported indicator: {values.get('indicator')}")
-        if values.get('operator') not in SUPPORTED_OPERATORS:
+        if values.get("operator") not in SUPPORTED_OPERATORS:
             errors.append(f"Unsupported operator: {values.get('operator')}")
         if errors:
             raise ValueError(" | ".join(errors))
@@ -438,11 +500,11 @@ class RuleSchema(BaseModel):
 
     @root_validator(pre=True)
     def check_logic(cls, values):
-        if values.get('logic') not in {'AND', 'OR'}:
+        if values.get("logic") not in {"AND", "OR"}:
             raise ValueError("Logic must be AND or OR")
-        if not (0.0 <= values.get('base_confidence', -1) <= 1.0):
+        if not (0.0 <= values.get("base_confidence", -1) <= 1.0):
             raise ValueError("base_confidence must be between 0 and 1")
-        if not values.get('conditions'):
+        if not values.get("conditions"):
             raise ValueError("At least one condition required")
         return values
 
@@ -469,7 +531,9 @@ _INDICATOR_USER_TO_CANONICAL: Dict[str, str] = {
     "z_score": "z_score",
     "hurst": "hurst",
 }
-_INDICATOR_CANONICAL_TO_USER: Dict[str, str] = {v: k for k, v in _INDICATOR_USER_TO_CANONICAL.items()}
+_INDICATOR_CANONICAL_TO_USER: Dict[str, str] = {
+    v: k for k, v in _INDICATOR_USER_TO_CANONICAL.items()
+}
 
 _COMPARISON_TO_OPERATOR: Dict[str, str] = {
     "above": "GT",
@@ -478,10 +542,14 @@ _COMPARISON_TO_OPERATOR: Dict[str, str] = {
     "at_or_below": "LTE",
     "equals": "EQ",
 }
-_OPERATOR_TO_COMPARISON: Dict[str, str] = {v: k for k, v in _COMPARISON_TO_OPERATOR.items()}
+_OPERATOR_TO_COMPARISON: Dict[str, str] = {
+    v: k for k, v in _COMPARISON_TO_OPERATOR.items()
+}
 
 _DIRECTION_USER_TO_CANONICAL: Dict[str, str] = {"long": "BUY", "short": "SELL"}
-_DIRECTION_CANONICAL_TO_USER: Dict[str, str] = {v: k for k, v in _DIRECTION_USER_TO_CANONICAL.items()}
+_DIRECTION_CANONICAL_TO_USER: Dict[str, str] = {
+    v: k for k, v in _DIRECTION_USER_TO_CANONICAL.items()
+}
 
 _MATCH_MODE_TO_LOGIC: Dict[str, str] = {"all": "AND", "any": "OR"}
 _LOGIC_TO_MATCH_MODE: Dict[str, str] = {v: k for k, v in _MATCH_MODE_TO_LOGIC.items()}
@@ -489,17 +557,26 @@ _LOGIC_TO_MATCH_MODE: Dict[str, str] = {v: k for k, v in _MATCH_MODE_TO_LOGIC.it
 
 class StrategySignal(BaseModel):
     indicator: Literal[
-        "rsi", "atr",
-        "macd_line", "macd_signal", "macd_histogram",
+        "rsi",
+        "atr",
+        "macd_line",
+        "macd_signal",
+        "macd_histogram",
         "vwap",
-        "keltner.upper", "keltner.middle", "keltner.lower",
-        "rvol", "z_score", "hurst",
+        "keltner.upper",
+        "keltner.middle",
+        "keltner.lower",
+        "rvol",
+        "z_score",
+        "hurst",
     ]
     comparison: Literal["above", "below", "at_or_above", "at_or_below", "equals"]
     threshold: float
 
 
-_REGIME_NAMES = Literal["TRENDING_UP", "TRENDING_DOWN", "RANGE_BOUND", "HIGH_VOLATILITY", "CRISIS"]
+_REGIME_NAMES = Literal[
+    "TRENDING_UP", "TRENDING_DOWN", "RANGE_BOUND", "HIGH_VOLATILITY", "CRISIS"
+]
 
 
 class StrategyRulesInput(BaseModel):
@@ -517,6 +594,7 @@ class StrategyRulesInput(BaseModel):
     (or ONLY entry_short) is still a valid both-legs profile — it just emits
     one direction and never the other.
     """
+
     # Legacy single-direction shape — every field optional now that both-legs
     # exists, but the validator below still requires *one* of the two shapes.
     direction: Optional[Literal["long", "short"]] = None
@@ -538,7 +616,11 @@ class StrategyRulesInput(BaseModel):
 
     @model_validator(mode="after")
     def _at_least_one_leg(self):
-        legacy_complete = bool(self.signals) and self.direction is not None and self.match_mode is not None
+        legacy_complete = (
+            bool(self.signals)
+            and self.direction is not None
+            and self.match_mode is not None
+        )
         new_any_leg = bool(self.entry_long) or bool(self.entry_short)
         if not legacy_complete and not new_any_leg:
             raise ValueError(
@@ -553,7 +635,9 @@ class StrategyRulesInput(BaseModel):
         return self
 
 
-def _signals_to_canonical_conditions(signals: List[StrategySignal]) -> List[Dict[str, Any]]:
+def _signals_to_canonical_conditions(
+    signals: List[StrategySignal],
+) -> List[Dict[str, Any]]:
     return [
         {
             "indicator": _INDICATOR_USER_TO_CANONICAL[s.indicator],
@@ -564,7 +648,9 @@ def _signals_to_canonical_conditions(signals: List[StrategySignal]) -> List[Dict
     ]
 
 
-def _canonical_conditions_to_signals(conditions: List[Dict[str, Any]]) -> List[StrategySignal]:
+def _canonical_conditions_to_signals(
+    conditions: List[Dict[str, Any]]
+) -> List[StrategySignal]:
     return [
         StrategySignal(
             indicator=_INDICATOR_CANONICAL_TO_USER[c["indicator"]],
@@ -588,7 +674,9 @@ def strategy_rules_to_canonical(rules: StrategyRulesInput) -> Dict[str, Any]:
 
     if use_both_legs:
         primary_signals = rules.entry_long if rules.entry_long else rules.entry_short
-        primary_mode = rules.match_mode_long if rules.entry_long else rules.match_mode_short
+        primary_mode = (
+            rules.match_mode_long if rules.entry_long else rules.match_mode_short
+        )
         primary_direction = "long" if rules.entry_long else "short"
         canonical: Dict[str, Any] = {
             "direction": _DIRECTION_USER_TO_CANONICAL[primary_direction],
@@ -637,10 +725,22 @@ def strategy_rules_from_canonical(canonical: Dict[str, Any]) -> StrategyRulesInp
             direction=None,
             match_mode=None,
             signals=[],
-            entry_long=_canonical_conditions_to_signals(long_block["conditions"]) if has_long else None,
-            match_mode_long=_LOGIC_TO_MATCH_MODE[long_block["logic"]] if has_long else None,
-            entry_short=_canonical_conditions_to_signals(short_block["conditions"]) if has_short else None,
-            match_mode_short=_LOGIC_TO_MATCH_MODE[short_block["logic"]] if has_short else None,
+            entry_long=(
+                _canonical_conditions_to_signals(long_block["conditions"])
+                if has_long
+                else None
+            ),
+            match_mode_long=(
+                _LOGIC_TO_MATCH_MODE[long_block["logic"]] if has_long else None
+            ),
+            entry_short=(
+                _canonical_conditions_to_signals(short_block["conditions"])
+                if has_short
+                else None
+            ),
+            match_mode_short=(
+                _LOGIC_TO_MATCH_MODE[short_block["logic"]] if has_short else None
+            ),
             confidence=confidence,
             preferred_regimes=preferred,
         )
@@ -671,30 +771,37 @@ class QuotaConfig(BaseModel):
 # Phase C response models — prevent internal column leakage
 # ---------------------------------------------------------------------------
 
+
 class KillSwitchStatusResponse(BaseModel):
     active: bool
     reason: Optional[str] = None
     activated_at: Optional[str] = None
 
+
 class KillSwitchToggleResponse(BaseModel):
     status: str
     reason: Optional[str] = None
+
 
 class ExchangeTestResponse(BaseModel):
     status: str
     message: str
 
+
 class RiskCheckResponse(BaseModel):
     allowed: bool
     reason: Optional[str] = None
+
 
 class TaxEstimateResponse(BaseModel):
     estimated_tax: Decimal
     effective_rate: Decimal
     classification: str
 
+
 class SweepResultItem(BaseModel):
     model_config = ConfigDict(extra="allow")
+
 
 class BacktestSweepResponse(BaseModel):
     job_id: str
@@ -707,6 +814,7 @@ class BacktestSweepResponse(BaseModel):
 # Phase D: Validated financial JSON structures (replacing raw json.loads)
 # ---------------------------------------------------------------------------
 
+
 class AgentScorePayload(BaseModel):
     """Validated agent score from Redis (ta, sentiment, debate).
 
@@ -715,6 +823,7 @@ class AgentScorePayload(BaseModel):
     for degraded paths — consumers must drop the latter to avoid feeding
     fake votes into the meta-learning loop.
     """
+
     score: float
     direction: Optional[str] = None
     confidence: Optional[float] = None
@@ -726,6 +835,7 @@ class AgentScorePayload(BaseModel):
 
 class DailyPnlPayload(BaseModel):
     """Validated daily PnL data from Redis."""
+
     total_pct: str  # stored as string Decimal
 
     def total_pct_decimal(self) -> Decimal:
@@ -734,6 +844,7 @@ class DailyPnlPayload(BaseModel):
 
 class DrawdownPayload(BaseModel):
     """Validated drawdown data from Redis."""
+
     drawdown_pct: str  # stored as string Decimal
 
     def drawdown_pct_decimal(self) -> Decimal:
@@ -742,6 +853,7 @@ class DrawdownPayload(BaseModel):
 
 class AllocationPayload(BaseModel):
     """Validated allocation data from Redis."""
+
     allocation_pct: str  # stored as string Decimal
 
     def allocation_pct_decimal(self) -> Decimal:
@@ -762,12 +874,23 @@ DEFAULT_RISK_LIMITS: Dict[str, str] = {
 
 class RiskLimitsPayload(BaseModel):
     """Validated risk limits JSON from profile. Defaults sourced from DEFAULT_RISK_LIMITS."""
-    max_drawdown_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["max_drawdown_pct"]))
+
+    max_drawdown_pct: float = Field(
+        default=float(DEFAULT_RISK_LIMITS["max_drawdown_pct"])
+    )
     stop_loss_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["stop_loss_pct"]))
-    take_profit_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["take_profit_pct"]))
-    max_holding_hours: float = Field(default=float(DEFAULT_RISK_LIMITS["max_holding_hours"]))
-    max_allocation_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["max_allocation_pct"]))
-    circuit_breaker_daily_loss_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"]))
+    take_profit_pct: float = Field(
+        default=float(DEFAULT_RISK_LIMITS["take_profit_pct"])
+    )
+    max_holding_hours: float = Field(
+        default=float(DEFAULT_RISK_LIMITS["max_holding_hours"])
+    )
+    max_allocation_pct: float = Field(
+        default=float(DEFAULT_RISK_LIMITS["max_allocation_pct"])
+    )
+    circuit_breaker_daily_loss_pct: float = Field(
+        default=float(DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"])
+    )
     model_config = ConfigDict(extra="allow")
 
 
@@ -776,11 +899,11 @@ class RiskLimitsPayload(BaseModel):
 # convention as RiskLimitsPayload — downstream consumers convert to Decimal at
 # the calculation site.
 DEFAULT_USER_RISK_DEFAULTS: Dict[str, float] = {
-    "max_position_size_pct": 0.10,         # 10% of free capital × confidence
-    "max_leverage": 1.0,                   # spot-only by default
-    "max_daily_loss_pct": 0.02,            # 2% halts new orders for the day
-    "rate_limit_orders_per_min": 30,       # sliding-window cap
-    "auto_pause_drawdown_pct": 0.05,       # 5% drawdown trip
+    "max_position_size_pct": 0.10,  # 10% of free capital × confidence
+    "max_leverage": 1.0,  # spot-only by default
+    "max_daily_loss_pct": 0.02,  # 2% halts new orders for the day
+    "rate_limit_orders_per_min": 30,  # sliding-window cap
+    "auto_pause_drawdown_pct": 0.05,  # 5% drawdown trip
 }
 
 
@@ -794,27 +917,32 @@ class UserRiskDefaultsPayload(BaseModel):
 
     max_position_size_pct: float = Field(
         default=DEFAULT_USER_RISK_DEFAULTS["max_position_size_pct"],
-        ge=0.0, le=1.0,
+        ge=0.0,
+        le=1.0,
         description="Per-trade cap as fraction of free capital (0.10 = 10%).",
     )
     max_leverage: float = Field(
         default=DEFAULT_USER_RISK_DEFAULTS["max_leverage"],
-        ge=1.0, le=20.0,
+        ge=1.0,
+        le=20.0,
         description="Hard ceiling on notional / margin per position.",
     )
     max_daily_loss_pct: float = Field(
         default=DEFAULT_USER_RISK_DEFAULTS["max_daily_loss_pct"],
-        ge=0.0, le=1.0,
+        ge=0.0,
+        le=1.0,
         description="Halts new orders for the day once breached.",
     )
     rate_limit_orders_per_min: int = Field(
         default=DEFAULT_USER_RISK_DEFAULTS["rate_limit_orders_per_min"],
-        ge=1, le=600,
+        ge=1,
+        le=600,
         description="Sliding-window cap enforced by rate_limiter service.",
     )
     auto_pause_drawdown_pct: float = Field(
         default=DEFAULT_USER_RISK_DEFAULTS["auto_pause_drawdown_pct"],
-        ge=0.0, le=1.0,
+        ge=0.0,
+        le=1.0,
         description="Drawdown threshold that auto-pauses the affected profile.",
     )
     model_config = ConfigDict(extra="forbid")
@@ -824,5 +952,9 @@ class UserRiskDefaultsResponse(BaseModel):
     """GET /risk-defaults response."""
 
     defaults: UserRiskDefaultsPayload
-    updated_at: Optional[str] = None  # ISO8601; null if never saved (defaults returned).
-    applies_to: Literal["new_profiles_only"] = "new_profiles_only"  # Honest scope tag for the FE banner.
+    updated_at: Optional[str] = (
+        None  # ISO8601; null if never saved (defaults returned).
+    )
+    applies_to: Literal["new_profiles_only"] = (
+        "new_profiles_only"  # Honest scope tag for the FE banner.
+    )

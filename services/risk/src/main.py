@@ -1,12 +1,13 @@
-from fastapi import FastAPI
-import uvicorn
 from contextlib import asynccontextmanager
+
+import uvicorn
+from fastapi import FastAPI
 
 from libs.config import settings
 from libs.core.schemas import RiskCheckResponse
-from libs.storage import RedisClient, TimescaleClient
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
+from libs.storage import RedisClient, TimescaleClient
 
 from . import RiskService
 
@@ -59,7 +60,11 @@ async def check_order(
     side: str = "BUY",
 ):
     if _telemetry:
-        await _telemetry.emit("input_received", {"message_type": "risk_check_request"}, source_agent="hot_path")
+        await _telemetry.emit(
+            "input_received",
+            {"message_type": "risk_check_request"},
+            source_agent="hot_path",
+        )
     result = await _risk_service.check_order(
         profile_id=profile_id,
         symbol=symbol,

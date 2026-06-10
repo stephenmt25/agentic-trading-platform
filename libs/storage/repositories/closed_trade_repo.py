@@ -129,7 +129,9 @@ class ClosedTradeRepository(BaseRepository):
         )
         return dict(row) if row else None
 
-    async def get_by_decision_event(self, decision_event_id: UUID) -> Optional[Dict[str, Any]]:
+    async def get_by_decision_event(
+        self, decision_event_id: UUID
+    ) -> Optional[Dict[str, Any]]:
         row = await self._fetchrow(
             "SELECT * FROM closed_trades WHERE decision_event_id = $1 LIMIT 1",
             decision_event_id,
@@ -262,8 +264,10 @@ class ClosedTradeRepository(BaseRepository):
         Buckets with ``trade_count < min_trades`` are dropped — a single-
         trade fingerprint isn't actionable.
         """
-        conditions: list = ["ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
-                            "d.outcome = 'APPROVED'"]
+        conditions: list = [
+            "ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
+            "d.outcome = 'APPROVED'",
+        ]
         params: list = [str(window_hours), min_trades]
         idx = 3
         if profile_id:
@@ -367,8 +371,10 @@ class ClosedTradeRepository(BaseRepository):
         closed_trade row (PR1 audit chain shipped this). Trades whose
         decision row was pruned by archiver retention are silently dropped.
         """
-        conditions: list = ["ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
-                            "d.outcome = 'APPROVED'"]
+        conditions: list = [
+            "ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
+            "d.outcome = 'APPROVED'",
+        ]
         params: list = [str(window_hours), threshold]
         idx = 3
         if profile_id:
@@ -482,7 +488,9 @@ class ClosedTradeRepository(BaseRepository):
             idx += 1
 
         where = "WHERE " + " AND ".join(conditions)
-        regime_select = ", COALESCE(entry_regime, 'unknown') AS regime" if group_by_regime else ""
+        regime_select = (
+            ", COALESCE(entry_regime, 'unknown') AS regime" if group_by_regime else ""
+        )
         regime_group = ", COALESCE(entry_regime, 'unknown')" if group_by_regime else ""
         order_extra = ", regime" if group_by_regime else ""
 

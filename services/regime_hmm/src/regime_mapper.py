@@ -1,6 +1,9 @@
-import numpy as np
 from typing import Optional
+
+import numpy as np
+
 from libs.core.enums import Regime
+
 from .hmm_model import HMMRegimeModel
 
 

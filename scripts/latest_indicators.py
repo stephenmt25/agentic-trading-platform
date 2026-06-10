@@ -4,16 +4,22 @@ Computes RSI(14) and MACD-histogram from raw OHLCV — the same inputs the demo
 profile rule (rsi<50 AND macd.histogram>0) checks. If RSI is currently >= 50
 or histogram <= 0, the rule won't match and no decisions will land.
 """
+
 import asyncio
 from pathlib import Path
+
 import asyncpg
 
 
 def url() -> str:
     for line in Path(".env").read_text().splitlines():
         if line.startswith("PRAXIS_DATABASE_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'").replace(
-                "postgresql+asyncpg://", "postgresql://"
+            return (
+                line.split("=", 1)[1]
+                .strip()
+                .strip('"')
+                .strip("'")
+                .replace("postgresql+asyncpg://", "postgresql://")
             )
 
 
@@ -51,7 +57,9 @@ async def main() -> None:
             avg_loss = losses / 14
             rs = avg_gain / avg_loss if avg_loss > 0 else 0
             rsi = 100 - (100 / (1 + rs)) if avg_loss > 0 else 100
-            print(f"  RSI(14)~          {rsi:.2f}  {'(< 50, rule passes)' if rsi < 50 else '(>= 50, rule MISSES this leg)'}")
+            print(
+                f"  RSI(14)~          {rsi:.2f}  {'(< 50, rule passes)' if rsi < 50 else '(>= 50, rule MISSES this leg)'}"
+            )
 
             # MACD histogram from EMA(12) - EMA(26) and signal EMA(9)
             def ema(values, period):
@@ -60,13 +68,18 @@ async def main() -> None:
                 for v in values[1:]:
                     e = v * k + e * (1 - k)
                 return e
+
             ema12 = ema(closes, 12)
             ema26 = ema(closes, 26)
             macd_line = ema12 - ema26
             signal_line = ema(closes[-9:], 9)
             histogram = macd_line - signal_line
-            print(f"  MACD histogram~   {histogram:.2f}  {'(> 0, rule passes)' if histogram > 0 else '(<= 0, rule MISSES this leg)'}")
-            print(f"  rule: rsi<50 AND histogram>0  →  {'MATCHES' if rsi < 50 and histogram > 0 else 'NO MATCH'}")
+            print(
+                f"  MACD histogram~   {histogram:.2f}  {'(> 0, rule passes)' if histogram > 0 else '(<= 0, rule MISSES this leg)'}"
+            )
+            print(
+                f"  rule: rsi<50 AND histogram>0  →  {'MATCHES' if rsi < 50 and histogram > 0 else 'NO MATCH'}"
+            )
     finally:
         await c.close()
 

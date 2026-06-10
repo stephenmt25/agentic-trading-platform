@@ -50,7 +50,13 @@ class PositionCloser:
         # Populated lazily; refreshed whenever a lookup misses or returns 0.
         self._notional_cache: dict[str, Decimal] = {}
 
-    async def close(self, position: Position, exit_price: Decimal, taker_rate: Decimal, close_reason: str = "stop_loss"):
+    async def close(
+        self,
+        position: Position,
+        exit_price: Decimal,
+        taker_rate: Decimal,
+        close_reason: str = "stop_loss",
+    ):
         """Legacy synchronous close: mark the DB row CLOSED unconditionally, then
         record PnL/audit/outcomes. This is the fallback path used when
         PRAXIS_EXCHANGE_CLOSE_ENABLED is off — it does NOT reach the exchange
@@ -61,7 +67,11 @@ class PositionCloser:
         return await self._record_close(position, exit_price, taker_rate, close_reason)
 
     async def finalize_close(
-        self, position: Position, exit_price: Decimal, taker_rate: Decimal, close_reason: str = "stop_loss"
+        self,
+        position: Position,
+        exit_price: Decimal,
+        taker_rate: Decimal,
+        close_reason: str = "stop_loss",
     ):
         """Finalise an in-flight close on confirmed exchange fill (PR1).
 
@@ -78,7 +88,11 @@ class PositionCloser:
         return await self._record_close(position, exit_price, taker_rate, close_reason)
 
     async def _record_close(
-        self, position: Position, exit_price: Decimal, taker_rate: Decimal, close_reason: str
+        self,
+        position: Position,
+        exit_price: Decimal,
+        taker_rate: Decimal,
+        close_reason: str,
     ):
         """Steps 2-7 of a close: PnL, outcome, audit row, daily-PnL bump, agent
         outcome tagging, snapshot cleanup. Assumes the positions row has already
@@ -102,7 +116,9 @@ class PositionCloser:
             outcome = "breakeven"
 
         # 4. Retrieve entry-time snapshot (agent scores + regime) from Redis
-        agent_scores, entry_regime = await self._get_position_snapshot(str(position.position_id))
+        agent_scores, entry_regime = await self._get_position_snapshot(
+            str(position.position_id)
+        )
 
         # 5. Persist closed_trades audit row (PR1 ledger). Never raises.
         await self._write_closed_trade_row(
@@ -174,7 +190,9 @@ class PositionCloser:
             try:
                 row = await self._profile_repo.get_profile(profile_id)
             except Exception:
-                logger.exception("Failed to fetch profile for notional lookup", profile_id=profile_id)
+                logger.exception(
+                    "Failed to fetch profile for notional lookup", profile_id=profile_id
+                )
                 row = None
         notional = profile_notional(row)
         self._notional_cache[profile_id] = notional
@@ -197,7 +215,9 @@ class PositionCloser:
             return
         try:
             notional = await self._profile_notional(profile_id)
-            equity_fraction = realized_pnl_dollars / notional if notional > _ZERO else _ZERO
+            equity_fraction = (
+                realized_pnl_dollars / notional if notional > _ZERO else _ZERO
+            )
 
             key = f"pnl:daily:{profile_id}"
             today = closed_at.astimezone(timezone.utc).date().isoformat()
@@ -217,7 +237,9 @@ class PositionCloser:
                 realized_pnl_dollars=str(realized_pnl_dollars),
             )
 
-    async def _get_position_snapshot(self, position_id: str) -> Tuple[Optional[dict], Optional[str]]:
+    async def _get_position_snapshot(
+        self, position_id: str
+    ) -> Tuple[Optional[dict], Optional[str]]:
         """Read the entry-time agent_scores + regime snapshot.
 
         Handles both payload shapes for backward compatibility:
@@ -256,13 +278,24 @@ class PositionCloser:
         try:
             exit_fee = exit_price * position.quantity * taker_rate
             cost_basis = position.entry_price * position.quantity
-            realized_pnl_pct = snapshot.net_pre_tax / cost_basis if cost_basis > _ZERO else _ZERO
+            realized_pnl_pct = (
+                snapshot.net_pre_tax / cost_basis if cost_basis > _ZERO else _ZERO
+            )
             holding_duration_s = (
                 int((closed_at - position.opened_at).total_seconds())
-                if position.opened_at else 0
+                if position.opened_at
+                else 0
             )
-            profile_id_uuid = UUID(str(position.profile_id)) if not isinstance(position.profile_id, UUID) else position.profile_id
-            side_str = position.side.value if hasattr(position.side, "value") else str(position.side)
+            profile_id_uuid = (
+                UUID(str(position.profile_id))
+                if not isinstance(position.profile_id, UUID)
+                else position.profile_id
+            )
+            side_str = (
+                position.side.value
+                if hasattr(position.side, "value")
+                else str(position.side)
+            )
 
             await self._closed_trade_repo.write_closed_trade(
                 position_id=position.position_id,

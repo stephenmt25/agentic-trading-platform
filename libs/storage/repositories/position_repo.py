@@ -1,10 +1,13 @@
-from typing import Any, Dict, List, Optional
-from uuid import UUID
-from libs.core.models import Position
-from libs.core.enums import PositionStatus
-from libs.core.types import Price, ProfileId, SymbolPair
-from ._repository_base import BaseRepository
 from datetime import datetime, timezone
+from typing import Any, List, Optional
+from uuid import UUID
+
+from libs.core.enums import PositionStatus
+from libs.core.models import Position
+from libs.core.types import Price, ProfileId, SymbolPair
+
+from ._repository_base import BaseRepository
+
 
 class PositionRepository(BaseRepository):
     async def create_position(self, position: Position):
@@ -15,7 +18,11 @@ class PositionRepository(BaseRepository):
             order_id, decision_event_id
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         """
-        status: str = position.status.value if isinstance(position.status, PositionStatus) else str(position.status)
+        status: str = (
+            position.status.value
+            if isinstance(position.status, PositionStatus)
+            else str(position.status)
+        )
 
         await self._execute(
             query,
@@ -75,7 +82,9 @@ class PositionRepository(BaseRepository):
         WHERE position_id = $3 AND status = 'PENDING_CLOSE'
         RETURNING position_id
         """
-        row = await self._fetchrow(query, datetime.now(timezone.utc), exit_price, position_id)
+        row = await self._fetchrow(
+            query, datetime.now(timezone.utc), exit_price, position_id
+        )
         return row is not None
 
     async def revert_close(self, position_id: UUID) -> bool:
@@ -97,7 +106,9 @@ class PositionRepository(BaseRepository):
         record = await self._fetchrow(query, position_id)
         return dict(record) if record else None
 
-    async def set_protective_order_id(self, position_id: UUID, protective_order_id: str) -> None:
+    async def set_protective_order_id(
+        self, position_id: UUID, protective_order_id: str
+    ) -> None:
         """Record the exchange-side protective-stop order id placed at open
         (the venue's id string). Best-effort metadata — never on a hot path."""
         query = "UPDATE positions SET protective_order_id = $2 WHERE position_id = $1"

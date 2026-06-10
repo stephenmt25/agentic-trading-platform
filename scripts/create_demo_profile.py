@@ -10,11 +10,11 @@ hour on BTC/USDT in normal markets. Most matches will still get filtered by
 the abstention gate (~80%) and circuit breaker (~17%) — that's the point;
 the Decision Feed fills up showing the engine working.
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
-import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError
@@ -39,7 +39,9 @@ async def _first_user(db_url: str) -> str:
     url = db_url.replace("postgresql+asyncpg://", "postgresql://")
     c = await asyncpg.connect(url)
     try:
-        row = await c.fetchrow("SELECT user_id::text FROM users ORDER BY created_at LIMIT 1")
+        row = await c.fetchrow(
+            "SELECT user_id::text FROM users ORDER BY created_at LIMIT 1"
+        )
         if not row:
             raise SystemExit("no users in DB")
         return row["user_id"]
@@ -58,7 +60,10 @@ def post_json(path: str, token: str, body: dict) -> tuple[int, str]:
         f"{API}{path}",
         data=data,
         method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
     )
     try:
         with urlopen(req, timeout=10) as r:
@@ -81,7 +86,11 @@ def main() -> int:
             "confidence": 0.65,
             "signals": [
                 {"indicator": "rsi", "comparison": "below", "threshold": 50.0},
-                {"indicator": "macd_histogram", "comparison": "above", "threshold": 0.0},
+                {
+                    "indicator": "macd_histogram",
+                    "comparison": "above",
+                    "threshold": 0.0,
+                },
             ],
         },
         "risk_limits": {},

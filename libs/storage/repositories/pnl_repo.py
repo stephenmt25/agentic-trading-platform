@@ -1,7 +1,10 @@
-from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
 from libs.core.types import ProfileId
+
 from ._repository_base import BaseRepository
+
 
 class PnlRepository(BaseRepository):
     async def write_snapshot(self, snapshot: Dict[str, Any]):
@@ -13,19 +16,21 @@ class PnlRepository(BaseRepository):
         """
         await self._execute(
             query,
-            snapshot['profile_id'],
-            snapshot['symbol'],
-            snapshot['gross_pnl'],
-            snapshot['net_pnl_pre_tax'],
-            snapshot['net_pnl_post_tax'],
-            snapshot['total_fees'],
-            snapshot['estimated_tax'],
-            snapshot['cost_basis'],
-            snapshot['pct_return'],
-            snapshot.get('snapshot_at', datetime.now(timezone.utc))
+            snapshot["profile_id"],
+            snapshot["symbol"],
+            snapshot["gross_pnl"],
+            snapshot["net_pnl_pre_tax"],
+            snapshot["net_pnl_post_tax"],
+            snapshot["total_fees"],
+            snapshot["estimated_tax"],
+            snapshot["cost_basis"],
+            snapshot["pct_return"],
+            snapshot.get("snapshot_at", datetime.now(timezone.utc)),
         )
 
-    async def get_snapshots(self, profile_id: ProfileId, start: datetime, end: datetime) -> List[Any]:
+    async def get_snapshots(
+        self, profile_id: ProfileId, start: datetime, end: datetime
+    ) -> List[Any]:
         query = """
         SELECT * FROM pnl_snapshots 
         WHERE profile_id = $1 AND snapshot_at BETWEEN $2 AND $3

@@ -15,7 +15,9 @@ from libs.observability import get_logger
 logger = get_logger("api-gateway.docs-search")
 
 # Resolve paths relative to the project root (services/api_gateway/src/ → 3 levels up)
-_PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+_PROJECT_ROOT = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", "..")
+)
 _VIKING_SCRIPT = os.path.join(_PROJECT_ROOT, "viking.py")
 _VIKING_CONFIG = os.path.join(_PROJECT_ROOT, "ov.conf")
 _DOCS_DIR = os.path.join(_PROJECT_ROOT, "docs")
@@ -23,8 +25,8 @@ _DOCS_DIR = os.path.join(_PROJECT_ROOT, "docs")
 # Regex to parse Viking search output:
 #   [0.6071] viking://resources/docs/risk-management/.../Circuit_Breakers.md
 #            This technical reference document details...
-_RESULT_RE = re.compile(r'^\s*\[(\d+\.\d+)\]\s+(viking://\S+)\s*$')
-_SNIPPET_RE = re.compile(r'^\s{2,}(\S.+)$')
+_RESULT_RE = re.compile(r"^\s*\[(\d+\.\d+)\]\s+(viking://\S+)\s*$")
+_SNIPPET_RE = re.compile(r"^\s{2,}(\S.+)$")
 
 
 @dataclass
@@ -46,7 +48,7 @@ def _uri_to_doc_file(uri: str) -> Optional[str]:
     We extract the path segments after 'docs/' and try to find the matching .md file.
     """
     # Extract everything after 'docs/'
-    m = re.search(r'viking://resources/docs/(.+)', uri)
+    m = re.search(r"viking://resources/docs/(.+)", uri)
     if not m:
         return None
     segments = m.group(1).split("/")
@@ -54,7 +56,11 @@ def _uri_to_doc_file(uri: str) -> Optional[str]:
     # Try progressively longer paths: docs/seg1.md, docs/seg1/seg2.md, etc.
     for depth in range(min(3, len(segments)), 0, -1):
         path_parts = segments[:depth]
-        candidate = os.path.join(_DOCS_DIR, *path_parts[:-1], f"{path_parts[-1]}.md") if depth > 1 else os.path.join(_DOCS_DIR, f"{path_parts[0]}.md")
+        candidate = (
+            os.path.join(_DOCS_DIR, *path_parts[:-1], f"{path_parts[-1]}.md")
+            if depth > 1
+            else os.path.join(_DOCS_DIR, f"{path_parts[0]}.md")
+        )
         if os.path.isfile(candidate):
             return candidate
 
@@ -80,11 +86,11 @@ def uri_to_doc_slug(uri: str) -> Optional[str]:
     viking://resources/docs/modules/hot-path/... -> modules/hot-path
     """
     # Check for modules path
-    m = re.search(r'viking://resources/docs/modules/([^/]+)', uri)
+    m = re.search(r"viking://resources/docs/modules/([^/]+)", uri)
     if m:
         return f"modules/{m.group(1)}"
 
-    m = re.search(r'viking://resources/docs/([^/]+)', uri)
+    m = re.search(r"viking://resources/docs/([^/]+)", uri)
     if m:
         return m.group(1)
     return None
@@ -138,9 +144,14 @@ async def search_docs(query: str, top_k: int = 5) -> list[SearchResult]:
         if m:
             if current_uri:
                 doc_path = _uri_to_doc_file(current_uri)
-                results.append(SearchResult(
-                    uri=current_uri, score=current_score, snippet="", doc_path=doc_path,
-                ))
+                results.append(
+                    SearchResult(
+                        uri=current_uri,
+                        score=current_score,
+                        snippet="",
+                        doc_path=doc_path,
+                    )
+                )
             current_score = float(m.group(1))
             current_uri = m.group(2)
             continue
@@ -149,16 +160,26 @@ async def search_docs(query: str, top_k: int = 5) -> list[SearchResult]:
         if sm and current_uri:
             snippet = sm.group(1).strip()
             doc_path = _uri_to_doc_file(current_uri)
-            results.append(SearchResult(
-                uri=current_uri, score=current_score, snippet=snippet, doc_path=doc_path,
-            ))
+            results.append(
+                SearchResult(
+                    uri=current_uri,
+                    score=current_score,
+                    snippet=snippet,
+                    doc_path=doc_path,
+                )
+            )
             current_uri = None
 
     if current_uri:
         doc_path = _uri_to_doc_file(current_uri)
-        results.append(SearchResult(
-            uri=current_uri, score=current_score, snippet="", doc_path=doc_path,
-        ))
+        results.append(
+            SearchResult(
+                uri=current_uri,
+                score=current_score,
+                snippet="",
+                doc_path=doc_path,
+            )
+        )
 
     # Deduplicate by doc file (multiple chunks may point to same doc)
     seen_paths: set[str] = set()

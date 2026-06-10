@@ -21,6 +21,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from libs.messaging.channels import PUBSUB_AGENT_TELEMETRY
+
 from ._logger import get_logger
 
 logger = get_logger("telemetry")
@@ -69,21 +70,26 @@ class TelemetryPublisher:
     async def emit_health(self) -> None:
         """Publish a health check event."""
         import psutil
+
         process = psutil.Process(os.getpid())
         mem_mb = process.memory_info().rss / (1024 * 1024)
         cpu_pct = process.cpu_percent(interval=None)
 
-        await self.emit("health_check", {
-            "status": "healthy",
-            "uptime_s": int(time.monotonic() - self._start_time),
-            "memory_mb": round(mem_mb, 1),
-            "cpu_pct": round(cpu_pct, 1),
-            "messages_processed": self._message_count,
-            "error_count_1h": 0,
-        })
+        await self.emit(
+            "health_check",
+            {
+                "status": "healthy",
+                "uptime_s": int(time.monotonic() - self._start_time),
+                "memory_mb": round(mem_mb, 1),
+                "cpu_pct": round(cpu_pct, 1),
+                "messages_processed": self._message_count,
+                "error_count_1h": 0,
+            },
+        )
 
     async def start_health_loop(self, interval_s: float = 5.0) -> None:
         """Start a background task that publishes health checks periodically."""
+
         async def _loop():
             while True:
                 try:

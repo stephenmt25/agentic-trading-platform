@@ -1,9 +1,11 @@
 import asyncio
 import json
 import time
-import msgpack
 from decimal import Decimal
-from libs.core.schemas import DrawdownPayload, AllocationPayload
+
+import msgpack
+
+from libs.core.schemas import AllocationPayload, DrawdownPayload
 from libs.messaging.channels import PUBSUB_PNL_UPDATES
 from libs.observability import get_logger
 
@@ -50,7 +52,9 @@ class PnlSync:
 
     POLL_INTERVAL_S = 5
 
-    def __init__(self, redis_client, pubsub_subscriber, state_cache, position_repo=None):
+    def __init__(
+        self, redis_client, pubsub_subscriber, state_cache, position_repo=None
+    ):
         self._redis = redis_client
         self._subscriber = pubsub_subscriber
         self._state_cache = state_cache
@@ -118,11 +122,15 @@ class PnlSync:
                     # (single writer). Missing key means "no realised PnL today",
                     # so reset state to 0 — otherwise stale in-memory values
                     # would keep tripping CircuitBreaker after a manual reset.
-                    daily_micro = await self._redis.hget(f"pnl:daily:{pid}", "total_pct_micro")
+                    daily_micro = await self._redis.hget(
+                        f"pnl:daily:{pid}", "total_pct_micro"
+                    )
                     if daily_micro is None:
                         state.daily_realised_pnl_pct = Decimal("0")
                     else:
-                        state.daily_realised_pnl_pct = Decimal(int(daily_micro)) / Decimal("1000000")
+                        state.daily_realised_pnl_pct = Decimal(
+                            int(daily_micro)
+                        ) / Decimal("1000000")
 
                     # Drawdown
                     dd_raw = await self._redis.get(f"risk:drawdown:{pid}")
@@ -141,7 +149,9 @@ class PnlSync:
                     # currently open positions for this profile.
                     if self._position_repo is not None:
                         try:
-                            open_rows = await self._position_repo.get_open_positions(profile_id=pid)
+                            open_rows = await self._position_repo.get_open_positions(
+                                profile_id=pid
+                            )
                             total = Decimal("0")
                             symbols: set = set()
                             for r in open_rows:
@@ -166,8 +176,11 @@ class PnlSync:
                             state.open_position_symbols = open_syms
                             state.open_position_symbols_optimistic_ts = pruned_ts
                         except Exception as e:
-                            logger.warning("Failed to refresh open positions",
-                                           profile_id=pid, error=str(e))
+                            logger.warning(
+                                "Failed to refresh open positions",
+                                profile_id=pid,
+                                error=str(e),
+                            )
 
             except asyncio.CancelledError:
                 break

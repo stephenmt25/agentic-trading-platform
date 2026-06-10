@@ -44,31 +44,24 @@ Out of scope for v1:
 import asyncio
 import json
 import time
-from datetime import datetime, timezone, timedelta
+from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Optional
 
 import uvicorn
 from fastapi import FastAPI
-from contextlib import asynccontextmanager
 
 from libs.config import settings
-from libs.core.enums import EventType, Regime as _Regime
+from libs.core.enums import EventType
 from libs.core.models import NormalisedTick, RiskLimits
 from libs.core.notional import profile_notional
-from libs.core.schemas import (
-    AlertEvent,
-    DEFAULT_RISK_LIMITS,
-    MarketTickEvent,
-)
+from libs.core.schemas import DEFAULT_RISK_LIMITS, AlertEvent, MarketTickEvent
 from libs.indicators import create_indicator_set
-from libs.messaging import StreamConsumer, PubSubBroadcaster
-from libs.messaging.channels import (
-    MARKET_DATA_STREAM,
-    PUBSUB_SYSTEM_ALERTS,
-)
+from libs.messaging import PubSubBroadcaster, StreamConsumer
+from libs.messaging.channels import MARKET_DATA_STREAM, PUBSUB_SYSTEM_ALERTS
 from libs.observability import get_logger, supervised_task
-from libs.storage import RedisClient, TimescaleClient, ProfileRepository
+from libs.storage import ProfileRepository, RedisClient, TimescaleClient
 from services.hot_path.src.state import ProfileState
 from services.hot_path.src.strategy_eval import StrategyEvaluator
 from services.strategy.src.compiler import RuleCompiler
@@ -76,9 +69,9 @@ from services.strategy.src.compiler import RuleCompiler
 logger = get_logger("oracle")
 
 # ---------- thresholds ----------------------------------------------------
-WINDOW_MINUTES = 5             # rolling window for divergence check
-POLL_INTERVAL_S = 60.0         # how often Loop B + Loop C run
-COUNTER_TTL_S = 60 * 30        # keep per-minute counters in Redis for 30 min
+WINDOW_MINUTES = 5  # rolling window for divergence check
+POLL_INTERVAL_S = 60.0  # how often Loop B + Loop C run
+COUNTER_TTL_S = 60 * 30  # keep per-minute counters in Redis for 30 min
 PROFILE_REFRESH_INTERVAL_S = 30
 # Stage 1 = strategy → gate-chain dropped signals. Excess synth-vs-approved
 # is expected (re-entry guard, regime, validation can legitimately reject).
@@ -90,15 +83,19 @@ STAGE1_CONSECUTIVE_WINDOWS = 3
 STAGE2_TOLERANCE = 0
 STAGE2_CONSECUTIVE_WINDOWS = 2
 
+
 # ---------- redis key helpers --------------------------------------------
 def _minute_bucket_now() -> int:
     return int(time.time()) // 60
 
+
 def _k_synth(pid: str, minute: int) -> str:
     return f"oracle:synth:{pid}:{minute}"
 
+
 def _k_approved(pid: str, minute: int) -> str:
     return f"oracle:approved:{pid}:{minute}"
+
 
 def _k_blocked(pid: str, minute: int) -> str:
     """All gate-rejected outcomes (BLOCKED_REENTRY, BLOCKED_ABSTENTION,
@@ -108,14 +105,18 @@ def _k_blocked(pid: str, minute: int) -> str:
     is correctly accounted for, not a silent fail."""
     return f"oracle:blocked:{pid}:{minute}"
 
+
 def _k_fills(pid: str, minute: int) -> str:
     return f"oracle:fills:{pid}:{minute}"
+
 
 def _k_last_decision_poll() -> str:
     return "oracle:state:last_decision_poll"
 
+
 def _k_last_order_poll() -> str:
     return "oracle:state:last_order_poll"
+
 
 def _k_consecutive(pid: str, stage: int) -> str:
     return f"oracle:state:consecutive_alert:{pid}:{stage}"
@@ -180,7 +181,9 @@ class ProfileCache:
         risk_limits = RiskLimits(
             max_drawdown_pct=Decimal(str(DEFAULT_RISK_LIMITS["max_drawdown_pct"])),
             stop_loss_pct=Decimal(str(DEFAULT_RISK_LIMITS["stop_loss_pct"])),
-            circuit_breaker_daily_loss_pct=Decimal(str(DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"])),
+            circuit_breaker_daily_loss_pct=Decimal(
+                str(DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"])
+            ),
             max_allocation_pct=Decimal(str(DEFAULT_RISK_LIMITS["max_allocation_pct"])),
         )
 
@@ -414,7 +417,10 @@ async def divergence_loop(
                             pubsub,
                             pid,
                             stage=1,
-                            synth=synth, blocked=blocked, approved=approved, fills=fills,
+                            synth=synth,
+                            blocked=blocked,
+                            approved=approved,
+                            fills=fills,
                             gap=stage1_gap,
                             consecutive=n,
                         )
@@ -431,7 +437,10 @@ async def divergence_loop(
                             pubsub,
                             pid,
                             stage=2,
-                            synth=synth, blocked=blocked, approved=approved, fills=fills,
+                            synth=synth,
+                            blocked=blocked,
+                            approved=approved,
+                            fills=fills,
                             gap=stage2_gap,
                             consecutive=n,
                         )
@@ -442,8 +451,12 @@ async def divergence_loop(
                     "oracle_window",
                     profile_id=pid,
                     window_m=WINDOW_MINUTES,
-                    synth=synth, blocked=blocked, approved=approved, fills=fills,
-                    stage1_gap=stage1_gap, stage2_gap=stage2_gap,
+                    synth=synth,
+                    blocked=blocked,
+                    approved=approved,
+                    fills=fills,
+                    stage1_gap=stage1_gap,
+                    stage2_gap=stage2_gap,
                 )
         except Exception:
             logger.exception("divergence_loop pass failed")
@@ -455,8 +468,12 @@ async def _publish_divergence_alert(
     pubsub: PubSubBroadcaster,
     profile_id: str,
     stage: int,
-    synth: int, blocked: int, approved: int, fills: int,
-    gap: int, consecutive: int,
+    synth: int,
+    blocked: int,
+    approved: int,
+    fills: int,
+    gap: int,
+    consecutive: int,
 ):
     """Push a RED alert. Frontend chrome's alertStore picks it up via
     api_gateway's WS fan-out of pubsub:system_alerts."""
@@ -471,8 +488,12 @@ async def _publish_divergence_alert(
         "oracle_divergence_detected",
         stage=stage,
         profile_id=profile_id,
-        synth=synth, blocked=blocked, approved=approved, fills=fills,
-        gap=gap, consecutive=consecutive,
+        synth=synth,
+        blocked=blocked,
+        approved=approved,
+        fills=fills,
+        gap=gap,
+        consecutive=consecutive,
     )
     event = AlertEvent(
         event_type=EventType.ALERT_RED,
@@ -538,8 +559,9 @@ async def lifespan(app: FastAPI):
 
     for t in (refresh_task, synth_task, actual_task, diverge_task):
         t.cancel()
-    await asyncio.gather(refresh_task, synth_task, actual_task, diverge_task,
-                        return_exceptions=True)
+    await asyncio.gather(
+        refresh_task, synth_task, actual_task, diverge_task, return_exceptions=True
+    )
     await timescale.close()
     logger.info("Oracle shutdown gracefully")
 
@@ -568,8 +590,10 @@ async def diagnostics():
         blocked = await _sum_window(redis_client, _k_blocked, pid, end_minute)
         fills = await _sum_window(redis_client, _k_fills, pid, end_minute)
         out["profiles"][pid] = {
-            "synth": synth, "blocked": blocked,
-            "approved": approved, "fills": fills,
+            "synth": synth,
+            "blocked": blocked,
+            "approved": approved,
+            "fills": fills,
             "stage1_gap": synth - (approved + blocked),
             "stage2_gap": approved - fills,
         }

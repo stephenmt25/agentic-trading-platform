@@ -6,25 +6,42 @@ Same BacktestJob input / BacktestResult output interface.
 """
 
 import math
-import numpy as np
-from decimal import Decimal
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
+from decimal import Decimal
+from typing import Any, Dict, List
 
-from services.strategy.src.compiler import RuleCompiler
+import numpy as np
+
 from libs.indicators import (
-    RSICalculator, MACDCalculator, ATRCalculator,
-    ADXCalculator, BollingerCalculator, OBVCalculator, ChoppinessCalculator,
-    VWAPCalculator, KeltnerCalculator, RVOLCalculator, ZScoreCalculator, HurstCalculator,
+    ADXCalculator,
+    ATRCalculator,
+    BollingerCalculator,
+    ChoppinessCalculator,
+    HurstCalculator,
+    KeltnerCalculator,
+    MACDCalculator,
+    OBVCalculator,
+    RSICalculator,
+    RVOLCalculator,
     SimpleRegimeClassifier,
+    VWAPCalculator,
+    ZScoreCalculator,
 )
-from .simulator import BacktestJob, BacktestResult, SimulatedTrade, parse_preferred_regimes
+from services.strategy.src.compiler import RuleCompiler
+
+from .simulator import (
+    BacktestJob,
+    BacktestResult,
+    SimulatedTrade,
+    parse_preferred_regimes,
+)
 
 _D = Decimal
 
 
-def _compute_indicators(closes: np.ndarray, highs: np.ndarray, lows: np.ndarray,
-                         volumes: np.ndarray) -> Dict[str, np.ndarray]:
+def _compute_indicators(
+    closes: np.ndarray, highs: np.ndarray, lows: np.ndarray, volumes: np.ndarray
+) -> Dict[str, np.ndarray]:
     """Compute all indicators incrementally and return aligned arrays.
 
     Each array has the same length as the input, with NaN during priming.
@@ -198,8 +215,13 @@ class VectorBTRunner:
     def run(job: BacktestJob, data: List[Dict[str, Any]]) -> BacktestResult:
         if not data:
             return BacktestResult(
-                job_id=job.job_id, total_trades=0, win_rate=0.0,
-                avg_return=0.0, max_drawdown=0.0, sharpe=0.0, profit_factor=0.0,
+                job_id=job.job_id,
+                total_trades=0,
+                win_rate=0.0,
+                avg_return=0.0,
+                max_drawdown=0.0,
+                sharpe=0.0,
+                profit_factor=0.0,
             )
 
         # Extract OHLCV arrays
@@ -207,7 +229,9 @@ class VectorBTRunner:
         closes = np.array([float(c["close"]) for c in data])  # float-ok: numpy interop
         highs = np.array([float(c["high"]) for c in data])  # float-ok: numpy interop
         lows = np.array([float(c["low"]) for c in data])  # float-ok: numpy interop
-        volumes = np.array([float(c.get("volume", 0)) for c in data])  # float-ok: numpy interop
+        volumes = np.array(
+            [float(c.get("volume", 0)) for c in data]
+        )  # float-ok: numpy interop
         times = [str(c.get("time", "")) for c in data]
 
         # Compute indicators
@@ -216,7 +240,9 @@ class VectorBTRunner:
         # Compile and evaluate rules vectorized
         compiled = RuleCompiler.compile(job.strategy_rules)
         signals = _evaluate_conditions_vectorized(
-            indicators, compiled.conditions, compiled.logic,
+            indicators,
+            compiled.conditions,
+            compiled.logic,
         )
 
         # Row 18: regime gate. Mask the signal array to False on every bar
@@ -239,7 +265,9 @@ class VectorBTRunner:
                     signals[i] = False
 
         direction = compiled.direction.value  # "BUY" or "SELL"
-        slippage_f = float(job.slippage_pct)  # float-ok: numpy vectorized engine requires float
+        slippage_f = float(
+            job.slippage_pct
+        )  # float-ok: numpy vectorized engine requires float
 
         # Simulate trades from signal array
         trades: List[SimulatedTrade] = []
@@ -258,7 +286,9 @@ class VectorBTRunner:
             elif signals[i] and in_position:
                 # Close + re-open on signal while in position
                 slip = closes[i] * slippage_f
-                entry_price = closes[entry_idx] + (slip if direction == "BUY" else -slip)
+                entry_price = closes[entry_idx] + (
+                    slip if direction == "BUY" else -slip
+                )
                 exit_price = closes[i] - (slip if direction == "BUY" else -slip)
 
                 if direction == "BUY":
@@ -266,12 +296,18 @@ class VectorBTRunner:
                 else:
                     pnl_pct = (entry_price - exit_price) / entry_price
 
-                trades.append(SimulatedTrade(
-                    entry_time=times[entry_idx], exit_time=times[i],
-                    direction=direction, entry_price=entry_price,
-                    exit_price=exit_price, slippage_cost=slip * 2, pnl_pct=pnl_pct,
-                ))
-                equity *= (1 + pnl_pct)
+                trades.append(
+                    SimulatedTrade(
+                        entry_time=times[entry_idx],
+                        exit_time=times[i],
+                        direction=direction,
+                        entry_price=entry_price,
+                        exit_price=exit_price,
+                        slippage_cost=slip * 2,
+                        pnl_pct=pnl_pct,
+                    )
+                )
+                equity *= 1 + pnl_pct
                 entry_idx = i  # Re-open
 
             equity_curve.append(equity)
@@ -291,12 +327,18 @@ class VectorBTRunner:
             else:
                 pnl_pct = (entry_price - exit_price) / entry_price
 
-            trades.append(SimulatedTrade(
-                entry_time=times[entry_idx], exit_time=times[i],
-                direction=direction, entry_price=entry_price,
-                exit_price=exit_price, slippage_cost=slip * 2, pnl_pct=pnl_pct,
-            ))
-            equity *= (1 + pnl_pct)
+            trades.append(
+                SimulatedTrade(
+                    entry_time=times[entry_idx],
+                    exit_time=times[i],
+                    direction=direction,
+                    entry_price=entry_price,
+                    exit_price=exit_price,
+                    slippage_cost=slip * 2,
+                    pnl_pct=pnl_pct,
+                )
+            )
+            equity *= 1 + pnl_pct
             equity_curve.append(equity)
 
         # Aggregate metrics — compute in float (numpy context), convert to Decimal at output
@@ -304,19 +346,27 @@ class VectorBTRunner:
         wins = [t for t in trades if t.pnl_pct > 0]
         losses = [t for t in trades if t.pnl_pct <= 0]
         win_rate = len(wins) / total_trades if total_trades > 0 else 0.0
-        avg_return = sum(t.pnl_pct for t in trades) / total_trades if total_trades > 0 else 0.0
+        avg_return = (
+            sum(t.pnl_pct for t in trades) / total_trades if total_trades > 0 else 0.0
+        )
 
         returns = [t.pnl_pct for t in trades]
         if len(returns) >= 2:
             mean_r = sum(returns) / len(returns)
-            std_r = math.sqrt(sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1))
+            std_r = math.sqrt(
+                sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
+            )
             sharpe = (mean_r / std_r) * math.sqrt(252) if std_r > 0 else 0.0
         else:
             sharpe = 0.0
 
         gross_profit = sum(t.pnl_pct for t in wins)
         gross_loss = abs(sum(t.pnl_pct for t in losses))
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float("inf") if gross_profit > 0 else 0.0
+        profit_factor = (
+            gross_profit / gross_loss
+            if gross_loss > 0
+            else float("inf") if gross_profit > 0 else 0.0
+        )
 
         return BacktestResult(
             job_id=job.job_id,
@@ -325,17 +375,25 @@ class VectorBTRunner:
             avg_return=_D(str(avg_return)),
             max_drawdown=_D(str(max_drawdown)),
             sharpe=_D(str(sharpe)),
-            profit_factor=_D(str(profit_factor)) if math.isfinite(profit_factor) else _D("Infinity"),
+            profit_factor=(
+                _D(str(profit_factor))
+                if math.isfinite(profit_factor)
+                else _D("Infinity")
+            ),
             equity_curve=[_D(str(e)) for e in equity_curve],
             trades=[
                 SimulatedTrade(
-                    entry_time=t.entry_time, exit_time=t.exit_time,
+                    entry_time=t.entry_time,
+                    exit_time=t.exit_time,
                     direction=t.direction,
                     entry_price=_D(str(t.entry_price)),
-                    exit_price=_D(str(t.exit_price)) if t.exit_price is not None else None,
+                    exit_price=(
+                        _D(str(t.exit_price)) if t.exit_price is not None else None
+                    ),
                     slippage_cost=_D(str(t.slippage_cost)),
                     pnl_pct=_D(str(t.pnl_pct)),
-                ) for t in trades
+                )
+                for t in trades
             ],
         )
 
@@ -343,6 +401,7 @@ class VectorBTRunner:
 @dataclass
 class SweepResult:
     """Result of a parameter sweep — one BacktestResult per parameter combination."""
+
     job_id: str
     symbol: str
     param_results: List[Dict[str, Any]] = field(default_factory=list)
@@ -383,21 +442,24 @@ def run_sweep(
             slippage_pct=slippage_pct,
         )
         result = VectorBTRunner.run(job, data)
-        results.append({
-            "params": params,
-            "total_trades": result.total_trades,
-            "win_rate": result.win_rate,
-            "sharpe": result.sharpe,
-            "max_drawdown": result.max_drawdown,
-            "profit_factor": result.profit_factor,
-            "avg_return": result.avg_return,
-        })
+        results.append(
+            {
+                "params": params,
+                "total_trades": result.total_trades,
+                "win_rate": result.win_rate,
+                "sharpe": result.sharpe,
+                "max_drawdown": result.max_drawdown,
+                "profit_factor": result.profit_factor,
+                "avg_return": result.avg_return,
+            }
+        )
 
     return SweepResult(job_id=sweep_id, symbol=symbol, param_results=results)
 
 
 def _deep_copy_rules(rules: Dict[str, Any]) -> Dict[str, Any]:
     import json
+
     return json.loads(json.dumps(rules))
 
 

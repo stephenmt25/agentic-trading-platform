@@ -3,12 +3,13 @@ import json
 import uuid
 from datetime import datetime
 from decimal import Decimal
+
 from libs.messaging import StreamConsumer, StreamPublisher
-from libs.core.schemas import BaseEvent
 from libs.storage.repositories.backtest_repo import BacktestRepository
-from .simulator import TradingSimulator, BacktestJob
-from .vectorbt_runner import VectorBTRunner
+
 from .data_loader import BacktestDataLoader
+from .simulator import BacktestJob, TradingSimulator
+from .vectorbt_runner import VectorBTRunner
 
 
 class JobRunner:
@@ -32,7 +33,9 @@ class JobRunner:
         if self._group_created:
             return
         try:
-            await self._redis.xgroup_create(self._queue_channel, "backtest_engine", id="0", mkstream=True)
+            await self._redis.xgroup_create(
+                self._queue_channel, "backtest_engine", id="0", mkstream=True
+            )
         except Exception as e:
             if "BUSYGROUP" not in str(e):
                 raise
@@ -49,9 +52,11 @@ class JobRunner:
                 await self._ensure_group()
 
                 results = await self._redis.xreadgroup(
-                    "backtest_engine", "worker_1",
+                    "backtest_engine",
+                    "worker_1",
                     {self._queue_channel: ">"},
-                    count=1, block=5000,
+                    count=1,
+                    block=5000,
                 )
 
                 events = []
@@ -83,12 +88,14 @@ class JobRunner:
                             try:
                                 await self._redis.set(
                                     f"backtest:status:{job_id}",
-                                    json.dumps({
-                                        "status": "failed",
-                                        "job_id": job_id,
-                                        "user_id": user_id,
-                                        "error": str(job_exc),
-                                    }),
+                                    json.dumps(
+                                        {
+                                            "status": "failed",
+                                            "job_id": job_id,
+                                            "user_id": user_id,
+                                            "error": str(job_exc),
+                                        }
+                                    ),
                                     ex=3600,
                                 )
                             except Exception:
@@ -98,7 +105,9 @@ class JobRunner:
                     msg_ids = [m for m, _ in events]
                     if msg_ids:
                         # Ack even failed jobs so they don't re-deliver forever as pending.
-                        await self._redis.xack(self._queue_channel, "backtest_engine", *msg_ids)
+                        await self._redis.xack(
+                            self._queue_channel, "backtest_engine", *msg_ids
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception as loop_exc:

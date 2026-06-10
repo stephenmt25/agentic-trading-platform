@@ -4,6 +4,7 @@ Never blocks or crashes the hot path — all errors are logged and swallowed.
 """
 
 import uuid
+
 from libs.observability import get_logger
 from libs.storage.repositories.decision_repo import DecisionRepository
 
@@ -30,8 +31,12 @@ class DecisionTraceWriter:
                 agents=trace.get("agents"),
                 gates=trace.get("gates", {}),
                 profile_rules=trace.get("profile_rules", {}),
-                order_id=uuid.UUID(trace["order_id"]) if trace.get("order_id") else None,
+                order_id=(
+                    uuid.UUID(trace["order_id"]) if trace.get("order_id") else None
+                ),
                 shadow=bool(trace.get("shadow", False)),
             )
         except Exception:
-            logger.exception("Failed to write decision trace", symbol=trace.get("symbol"))
+            logger.exception(
+                "Failed to write decision trace", symbol=trace.get("symbol")
+            )

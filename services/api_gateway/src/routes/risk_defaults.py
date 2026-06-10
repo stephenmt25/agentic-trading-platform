@@ -11,14 +11,9 @@ docs/design/05-surface-specs/06-profiles-settings.md §5.
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
-from libs.core.schemas import (
-    UserRiskDefaultsPayload,
-    UserRiskDefaultsResponse,
-)
+from libs.core.schemas import UserRiskDefaultsPayload, UserRiskDefaultsResponse
 from libs.observability import get_logger
-from libs.storage.repositories.user_risk_defaults_repo import (
-    UserRiskDefaultsRepository,
-)
+from libs.storage.repositories.user_risk_defaults_repo import UserRiskDefaultsRepository
 
 from ..deps import get_current_user, get_timescale
 
@@ -65,7 +60,9 @@ async def save_risk_defaults(
     try:
         row = await repo.upsert(user_id, payload.model_dump())
     except Exception as exc:
-        logger.error("user_risk_defaults upsert failed", user_id=user_id, error=str(exc))
+        logger.error(
+            "user_risk_defaults upsert failed", user_id=user_id, error=str(exc)
+        )
         raise HTTPException(status_code=500, detail="Failed to save risk defaults.")
     return UserRiskDefaultsResponse(
         defaults=UserRiskDefaultsPayload(**row["defaults"]),

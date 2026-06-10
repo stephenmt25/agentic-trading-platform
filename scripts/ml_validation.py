@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import collections
 import json
 import sys
 from dataclasses import dataclass, field
@@ -54,7 +53,9 @@ class WindowSummary:
     distinct_profiles: int = 0
 
 
-async def _summarise_window(timescale: TimescaleClient, label: str, start: datetime, end: datetime) -> WindowSummary:
+async def _summarise_window(
+    timescale: TimescaleClient, label: str, start: datetime, end: datetime
+) -> WindowSummary:
     summary = WindowSummary(label=label, start=start, end=end)
 
     rows = await timescale.fetch(
@@ -107,14 +108,16 @@ def _shifts(pre: WindowSummary, post: WindowSummary) -> List[Dict[str, object]]:
         b = post.outcome_counts.get(k, 0)
         a_pct = (a / pre.total_decisions) if pre.total_decisions else 0.0
         b_pct = (b / post.total_decisions) if post.total_decisions else 0.0
-        rows.append({
-            "outcome": k,
-            "pre_count": a,
-            "pre_pct": a_pct,
-            "post_count": b,
-            "post_pct": b_pct,
-            "delta_pct": b_pct - a_pct,
-        })
+        rows.append(
+            {
+                "outcome": k,
+                "pre_count": a,
+                "pre_pct": a_pct,
+                "post_count": b,
+                "post_pct": b_pct,
+                "delta_pct": b_pct - a_pct,
+            }
+        )
     return rows
 
 
@@ -128,8 +131,12 @@ def _format_md(pre: WindowSummary, post: WindowSummary) -> str:
     lines.append("")
     lines.append("## Windows")
     lines.append("")
-    lines.append(f"- **{pre.label}**: {pre.start.isoformat()} → {pre.end.isoformat()} — {pre.total_decisions} decisions")
-    lines.append(f"- **{post.label}**: {post.start.isoformat()} → {post.end.isoformat()} — {post.total_decisions} decisions")
+    lines.append(
+        f"- **{pre.label}**: {pre.start.isoformat()} → {pre.end.isoformat()} — {pre.total_decisions} decisions"
+    )
+    lines.append(
+        f"- **{post.label}**: {post.start.isoformat()} → {post.end.isoformat()} — {post.total_decisions} decisions"
+    )
     lines.append("")
     if not pre.total_decisions or not post.total_decisions:
         lines.append("⚠️  One or both windows are empty. Outcome shift table omitted.")
@@ -236,18 +243,25 @@ async def _main(args: argparse.Namespace) -> int:
     finally:
         await timescale.close()
 
-    output = Path(args.output) if args.output else (
-        ROOT / "docs" / f"ML-VALIDATION-{now.date().isoformat()}.md"
+    output = (
+        Path(args.output)
+        if args.output
+        else (ROOT / "docs" / f"ML-VALIDATION-{now.date().isoformat()}.md")
     )
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(_format_md(pre, post))
     print(f"Wrote {output}")
-    print(json.dumps({
-        "pre_total": pre.total_decisions,
-        "post_total": post.total_decisions,
-        "pre_outcomes": pre.outcome_counts,
-        "post_outcomes": post.outcome_counts,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "pre_total": pre.total_decisions,
+                "post_total": post.total_decisions,
+                "pre_outcomes": pre.outcome_counts,
+                "post_outcomes": post.outcome_counts,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 

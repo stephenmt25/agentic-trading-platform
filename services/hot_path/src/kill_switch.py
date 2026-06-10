@@ -15,7 +15,6 @@ loop — before strategy evaluation, risk gates, or any other logic.
 
 import json
 import time
-from typing import Optional
 
 from libs.observability import get_logger
 
@@ -39,19 +38,26 @@ class KillSwitch:
             return val is not None and val in (b"1", "1", b"true", "true")
         except Exception as e:
             # If Redis is unreachable, fail SAFE — block trading
-            logger.error("Kill switch Redis check failed — defaulting to ACTIVE (safe)", error=str(e))
+            logger.error(
+                "Kill switch Redis check failed — defaulting to ACTIVE (safe)",
+                error=str(e),
+            )
             return True
 
     @staticmethod
-    async def activate(redis_client, reason: str = "manual", activated_by: str = "system"):
+    async def activate(
+        redis_client, reason: str = "manual", activated_by: str = "system"
+    ):
         """Engage the kill switch. All trading stops immediately."""
         await redis_client.set(KILL_SWITCH_KEY, "1")
-        log_entry = json.dumps({
-            "action": "ACTIVATED",
-            "reason": reason,
-            "activated_by": activated_by,
-            "timestamp": time.time(),
-        })
+        log_entry = json.dumps(
+            {
+                "action": "ACTIVATED",
+                "reason": reason,
+                "activated_by": activated_by,
+                "timestamp": time.time(),
+            }
+        )
         await redis_client.lpush(KILL_SWITCH_LOG_KEY, log_entry)
         await redis_client.ltrim(KILL_SWITCH_LOG_KEY, 0, 99)  # keep last 100 entries
         logger.critical(
@@ -61,15 +67,19 @@ class KillSwitch:
         )
 
     @staticmethod
-    async def deactivate(redis_client, reason: str = "manual", deactivated_by: str = "system"):
+    async def deactivate(
+        redis_client, reason: str = "manual", deactivated_by: str = "system"
+    ):
         """Disengage the kill switch. Trading resumes."""
         await redis_client.delete(KILL_SWITCH_KEY)
-        log_entry = json.dumps({
-            "action": "DEACTIVATED",
-            "reason": reason,
-            "deactivated_by": deactivated_by,
-            "timestamp": time.time(),
-        })
+        log_entry = json.dumps(
+            {
+                "action": "DEACTIVATED",
+                "reason": reason,
+                "deactivated_by": deactivated_by,
+                "timestamp": time.time(),
+            }
+        )
         await redis_client.lpush(KILL_SWITCH_LOG_KEY, log_entry)
         await redis_client.ltrim(KILL_SWITCH_LOG_KEY, 0, 99)
         logger.warning(
@@ -85,7 +95,7 @@ class KillSwitch:
         log = []
         try:
             log_raw = await redis_client.lrange(KILL_SWITCH_LOG_KEY, 0, 9)
-            for entry in (log_raw or []):
+            for entry in log_raw or []:
                 try:
                     log.append(json.loads(entry))
                 except (json.JSONDecodeError, TypeError):
@@ -94,5 +104,7 @@ class KillSwitch:
             # Redis unreachable — is_active already returned True (fail-safe).
             # Don't let a follow-on lrange failure 500 the endpoint; operators
             # need to see active=true cleanly.
-            logger.error("Kill switch log fetch failed — returning empty log", error=str(e))
+            logger.error(
+                "Kill switch log fetch failed — returning empty log", error=str(e)
+            )
         return {"active": active, "recent_log": log}

@@ -1,11 +1,14 @@
 """Check the 3 mystery positions: when did their decisions happen, and did
 the close-all script touch them?"""
-import asyncio, sys
+
+import asyncio
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from libs.config import settings
 import asyncpg
 
+from libs.config import settings
 
 PHANTOM_POSITIONS = [
     "50dce658-0b48-454e-bcde-d6e03b9788ae",
@@ -25,7 +28,9 @@ async def main() -> int:
             PHANTOM_POSITIONS,
         )
         for r in rows:
-            print(f"  decision {r['event_id'][:8]}  {r['created_at']}  {r['symbol']}  {r['outcome']}  prof={r['pid'][:8]}")
+            print(
+                f"  decision {r['event_id'][:8]}  {r['created_at']}  {r['symbol']}  {r['outcome']}  prof={r['pid'][:8]}"
+            )
 
         print("\n=== Positions table for these decisions (any status) ===")
         rows = await c.fetch(
@@ -34,7 +39,9 @@ async def main() -> int:
             PHANTOM_POSITIONS,
         )
         for r in rows:
-            print(f"  pos {r['position_id'][:8]}  status={r['status']}  opened={r['opened_at']}  closed={r['closed_at']}  exit=${r['exit_price']}")
+            print(
+                f"  pos {r['position_id'][:8]}  status={r['status']}  opened={r['opened_at']}  closed={r['closed_at']}  exit=${r['exit_price']}"
+            )
 
         print("\n=== closed_trades for these decisions ===")
         rows = await c.fetch(
@@ -43,7 +50,9 @@ async def main() -> int:
             PHANTOM_POSITIONS,
         )
         for r in rows:
-            print(f"  pos {r['position_id'][:8]}  closed={r['closed_at']}  outcome={r['outcome']}  pnl=${r['realized_pnl']}  reason={r['close_reason']}")
+            print(
+                f"  pos {r['position_id'][:8]}  closed={r['closed_at']}  outcome={r['outcome']}  pnl=${r['realized_pnl']}  reason={r['close_reason']}"
+            )
         if not rows:
             print("  (no closed_trades rows — these were never officially closed)")
 
@@ -51,12 +60,13 @@ async def main() -> int:
         rows = await c.fetch(
             """SELECT decision_event_id::text, COUNT(*) AS n, array_agg(status) AS statuses
                FROM positions WHERE decision_event_id = ANY($1::uuid[])
-               GROUP BY decision_event_id"""
-            ,
+               GROUP BY decision_event_id""",
             PHANTOM_POSITIONS,
         )
         for r in rows:
-            print(f"  decision {r['decision_event_id'][:8]}  {r['n']} position row(s)  statuses={r['statuses']}")
+            print(
+                f"  decision {r['decision_event_id'][:8]}  {r['n']} position row(s)  statuses={r['statuses']}"
+            )
     finally:
         await c.close()
     return 0

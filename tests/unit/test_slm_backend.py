@@ -4,27 +4,28 @@ Tests the LLMBackend protocol, CloudLLMBackend, LocalLLMBackend,
 fallback chain, and the refactored LLMSentimentScorer.
 """
 
-import pytest
 import json
-from unittest.mock import patch
 from typing import Optional
+from unittest.mock import patch
+
+import pytest
 
 from services.sentiment.src.scorer import (
-    LLMBackend,
     CloudLLMBackend,
-    LocalLLMBackend,
+    LLMBackend,
     LLMSentimentScorer,
-    SentimentResult,
+    LocalLLMBackend,
     create_backend,
 )
-
 
 # ---------------------------------------------------------------------------
 # Test backends
 # ---------------------------------------------------------------------------
 
+
 class SuccessBackend:
     """Always returns a valid sentiment JSON response."""
+
     def __init__(self, score: float = 0.5, confidence: float = 0.8):
         self.score = score
         self.confidence = confidence
@@ -37,6 +38,7 @@ class SuccessBackend:
 
 class FailBackend:
     """Always returns None (simulates failure)."""
+
     def __init__(self):
         self.call_count = 0
 
@@ -47,6 +49,7 @@ class FailBackend:
 
 class GarbageBackend:
     """Returns non-JSON text (simulates malformed response)."""
+
     def __init__(self):
         self.call_count = 0
 
@@ -70,6 +73,7 @@ class FakeCache:
 # Protocol conformance
 # ---------------------------------------------------------------------------
 
+
 class TestLLMBackendProtocol:
     def test_success_backend_implements_protocol(self):
         assert isinstance(SuccessBackend(), LLMBackend)
@@ -88,8 +92,9 @@ class TestLLMBackendProtocol:
 # Backend factory
 # ---------------------------------------------------------------------------
 
+
 class TestCreateBackend:
-    @patch('services.sentiment.src.scorer.settings')
+    @patch("services.sentiment.src.scorer.settings")
     def test_cloud_mode(self, mock_settings):
         mock_settings.LLM_BACKEND = "cloud"
         mock_settings.SLM_INFERENCE_URL = "http://localhost:8095"
@@ -97,7 +102,7 @@ class TestCreateBackend:
         assert len(backends) == 1
         assert isinstance(backends[0], CloudLLMBackend)
 
-    @patch('services.sentiment.src.scorer.settings')
+    @patch("services.sentiment.src.scorer.settings")
     def test_local_mode(self, mock_settings):
         mock_settings.LLM_BACKEND = "local"
         mock_settings.SLM_INFERENCE_URL = "http://localhost:8095"
@@ -105,7 +110,7 @@ class TestCreateBackend:
         assert len(backends) == 1
         assert isinstance(backends[0], LocalLLMBackend)
 
-    @patch('services.sentiment.src.scorer.settings')
+    @patch("services.sentiment.src.scorer.settings")
     def test_auto_mode_has_fallback(self, mock_settings):
         mock_settings.LLM_BACKEND = "auto"
         mock_settings.SLM_INFERENCE_URL = "http://localhost:8095"
@@ -118,6 +123,7 @@ class TestCreateBackend:
 # ---------------------------------------------------------------------------
 # Scorer with backend chain
 # ---------------------------------------------------------------------------
+
 
 class TestLLMSentimentScorer:
 
@@ -179,9 +185,16 @@ class TestLLMSentimentScorer:
     @pytest.mark.asyncio
     async def test_cache_hit_skips_backends(self):
         cache = FakeCache()
-        await cache.set("sentiment:BTC/USDT:latest", json.dumps({
-            "score": 0.8, "confidence": 0.95, "source": "cache",
-        }))
+        await cache.set(
+            "sentiment:BTC/USDT:latest",
+            json.dumps(
+                {
+                    "score": 0.8,
+                    "confidence": 0.95,
+                    "source": "cache",
+                }
+            ),
+        )
         backend = SuccessBackend()
         scorer = LLMSentimentScorer(backends=[backend], cache_client=cache)
 
@@ -205,6 +218,7 @@ class TestLLMSentimentScorer:
     @pytest.mark.asyncio
     async def test_score_clamped(self):
         """Scores outside [-1, 1] should be clamped."""
+
         class ExtremeBackend:
             async def complete(self, prompt):
                 return json.dumps({"score": 5.0, "confidence": 2.0})
@@ -217,6 +231,7 @@ class TestLLMSentimentScorer:
     @pytest.mark.asyncio
     async def test_local_backend_source_label(self):
         """LocalLLMBackend results should be labeled as 'local'."""
+
         class FakeLocalBackend(LocalLLMBackend):
             async def complete(self, prompt):
                 return json.dumps({"score": 0.5, "confidence": 0.7})
@@ -229,6 +244,7 @@ class TestLLMSentimentScorer:
 # ---------------------------------------------------------------------------
 # JSON extraction
 # ---------------------------------------------------------------------------
+
 
 class TestExtractJson:
     def test_valid_json(self):

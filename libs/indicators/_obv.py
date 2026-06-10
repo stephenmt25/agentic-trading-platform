@@ -8,7 +8,7 @@ class OBVCalculator:
     Returns None on the very first bar (no prior close to compare).
     """
 
-    __slots__ = ('prev_close', 'obv', 'count')
+    __slots__ = ("prev_close", "obv", "count")
 
     def __init__(self):
         self.prev_close = 0.0

@@ -1,6 +1,7 @@
-import asyncpg
 from typing import Any, List, Optional
-import asyncio
+
+import asyncpg
+
 
 class TimescaleClient:
     _pool: Optional[asyncpg.Pool] = None
@@ -11,10 +12,7 @@ class TimescaleClient:
     async def init_pool(self):
         if not self._pool:
             self._pool = await asyncpg.create_pool(
-                self._url,
-                min_size=5,
-                max_size=20,
-                command_timeout=5.0
+                self._url, min_size=5, max_size=20, command_timeout=5.0
             )
 
     def get_pool(self) -> Optional[asyncpg.Pool]:

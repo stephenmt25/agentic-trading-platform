@@ -1,11 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
 from typing import Optional
-from ..deps import get_current_user
-from libs.core.schemas import CommandIntent, KillSwitchStatusResponse, KillSwitchToggleResponse
-from libs.storage import RedisClient
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+
 from libs.config import settings
+from libs.core.schemas import (
+    CommandIntent,
+    KillSwitchStatusResponse,
+    KillSwitchToggleResponse,
+)
+from libs.storage import RedisClient
 from services.hot_path.src.kill_switch import KillSwitch
+
+from ..deps import get_current_user
 
 router = APIRouter(tags=["commands"])
 
@@ -30,7 +37,7 @@ async def handle_command(
     """
     raise HTTPException(
         status_code=501,
-        detail="Natural language command processing is not yet implemented"
+        detail="Natural language command processing is not yet implemented",
     )
 
 

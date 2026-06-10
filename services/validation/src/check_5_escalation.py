@@ -1,12 +1,14 @@
-from collections import defaultdict
 import datetime
-from typing import Dict, Any
-from libs.core.schemas import AlertEvent
+from collections import defaultdict
+from typing import Any, Dict
+
 from libs.core.enums import EventType
+from libs.core.schemas import AlertEvent
 from libs.messaging.channels import PUBSUB_SYSTEM_ALERTS
 from libs.observability import get_logger
 
 logger = get_logger("validation.escalation")
+
 
 class EscalationCheck:
     def __init__(self, validation_repo, pubsub):
@@ -26,24 +28,26 @@ class EscalationCheck:
         if "RED" in reason.upper():
             await self._trigger_halt(profile_id, reason)
             return "RED"
-            
+
         if "AMBER" in reason.upper():
             now = datetime.datetime.now(datetime.timezone.utc)
             history = self._amber_history[profile_id][check_type]
             history.append(now)
-            
+
             # Prune > 24h
             cutoff = now - datetime.timedelta(hours=24)
             history = [ts for ts in history if ts > cutoff]
             self._amber_history[profile_id][check_type] = history
-            
+
             if len(history) >= 5:
                 # Escalation
-                await self._trigger_halt(profile_id, f"Auto-Escalation: 5 AMBERs in 24h for {check_type}")
+                await self._trigger_halt(
+                    profile_id, f"Auto-Escalation: 5 AMBERs in 24h for {check_type}"
+                )
                 return "RED"
-                
+
             return "AMBER"
-            
+
         return "GREEN"
 
     async def _trigger_halt(self, profile_id: str, reason: str):
@@ -53,7 +57,9 @@ class EscalationCheck:
         # Publish structured alert over PubSub so all services (executor, PnL, alerter) react
         alert_event = AlertEvent(
             event_type=EventType.ALERT_RED,
-            timestamp_us=int(datetime.datetime.now(datetime.timezone.utc).timestamp() * 1_000_000),
+            timestamp_us=int(
+                datetime.datetime.now(datetime.timezone.utc).timestamp() * 1_000_000
+            ),
             source_service="validation",
             message=reason,
             level="RED",
@@ -67,7 +73,7 @@ class EscalationCheck:
         # Write halt flag to Redis so executor fast-checks before placing orders
         try:
             # Convention: any service can check this key before allowing trades
-            redis_conn = getattr(self._pubsub, '_redis', None)
+            redis_conn = getattr(self._pubsub, "_redis", None)
             if redis_conn:
                 halt_key = f"halt:{profile_id}"
                 await redis_conn.set(halt_key, reason, ex=86400)  # 24h TTL

@@ -4,16 +4,22 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from services.archiver.src.migrator import DataMigrator, ARCHIVE_POLICIES
-
+from services.archiver.src.migrator import ARCHIVE_POLICIES, DataMigrator
 
 # ---------------------------------------------------------------------------
 # ARCHIVE_POLICIES tests
 # ---------------------------------------------------------------------------
 
+
 class TestArchivePolicies:
     def test_all_tables_present(self):
-        expected = {"market_data_ohlcv", "audit_log", "validation_events", "pnl_snapshots", "orders"}
+        expected = {
+            "market_data_ohlcv",
+            "audit_log",
+            "validation_events",
+            "pnl_snapshots",
+            "orders",
+        }
         assert set(ARCHIVE_POLICIES.keys()) == expected
 
     def test_each_policy_has_required_fields(self):
@@ -33,6 +39,7 @@ class TestArchivePolicies:
 # DataMigrator tests
 # ---------------------------------------------------------------------------
 
+
 class TestDataMigrator:
     @pytest.mark.asyncio
     async def test_clean_redis_scans_patterns(self):
@@ -47,9 +54,12 @@ class TestDataMigrator:
     @pytest.mark.asyncio
     async def test_clean_redis_sets_ttl_on_no_expiry_keys(self):
         redis = AsyncMock()
-        redis.scan = AsyncMock(side_effect=[
-            (0, [b"fast_gate:prof-1"]),  # first pattern returns a key
-        ] + [(0, [])] * 5)  # rest empty
+        redis.scan = AsyncMock(
+            side_effect=[
+                (0, [b"fast_gate:prof-1"]),  # first pattern returns a key
+            ]
+            + [(0, [])] * 5
+        )  # rest empty
         redis.ttl = AsyncMock(return_value=-1)  # no TTL set
         redis.expire = AsyncMock(return_value=True)
         ts = AsyncMock()
@@ -68,7 +78,12 @@ class TestDataMigrator:
         conn.fetchval = AsyncMock(return_value=True)  # archive table exists
         conn.execute = AsyncMock(return_value="DELETE 5")
         pool = MagicMock()
-        pool.acquire = MagicMock(return_value=AsyncMock(__aenter__=AsyncMock(return_value=conn), __aexit__=AsyncMock(return_value=False)))
+        pool.acquire = MagicMock(
+            return_value=AsyncMock(
+                __aenter__=AsyncMock(return_value=conn),
+                __aexit__=AsyncMock(return_value=False),
+            )
+        )
         ts = MagicMock()
         ts.get_pool = MagicMock(return_value=pool)
 

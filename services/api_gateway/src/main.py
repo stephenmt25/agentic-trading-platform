@@ -1,26 +1,48 @@
 import uuid as _uuid
+from contextlib import asynccontextmanager
+
+import uvicorn
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-import uvicorn
-from contextlib import asynccontextmanager
 
 from libs.config import settings
-from libs.storage import RedisClient, TimescaleClient
-from libs.observability import get_logger
 from libs.core.exceptions import (
-    PraxisBaseError,
-    CircuitBreakerTriggeredError,
-    RiskGateBlockedError,
     BlacklistBlockedError,
-    ValidationError,
+    CircuitBreakerTriggeredError,
     ExchangeError,
     ExchangeRateLimitError,
     OrderExecutionError,
+    PraxisBaseError,
+    RiskGateBlockedError,
+    ValidationError,
 )
+from libs.observability import get_logger
+from libs.storage import RedisClient, TimescaleClient
 
 from .middleware.rate_limit import RateLimiterMiddleware
-from .routes import auth, profiles, orders, pnl, commands, ws, health, exchange_keys, paper_trading, backtest, agents, docs_chat, telemetry_stream, hitl, market_data, agent_performance, agent_config, audit, positions, risk_defaults
+from .routes import (
+    agent_config,
+    agent_performance,
+    agents,
+    audit,
+    auth,
+    backtest,
+    commands,
+    docs_chat,
+    exchange_keys,
+    health,
+    hitl,
+    market_data,
+    orders,
+    paper_trading,
+    pnl,
+    positions,
+    profiles,
+    risk_defaults,
+    telemetry_stream,
+    ws,
+)
 
 logger = get_logger("api-gateway")
 
@@ -32,7 +54,7 @@ async def lifespan(app: FastAPI):
         raise RuntimeError(
             "FATAL: SECRET_KEY is set to the insecure default. "
             "Set PRAXIS_SECRET_KEY to a secure random value (32+ bytes) before starting. "
-            "Generate one with: python -c \"import secrets; print(secrets.token_hex(32))\""
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
         )
 
     # Require a dedicated REFRESH_SECRET_KEY separate from SECRET_KEY
@@ -76,7 +98,9 @@ def create_app() -> FastAPI:
 
     # Rate Limiter middleware
     rl_redis = RedisClient.get_instance(settings.REDIS_URL).get_connection()
-    app.middleware("http")(RateLimiterMiddleware(rl_redis, limit=60, window=60, auth_limit=10))
+    app.middleware("http")(
+        RateLimiterMiddleware(rl_redis, limit=60, window=60, auth_limit=10)
+    )
 
     # ------------------------------------------------------------------
     # Request ID middleware — adds X-Request-ID to every response
@@ -93,41 +117,75 @@ def create_app() -> FastAPI:
     # Global exception handlers — map domain exceptions to HTTP codes
     # ------------------------------------------------------------------
     @app.exception_handler(CircuitBreakerTriggeredError)
-    async def circuit_breaker_handler(request: Request, exc: CircuitBreakerTriggeredError):
-        return JSONResponse(status_code=503, content={"detail": "Circuit breaker triggered", "error": "circuit_breaker"})
+    async def circuit_breaker_handler(
+        request: Request, exc: CircuitBreakerTriggeredError
+    ):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Circuit breaker triggered", "error": "circuit_breaker"},
+        )
 
     @app.exception_handler(RiskGateBlockedError)
     async def risk_gate_handler(request: Request, exc: RiskGateBlockedError):
-        return JSONResponse(status_code=403, content={"detail": "Blocked by risk gate", "error": "risk_gate_blocked"})
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Blocked by risk gate", "error": "risk_gate_blocked"},
+        )
 
     @app.exception_handler(BlacklistBlockedError)
     async def blacklist_handler(request: Request, exc: BlacklistBlockedError):
-        return JSONResponse(status_code=403, content={"detail": "Asset is blacklisted", "error": "blacklisted"})
+        return JSONResponse(
+            status_code=403,
+            content={"detail": "Asset is blacklisted", "error": "blacklisted"},
+        )
 
     @app.exception_handler(ValidationError)
     async def validation_handler(request: Request, exc: ValidationError):
-        return JSONResponse(status_code=422, content={"detail": str(exc), "error": "validation_failed"})
+        return JSONResponse(
+            status_code=422, content={"detail": str(exc), "error": "validation_failed"}
+        )
 
     @app.exception_handler(ExchangeRateLimitError)
-    async def exchange_rate_limit_handler(request: Request, exc: ExchangeRateLimitError):
-        return JSONResponse(status_code=429, content={"detail": "Exchange rate limit exceeded", "error": "exchange_rate_limit"})
+    async def exchange_rate_limit_handler(
+        request: Request, exc: ExchangeRateLimitError
+    ):
+        return JSONResponse(
+            status_code=429,
+            content={
+                "detail": "Exchange rate limit exceeded",
+                "error": "exchange_rate_limit",
+            },
+        )
 
     @app.exception_handler(ExchangeError)
     async def exchange_error_handler(request: Request, exc: ExchangeError):
-        return JSONResponse(status_code=502, content={"detail": "Exchange communication error", "error": "exchange_error"})
+        return JSONResponse(
+            status_code=502,
+            content={
+                "detail": "Exchange communication error",
+                "error": "exchange_error",
+            },
+        )
 
     @app.exception_handler(OrderExecutionError)
     async def order_execution_handler(request: Request, exc: OrderExecutionError):
-        return JSONResponse(status_code=500, content={"detail": "Order execution failed", "error": "order_execution"})
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Order execution failed", "error": "order_execution"},
+        )
 
     @app.exception_handler(PraxisBaseError)
     async def praxis_base_handler(request: Request, exc: PraxisBaseError):
-        return JSONResponse(status_code=500, content={"detail": "Internal error", "error": "internal"})
+        return JSONResponse(
+            status_code=500, content={"detail": "Internal error", "error": "internal"}
+        )
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):
         logger.error("Unhandled exception", error=str(exc), path=request.url.path)
-        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        return JSONResponse(
+            status_code=500, content={"detail": "Internal server error"}
+        )
 
     # ------------------------------------------------------------------
     # Public routes (no auth) — all prefixes defined here at mount time
@@ -165,9 +223,12 @@ def create_app() -> FastAPI:
     ]
 
     for router, prefix in secure_routes:
-        app.include_router(router, prefix=prefix, dependencies=[Depends(verify_token_dep)])
+        app.include_router(
+            router, prefix=prefix, dependencies=[Depends(verify_token_dep)]
+        )
 
     return app
+
 
 app = create_app()
 

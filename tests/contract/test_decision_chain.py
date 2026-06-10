@@ -63,9 +63,9 @@ async def test_decision_event_id_flows_unchanged_through_full_chain():
 
     # ----- STAGE 2: event survives Redis Stream transport (Pydantic JSON round-trip) -----
     transported = OrderApprovedEvent.model_validate_json(approved.model_dump_json())
-    assert transported.decision_event_id == decision_eid, (
-        "decision_event_id was dropped during JSON serialization"
-    )
+    assert (
+        transported.decision_event_id == decision_eid
+    ), "decision_event_id was dropped during JSON serialization"
 
     # ----- STAGE 3: execution writes Order carrying decision_event_id -----
     order_db = _mock_db_with_execute_capture()
@@ -88,7 +88,9 @@ async def test_decision_event_id_flows_unchanged_through_full_chain():
     sql, *order_args = order_db.execute.call_args.args
     assert "INSERT INTO orders" in sql
     assert "decision_event_id" in sql
-    assert order_args[-1] == decision_eid, "decision_event_id missing from orders INSERT args"
+    assert (
+        order_args[-1] == decision_eid
+    ), "decision_event_id missing from orders INSERT args"
 
     # ----- STAGE 4: execution writes Position carrying both order_id and decision_event_id -----
     position_db = _mock_db_with_execute_capture()
@@ -113,7 +115,9 @@ async def test_decision_event_id_flows_unchanged_through_full_chain():
     assert "INSERT INTO positions" in sql
     assert "decision_event_id" in sql
     assert pos_args[-2] == order_id, "order_id missing from positions INSERT args"
-    assert pos_args[-1] == decision_eid, "decision_event_id missing from positions INSERT args"
+    assert (
+        pos_args[-1] == decision_eid
+    ), "decision_event_id missing from positions INSERT args"
 
     # ----- STAGE 5: execution snapshots agents + regime under the position key -----
     snapshot_payload = {
@@ -155,12 +159,12 @@ async def test_decision_event_id_flows_unchanged_through_full_chain():
     final_kwargs = ctr_mock.write_closed_trade.call_args.kwargs
 
     # The headline contract assertion: end of chain still carries the same decision_event_id
-    assert final_kwargs["decision_event_id"] == decision_eid, (
-        "decision_event_id mutated or lost between Position and closed_trades"
-    )
-    assert final_kwargs["order_id"] == order_id, (
-        "order_id mutated or lost between Position and closed_trades"
-    )
+    assert (
+        final_kwargs["decision_event_id"] == decision_eid
+    ), "decision_event_id mutated or lost between Position and closed_trades"
+    assert (
+        final_kwargs["order_id"] == order_id
+    ), "order_id mutated or lost between Position and closed_trades"
     assert final_kwargs["position_id"] == position_id
 
     # And the entry-time context survived too

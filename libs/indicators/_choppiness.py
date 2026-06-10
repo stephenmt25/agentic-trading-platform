@@ -1,5 +1,5 @@
-from typing import Optional
 import math
+from typing import Optional
 
 
 class ChoppinessCalculator:
@@ -11,7 +11,7 @@ class ChoppinessCalculator:
     highest-high minus lowest-low over the same window.
     """
 
-    __slots__ = ('period', 'count', 'prev_close', '_tr_buf', '_high_buf', '_low_buf')
+    __slots__ = ("period", "count", "prev_close", "_tr_buf", "_high_buf", "_low_buf")
 
     def __init__(self, period: int = 14):
         self.period = period

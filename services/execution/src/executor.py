@@ -2,32 +2,45 @@ import asyncio
 import json
 import time
 import uuid
-from decimal import Decimal
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Optional
-from libs.core.schemas import OrderApprovedEvent, OrderExecutedEvent, OrderRejectedEvent, BaseEvent, AgentScorePayload, RiskLimitsPayload
-from libs.core.models import Order, Position
+
+from libs.config import settings
+from libs.core.agent_registry import AgentPerformanceTracker
 from libs.core.enums import OrderSide, OrderStatus, PositionStatus
+from libs.core.models import Order, Position
+from libs.core.schemas import (
+    AgentScorePayload,
+    OrderApprovedEvent,
+    OrderExecutedEvent,
+    OrderRejectedEvent,
+    RiskLimitsPayload,
+)
 from libs.core.secrets import SecretManager
 from libs.exchange import get_adapter
-from libs.messaging import StreamPublisher, StreamConsumer
+from libs.messaging import StreamConsumer, StreamPublisher
 from libs.messaging.channels import ORDERS_STREAM_MAXLEN
-from libs.storage.repositories import OrderRepository, PositionRepository, AuditRepository, ProfileRepository
-from libs.core.types import ProfileId
-from libs.config import settings
-
-from .ledger import OptimisticLedger
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
-from libs.core.agent_registry import AgentPerformanceTracker
+from libs.storage.repositories import (
+    AuditRepository,
+    OrderRepository,
+    PositionRepository,
+    ProfileRepository,
+)
+
+from .ledger import OptimisticLedger
 
 logger = get_logger("execution.executor")
 
 # Exchange-specific taker fee rates
 EXCHANGE_FEE_RATES = {
-    "BINANCE": Decimal("0.001"),    # 0.10%
-    "COINBASE": Decimal("0.006"),   # 0.60%
-    "PAPER": Decimal("0.001"),      # 0.10% (matches Binance testnet for realistic simulation)
+    "BINANCE": Decimal("0.001"),  # 0.10%
+    "COINBASE": Decimal("0.006"),  # 0.60%
+    "PAPER": Decimal(
+        "0.001"
+    ),  # 0.10% (matches Binance testnet for realistic simulation)
 }
 DEFAULT_FEE_RATE = Decimal("0.002")  # 0.20% conservative fallback
 
@@ -64,7 +77,9 @@ class OrderExecutor:
         self._ledger = ledger
         self._channel = orders_channel
         self._profile_repo = profile_repo
-        self._secret_manager = secret_manager or SecretManager(gcp_project_id=settings.GCP_PROJECT_ID)
+        self._secret_manager = secret_manager or SecretManager(
+            gcp_project_id=settings.GCP_PROJECT_ID
+        )
         self._redis_client = redis_client
         self._telemetry = telemetry
 
@@ -96,16 +111,30 @@ class OrderExecutor:
                             api_key = creds.get("apiKey", "")
                             api_secret = creds.get("secret", "")
                         except FileNotFoundError:
-                            logger.warning("Exchange keys not found, falling back to testnet", profile_id=profile_id)
+                            logger.warning(
+                                "Exchange keys not found, falling back to testnet",
+                                profile_id=profile_id,
+                            )
                         except Exception as e:
-                            logger.error("Failed to load exchange keys", error=str(e), profile_id=profile_id)
+                            logger.error(
+                                "Failed to load exchange keys",
+                                error=str(e),
+                                profile_id=profile_id,
+                            )
             except Exception as e:
-                logger.error("Failed to load profile for adapter resolution", error=str(e))
+                logger.error(
+                    "Failed to load profile for adapter resolution", error=str(e)
+                )
 
         if exchange_name == "COINBASE":
             testnet = settings.COINBASE_SANDBOX
 
-        return get_adapter(exchange_name, api_key=api_key, secret=api_secret, testnet=testnet), exchange_name
+        return (
+            get_adapter(
+                exchange_name, api_key=api_key, secret=api_secret, testnet=testnet
+            ),
+            exchange_name,
+        )
 
     async def _record_agent_scores(self, symbol: str, position_id: str, side: str):
         """Snapshot current agent scores + regime from Redis and record for weight feedback.
@@ -133,19 +162,32 @@ class OrderExecutor:
 
             if ta_raw:
                 data = AgentScorePayload.model_validate_json(ta_raw)
-                agents["ta"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
+                agents["ta"] = {
+                    "direction": direction,
+                    "score": float(data.score),
+                }  # float-ok: ML score
             if sent_raw:
                 data = AgentScorePayload.model_validate_json(sent_raw)
                 if data.source not in _DEGRADED_SOURCES:
-                    agents["sentiment"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
+                    agents["sentiment"] = {
+                        "direction": direction,
+                        "score": float(data.score),
+                    }  # float-ok: ML score
             if debate_raw:
                 data = AgentScorePayload.model_validate_json(debate_raw)
                 if data.source not in _DEGRADED_SOURCES:
-                    agents["debate"] = {"direction": direction, "score": float(data.score)}  # float-ok: ML score
+                    agents["debate"] = {
+                        "direction": direction,
+                        "score": float(data.score),
+                    }  # float-ok: ML score
 
             regime = None
             if regime_raw:
-                regime = regime_raw.decode() if isinstance(regime_raw, bytes) else str(regime_raw)
+                regime = (
+                    regime_raw.decode()
+                    if isinstance(regime_raw, bytes)
+                    else str(regime_raw)
+                )
 
             if agents:
                 tracker = AgentPerformanceTracker(self._redis_client)
@@ -177,7 +219,9 @@ class OrderExecutor:
             rl = RiskLimitsPayload.model_validate(raw)
             return Decimal(str(rl.stop_loss_pct)) if rl.stop_loss_pct else None
         except Exception as e:
-            logger.warning("protective_stop_pct_lookup_failed", error=str(e), profile_id=profile_id)
+            logger.warning(
+                "protective_stop_pct_lookup_failed", error=str(e), profile_id=profile_id
+            )
             return None
 
     async def _maybe_place_protective_stop(
@@ -200,7 +244,11 @@ class OrderExecutor:
                 close_side = OrderSide.BUY
                 stop_price = fill_price * (Decimal("1") + stop_pct)
             res = await adapter.place_protective_order(
-                position.profile_id, position.symbol, close_side, position.quantity, stop_price
+                position.profile_id,
+                position.symbol,
+                close_side,
+                position.quantity,
+                stop_price,
             )
             if res is not None and getattr(res, "order_id", None):
                 await self._position_repo.set_protective_order_id(
@@ -213,7 +261,9 @@ class OrderExecutor:
                     order_id=str(res.order_id),
                 )
         except Exception as e:
-            logger.warning("protective_stop_failed", error=str(e), symbol=position.symbol)
+            logger.warning(
+                "protective_stop_failed", error=str(e), symbol=position.symbol
+            )
 
     def __post_init_supervisor__(self):
         # Updated every consume cycle. main.py's stall watchdog reads this to
@@ -251,7 +301,9 @@ class OrderExecutor:
             # back off, and retry the loop, rather than killing the executor
             # task silently and wedging order processing.
             try:
-                events = await self._consumer.consume(self._channel, "executor_group", "executor_1", count=10)
+                events = await self._consumer.consume(
+                    self._channel, "executor_group", "executor_1", count=10
+                )
             except Exception as exc:
                 logger.error("consume failed — retrying", error=str(exc))
                 await asyncio.sleep(1)
@@ -278,19 +330,35 @@ class OrderExecutor:
                 # close reduces risk and must never be blocked from flattening a
                 # live position. Only opening orders are gated.
                 if not settings.TRADING_ENABLED and not ev.reduce_only:
-                    logger.warning("TRADING_ENABLED=false, rejecting order", profile_id=str(ev.profile_id), symbol=ev.symbol)
+                    logger.warning(
+                        "TRADING_ENABLED=false, rejecting order",
+                        profile_id=str(ev.profile_id),
+                        symbol=ev.symbol,
+                    )
                     fail_ev = OrderRejectedEvent(
                         profile_id=ev.profile_id,
                         symbol=ev.symbol,
                         reason="Trading disabled (TRADING_ENABLED=false)",
-                        timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
-                        source_service="execution"
+                        timestamp_us=int(
+                            datetime.now(timezone.utc).timestamp() * 1000000
+                        ),
+                        source_service="execution",
                     )
-                    await self._publisher.publish(self._channel, fail_ev, maxlen=ORDERS_STREAM_MAXLEN)
+                    await self._publisher.publish(
+                        self._channel, fail_ev, maxlen=ORDERS_STREAM_MAXLEN
+                    )
                     continue
 
                 if self._telemetry:
-                    await self._telemetry.emit("input_received", {"symbol": ev.symbol, "side": str(ev.side), "message_type": "order_approved"}, source_agent="hot_path")
+                    await self._telemetry.emit(
+                        "input_received",
+                        {
+                            "symbol": ev.symbol,
+                            "side": str(ev.side),
+                            "message_type": "order_approved",
+                        },
+                        source_agent="hot_path",
+                    )
 
                 # Honor a pre-allocated order_id from the api_gateway (manual /orders
                 # submission) so the HTTP response and the persisted Order row share
@@ -321,28 +389,45 @@ class OrderExecutor:
                 # 3. Optimistic ledger submit — check result
                 submitted = await self._ledger.submit(order_id)
                 if not submitted:
-                    logger.error("Ledger submit failed, skipping order", order_id=str(order_id))
-                    await self._audit_repo.write_audit_event(ev, {"action": "SUBMIT_FAILED", "order_id": str(order_id)})
+                    logger.error(
+                        "Ledger submit failed, skipping order", order_id=str(order_id)
+                    )
+                    await self._audit_repo.write_audit_event(
+                        ev, {"action": "SUBMIT_FAILED", "order_id": str(order_id)}
+                    )
                     continue
 
-                await self._audit_repo.write_audit_event(ev, {"action": "Optimistic SUBMITTED", "order_id": str(order_id)})
+                await self._audit_repo.write_audit_event(
+                    ev, {"action": "Optimistic SUBMITTED", "order_id": str(order_id)}
+                )
 
                 # Telemetry: order placed
                 if self._telemetry:
                     await self._telemetry.emit(
                         "output_emitted",
-                        {"order_id": str(order_id), "status": "SUBMITTED", "symbol": ev.symbol},
+                        {
+                            "order_id": str(order_id),
+                            "status": "SUBMITTED",
+                            "symbol": ev.symbol,
+                        },
                     )
 
                 try:
                     # 4. Execute on exchange. reduce_only flags a position-close
                     # (flatten) order — see OrderApprovedEvent / PositionCloseRequester.
                     res = await adapter.place_order(
-                        ev.profile_id, ev.symbol, ev.side, ev.quantity, ev.price,
+                        ev.profile_id,
+                        ev.symbol,
+                        ev.side,
+                        ev.quantity,
+                        ev.price,
                         reduce_only=ev.reduce_only,
                     )
 
-                    if res.status == OrderStatus.SUBMITTED or res.status == OrderStatus.CONFIRMED:
+                    if (
+                        res.status == OrderStatus.SUBMITTED
+                        or res.status == OrderStatus.CONFIRMED
+                    ):
                         fill_price = res.fill_price if res.fill_price else ev.price
 
                         # 5. Confirm in ledger — check result. For a reduce-only
@@ -351,16 +436,27 @@ class OrderExecutor:
                         # adding its quantity to allocated_qty would be wrong.
                         # (Decrement-on-close is a separate follow-up.)
                         if ev.reduce_only:
-                            confirmed = await self._ledger.confirm(order_id, fill_price=fill_price)
+                            confirmed = await self._ledger.confirm(
+                                order_id, fill_price=fill_price
+                            )
                         else:
                             confirmed = await self._ledger.confirm(
-                                order_id, fill_price=fill_price,
-                                profile_id=str(ev.profile_id), quantity=ev.quantity
+                                order_id,
+                                fill_price=fill_price,
+                                profile_id=str(ev.profile_id),
+                                quantity=ev.quantity,
                             )
                         if not confirmed:
-                            logger.error("Ledger confirm failed after exchange success", order_id=str(order_id))
-                            await self._ledger.rollback(order_id, reason="Ledger confirm failed post-exchange")
-                            raise ValueError("Ledger confirmation failed after exchange accepted order")
+                            logger.error(
+                                "Ledger confirm failed after exchange success",
+                                order_id=str(order_id),
+                            )
+                            await self._ledger.rollback(
+                                order_id, reason="Ledger confirm failed post-exchange"
+                            )
+                            raise ValueError(
+                                "Ledger confirmation failed after exchange accepted order"
+                            )
 
                         if not ev.reduce_only:
                             # 6. OPEN: create the Position immediately after
@@ -384,7 +480,9 @@ class OrderExecutor:
 
                             # 6b. Snapshot agent scores at execution for weight feedback
                             if self._redis_client:
-                                await self._record_agent_scores(ev.symbol, str(pos_id), ev.side)
+                                await self._record_agent_scores(
+                                    ev.symbol, str(pos_id), ev.side
+                                )
 
                             # 6c. Optional exchange-resident protective stop
                             # (defense-in-depth; default off). Best-effort — a
@@ -410,10 +508,14 @@ class OrderExecutor:
                             reduce_only=ev.reduce_only,
                             close_position_id=ev.close_position_id,
                             close_reason=ev.close_reason,
-                            timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
-                            source_service="execution"
+                            timestamp_us=int(
+                                datetime.now(timezone.utc).timestamp() * 1000000
+                            ),
+                            source_service="execution",
                         )
-                        await self._publisher.publish(self._channel, executed_ev, maxlen=ORDERS_STREAM_MAXLEN)
+                        await self._publisher.publish(
+                            self._channel, executed_ev, maxlen=ORDERS_STREAM_MAXLEN
+                        )
 
                         # Telemetry: order filled
                         if self._telemetry:
@@ -427,14 +529,26 @@ class OrderExecutor:
                             )
 
                     else:
-                        raise ValueError(f"Exchange returned unexpected status: {res.status}")
+                        raise ValueError(
+                            f"Exchange returned unexpected status: {res.status}"
+                        )
 
                 except Exception as e:
                     rolled_back = await self._ledger.rollback(order_id, reason=str(e))
                     if not rolled_back:
-                        logger.critical("Ledger rollback ALSO failed — manual intervention required",
-                                        order_id=str(order_id), error=str(e))
-                    await self._audit_repo.write_audit_event(ev, {"action": "ROLLED_BACK", "reason": str(e), "order_id": str(order_id)})
+                        logger.critical(
+                            "Ledger rollback ALSO failed — manual intervention required",
+                            order_id=str(order_id),
+                            error=str(e),
+                        )
+                    await self._audit_repo.write_audit_event(
+                        ev,
+                        {
+                            "action": "ROLLED_BACK",
+                            "reason": str(e),
+                            "order_id": str(order_id),
+                        },
+                    )
 
                     fail_ev = OrderRejectedEvent(
                         profile_id=ev.profile_id,
@@ -443,10 +557,14 @@ class OrderExecutor:
                         order_id=order_id,
                         reduce_only=ev.reduce_only,
                         close_position_id=ev.close_position_id,
-                        timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1000000),
-                        source_service="execution"
+                        timestamp_us=int(
+                            datetime.now(timezone.utc).timestamp() * 1000000
+                        ),
+                        source_service="execution",
                     )
-                    await self._publisher.publish(self._channel, fail_ev, maxlen=ORDERS_STREAM_MAXLEN)
+                    await self._publisher.publish(
+                        self._channel, fail_ev, maxlen=ORDERS_STREAM_MAXLEN
+                    )
                 finally:
                     # Close adapter to free resources (each order gets its own adapter)
                     try:
@@ -455,4 +573,6 @@ class OrderExecutor:
                         pass
 
             if events:
-                await self._consumer.ack(self._channel, "executor_group", [m for m, _ in events])
+                await self._consumer.ack(
+                    self._channel, "executor_group", [m for m, _ in events]
+                )

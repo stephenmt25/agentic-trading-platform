@@ -1,8 +1,10 @@
-import numpy as np
 from typing import Optional
 
+import numpy as np
+
+
 class RSICalculator:
-    __slots__ = ('period', 'window_size', 'prices', 'count', 'avg_gain', 'avg_loss')
+    __slots__ = ("period", "window_size", "prices", "count", "avg_gain", "avg_loss")
 
     def __init__(self, period: int = 14, window_size: int = 1000):
         self.period = period
@@ -15,14 +17,14 @@ class RSICalculator:
     def update(self, price: float) -> Optional[float]:
         idx = self.count % self.window_size
         self.prices[idx] = price
-        
+
         if self.count == 0:
             self.count += 1
             return None
 
         prev_price = self.prices[(self.count - 1) % self.window_size]
         change = price - prev_price
-        
+
         gain = change if change > 0 else 0.0
         loss = -change if change < 0 else 0.0
 
@@ -42,6 +44,6 @@ class RSICalculator:
 
         if self.avg_loss == 0:
             return 100.0
-            
+
         rs = self.avg_gain / self.avg_loss
         return 100.0 - (100.0 / (1.0 + rs))

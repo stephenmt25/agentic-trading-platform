@@ -1,42 +1,43 @@
 import asyncio
 import json
 import time
-import uuid
-import httpx
-from decimal import Decimal
-from fastapi import FastAPI
-import uvicorn
 from contextlib import asynccontextmanager
+from decimal import Decimal
+
+import httpx
+import uvicorn
+from fastapi import FastAPI
 
 from libs.config import settings
-from libs.storage._redis_client import RedisClient
-from libs.storage import TimescaleClient, ProfileRepository
-from libs.storage.repositories.position_repo import PositionRepository
-from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
-from libs.messaging._pubsub import PubSubSubscriber
-from libs.messaging.channels import (
-    MARKET_DATA_STREAM,
-    ORDERS_STREAM,
-    VALIDATION_STREAM,
-    VALIDATION_RESPONSE_STREAM,
-    PUBSUB_THRESHOLD_PROXIMITY
-)
-from libs.observability import get_logger
-from libs.observability.telemetry import TelemetryPublisher
 from libs.core.models import RiskLimits
 from libs.core.notional import profile_notional
 from libs.core.schemas import DEFAULT_RISK_LIMITS
 from libs.indicators import create_indicator_set
+from libs.messaging import PubSubBroadcaster, StreamConsumer, StreamPublisher
+from libs.messaging._pubsub import PubSubSubscriber
+from libs.messaging.channels import (
+    MARKET_DATA_STREAM,
+    ORDERS_STREAM,
+    PUBSUB_THRESHOLD_PROXIMITY,
+    VALIDATION_RESPONSE_STREAM,
+    VALIDATION_STREAM,
+)
+from libs.observability import get_logger
+from libs.observability.telemetry import TelemetryPublisher
+from libs.storage import ProfileRepository, TimescaleClient
+from libs.storage._redis_client import RedisClient
+from libs.storage.repositories.decision_repo import DecisionRepository
+from libs.storage.repositories.position_repo import PositionRepository
 from services.strategy.src.compiler import RuleCompiler
 
+from .decision_writer import DecisionTraceWriter
+from .pnl_sync import PnlSync
+from .processor import HotPathProcessor
 from .state import ProfileState, ProfileStateCache
 from .validation_client import ValidationClient
-from .processor import HotPathProcessor
-from .pnl_sync import PnlSync
-from .decision_writer import DecisionTraceWriter
-from libs.storage.repositories.decision_repo import DecisionRepository
 
 logger = get_logger("hot-path.main")
+
 
 async def verify_validation_agent_health():
     """Wait and verify validation agent is completely online before starting."""
@@ -59,6 +60,7 @@ async def verify_validation_agent_health():
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 30.0)
 
+
 async def wait_for_hydration_complete(redis_client, state_cache: ProfileStateCache):
     """Wait for strategy agent to hydrate cache elements to start safely"""
     while True:
@@ -71,14 +73,15 @@ async def wait_for_hydration_complete(redis_client, state_cache: ProfileStateCac
                 break
 
         if all_ready and len(list(state_cache.itervalues())) > 0:
-             break
+            break
 
         # If no profiles, skip wait for dummy boots
         if len(list(state_cache.itervalues())) == 0:
-             break
+            break
 
         await asyncio.sleep(1.0)
     logger.info("Profile states successfully hydrated.")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -87,7 +90,9 @@ async def lifespan(app: FastAPI):
     # HITLGate's BLPOP blocks up to HITL_TIMEOUT_S (60 s by default) — must
     # use the no-socket-timeout pool so a routine pool socket_timeout doesn't
     # truncate human-response windows.
-    hitl_redis = RedisClient.get_long_blocking_instance(settings.REDIS_URL).get_connection()
+    hitl_redis = RedisClient.get_long_blocking_instance(
+        settings.REDIS_URL
+    ).get_connection()
     consumer = StreamConsumer(redis_instance)
     publisher = StreamPublisher(redis_instance)
     pubsub = PubSubBroadcaster(redis_instance)
@@ -98,7 +103,7 @@ async def lifespan(app: FastAPI):
         consumer=consumer,
         req_channel=VALIDATION_STREAM,
         resp_channel=VALIDATION_RESPONSE_STREAM,
-        timeout_ms=settings.FAST_GATE_TIMEOUT_MS
+        timeout_ms=settings.FAST_GATE_TIMEOUT_MS,
     )
 
     state_cache = ProfileStateCache()
@@ -121,10 +126,31 @@ async def lifespan(app: FastAPI):
         limits_raw = prof.get("risk_limits", {})
         limits = json.loads(limits_raw) if isinstance(limits_raw, str) else limits_raw
         risk_limits = RiskLimits(
-            max_drawdown_pct=Decimal(str(limits.get("max_drawdown_pct", DEFAULT_RISK_LIMITS["max_drawdown_pct"]))),
-            stop_loss_pct=Decimal(str(limits.get("stop_loss_pct", DEFAULT_RISK_LIMITS["stop_loss_pct"]))),
-            circuit_breaker_daily_loss_pct=Decimal(str(limits.get("circuit_breaker_daily_loss_pct", DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"]))),
-            max_allocation_pct=Decimal(str(limits.get("max_allocation_pct", DEFAULT_RISK_LIMITS["max_allocation_pct"]))),
+            max_drawdown_pct=Decimal(
+                str(
+                    limits.get(
+                        "max_drawdown_pct", DEFAULT_RISK_LIMITS["max_drawdown_pct"]
+                    )
+                )
+            ),
+            stop_loss_pct=Decimal(
+                str(limits.get("stop_loss_pct", DEFAULT_RISK_LIMITS["stop_loss_pct"]))
+            ),
+            circuit_breaker_daily_loss_pct=Decimal(
+                str(
+                    limits.get(
+                        "circuit_breaker_daily_loss_pct",
+                        DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"],
+                    )
+                )
+            ),
+            max_allocation_pct=Decimal(
+                str(
+                    limits.get(
+                        "max_allocation_pct", DEFAULT_RISK_LIMITS["max_allocation_pct"]
+                    )
+                )
+            ),
         )
 
         blacklist_raw = prof.get("blacklist", [])
@@ -140,6 +166,7 @@ async def lifespan(app: FastAPI):
         # entry to the Regime enum; silently drop unknown values rather than
         # crashing the loader (a typo in a profile shouldn't take hot_path down).
         from libs.core.enums import Regime as _Regime
+
         pr_raw = rules.get("preferred_regimes", []) or []
         pr_set: set = set()
         for name in pr_raw:
@@ -159,7 +186,10 @@ async def lifespan(app: FastAPI):
     for prof in profiles:
         parsed = _parse_static_config(prof)
         if parsed is None:
-            logger.warning("Profile %s has incomplete strategy_rules, skipping", prof.get("profile_id"))
+            logger.warning(
+                "Profile %s has incomplete strategy_rules, skipping",
+                prof.get("profile_id"),
+            )
             continue
         compiled, risk_limits, bl, notional, preferred_regimes = parsed
         state = ProfileState(
@@ -210,14 +240,18 @@ async def lifespan(app: FastAPI):
                                 preferred_regimes=preferred_regimes,
                             )
                             state_cache.add(new_state)
-                            logger.info("Profile %s added to state cache via refresh", pid)
+                            logger.info(
+                                "Profile %s added to state cache via refresh", pid
+                            )
 
                     # Remove profiles no longer active
                     cached_ids = [s.profile_id for s in list(state_cache.itervalues())]
                     for pid in cached_ids:
                         if pid not in fresh_by_id:
                             state_cache.remove(pid)
-                            logger.info("Profile %s removed from state cache via refresh", pid)
+                            logger.info(
+                                "Profile %s removed from state cache via refresh", pid
+                            )
                 except Exception as e:
                     logger.error("Profile refresh loop error", error=str(e))
         except asyncio.CancelledError:
@@ -273,8 +307,9 @@ async def lifespan(app: FastAPI):
             stalled_for = time.monotonic() - processor.last_progress_mono
             if stalled_for > STALL_S:
                 if not dumped:
-                    logger.error("processor_stall_detected",
-                                 stalled_for_s=round(stalled_for, 1))
+                    logger.error(
+                        "processor_stall_detected", stalled_for_s=round(stalled_for, 1)
+                    )
                     for t in asyncio.all_tasks():
                         if t.done():
                             continue
@@ -283,8 +318,12 @@ async def lifespan(app: FastAPI):
                         for fr in reversed(frames[-12:]):
                             fn = fr.f_code.co_filename.replace("\\", "/").split("/")[-1]
                             parts.append(f"{fr.f_code.co_name}@{fn}:{fr.f_lineno}")
-                        logger.error("stall_taskdump", task=t.get_name(),
-                                     frames=len(frames), stack=" <- ".join(parts))
+                        logger.error(
+                            "stall_taskdump",
+                            task=t.get_name(),
+                            frames=len(frames),
+                            stack=" <- ".join(parts),
+                        )
                     dumped = True
             else:
                 dumped = False
@@ -302,6 +341,7 @@ async def lifespan(app: FastAPI):
         exc = t.exception()
         if exc is not None:
             import traceback as _tb
+
             tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
             logger.error("processor_task_crashed", error=str(exc), traceback=tb)
 
@@ -315,16 +355,25 @@ async def lifespan(app: FastAPI):
     _watchdog_task.cancel()
     pnl_sync_task.cancel()
     profile_refresh_task.cancel()
-    await asyncio.gather(task, _watchdog_task, pnl_sync_task, profile_refresh_task, return_exceptions=True)
+    await asyncio.gather(
+        task,
+        _watchdog_task,
+        pnl_sync_task,
+        profile_refresh_task,
+        return_exceptions=True,
+    )
     await telemetry.stop()
     await ts_client.close()
     logger.info("Hot-Path shutdown gracefully.")
 
+
 app = FastAPI(title="HotPath Processor", lifespan=lifespan)
+
 
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 if __name__ == "__main__":
     uvicorn.run("services.hot_path.src.main:app", host="0.0.0.0", port=8082)

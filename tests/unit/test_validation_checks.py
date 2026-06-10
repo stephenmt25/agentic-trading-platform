@@ -3,20 +3,18 @@
 Tests CHECK_1 (strategy recheck), CHECK_2 (hallucination), and CHECK_6 (risk level).
 """
 
-import json
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from services.validation.src.check_1_strategy import StrategyRecheck, CheckResult
+from services.validation.src.check_1_strategy import CheckResult, StrategyRecheck
 from services.validation.src.check_2_hallucination import HallucinationCheck
 from services.validation.src.check_6_risk_level import RiskLevelRecheck
-
 
 # ---------------------------------------------------------------------------
 # CHECK_1: Strategy Recheck
 # ---------------------------------------------------------------------------
+
 
 class TestStrategyRecheck:
     def _make_request(self, rsi=45.0, symbol="BTC/USDT", profile_id="prof-1"):
@@ -52,7 +50,9 @@ class TestStrategyRecheck:
         assert rsi == 50.0
 
     @pytest.mark.asyncio
-    async def test_cached_pass_returns_immediately(self, mock_redis, mock_market_data_repo):
+    async def test_cached_pass_returns_immediately(
+        self, mock_redis, mock_market_data_repo
+    ):
         """Cached PASS should short-circuit without DB lookup."""
         mock_redis.exists = AsyncMock(return_value=True)
         mock_redis.get = AsyncMock(return_value=b"PASS")
@@ -67,6 +67,7 @@ class TestStrategyRecheck:
 # ---------------------------------------------------------------------------
 # CHECK_2: Hallucination
 # ---------------------------------------------------------------------------
+
 
 class TestHallucinationCheck:
     @pytest.mark.asyncio
@@ -86,12 +87,15 @@ class TestHallucinationCheck:
             validation_repo=AsyncMock(),
             market_repo=mock_market_data_repo,
         )
-        result = await checker.check("prof-1", {
-            "is_llm_sentiment": True,
-            "symbol": "BTC/USDT",
-            "sentiment_direction": "BUY",
-            "signal_timestamp": "2026-01-01T00:00:00",
-        })
+        result = await checker.check(
+            "prof-1",
+            {
+                "is_llm_sentiment": True,
+                "symbol": "BTC/USDT",
+                "sentiment_direction": "BUY",
+                "signal_timestamp": "2026-01-01T00:00:00",
+            },
+        )
         assert result.passed is True
         assert len(checker._profile_hits.get("prof-1", [])) == 1
 
@@ -99,21 +103,27 @@ class TestHallucinationCheck:
     async def test_blocks_after_60pct_misalignment(self, mock_market_data_repo):
         """Block LLM signals when >60% of recent 20 are misaligned."""
         # Mock market data showing price going DOWN after BUY signals
-        mock_market_data_repo.get_candles_by_range = AsyncMock(return_value=[
-            {"close": "100"}, {"close": "95"},  # price went down after BUY
-        ])
+        mock_market_data_repo.get_candles_by_range = AsyncMock(
+            return_value=[
+                {"close": "100"},
+                {"close": "95"},  # price went down after BUY
+            ]
+        )
         checker = HallucinationCheck(
             validation_repo=AsyncMock(),
             market_repo=mock_market_data_repo,
         )
         # Send 20 BUY signals where price went down (misaligned)
         for i in range(20):
-            result = await checker.check("prof-1", {
-                "is_llm_sentiment": True,
-                "symbol": "BTC/USDT",
-                "sentiment_direction": "BUY",
-                "signal_timestamp": f"2026-01-01T{i:02d}:00:00",
-            })
+            result = await checker.check(
+                "prof-1",
+                {
+                    "is_llm_sentiment": True,
+                    "symbol": "BTC/USDT",
+                    "sentiment_direction": "BUY",
+                    "signal_timestamp": f"2026-01-01T{i:02d}:00:00",
+                },
+            )
 
         # After 20 misaligned signals (>60%), should block
         assert result.passed is False
@@ -124,8 +134,11 @@ class TestHallucinationCheck:
 # CHECK_6: Risk Level
 # ---------------------------------------------------------------------------
 
+
 class TestRiskLevelRecheck:
-    def _make_request(self, quantity="0.5", price="50000", stop_loss_pct="0.0", drawdown="0.0"):
+    def _make_request(
+        self, quantity="0.5", price="50000", stop_loss_pct="0.0", drawdown="0.0"
+    ):
         req = MagicMock()
         req.profile_id = "prof-1"
         req.payload = {

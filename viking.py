@@ -13,8 +13,9 @@ Usage:
     python viking.py glob "**/*.md"
     python viking.py reindex                          # Clean reindex of docs
 """
-import sys
 import os
+import sys
+
 import openviking as ov
 
 VIKING_DATA_PATH = "./viking-data"
@@ -135,7 +136,9 @@ def cmd_reindex():
     result = client.add_resource(path=docs_path)
     root_uri = result.get("root_uri", "unknown")
     print(f"Loaded as: {root_uri}")
-    print("Waiting for semantic processing (this may take a few minutes on free-tier Gemini)...")
+    print(
+        "Waiting for semantic processing (this may take a few minutes on free-tier Gemini)..."
+    )
     client.wait_processed()
 
     # Show result

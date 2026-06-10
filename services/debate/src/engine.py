@@ -9,42 +9,45 @@ import json
 import os
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional, Protocol, runtime_checkable, Dict, Any
+from typing import Optional, Protocol, runtime_checkable
 from uuid import UUID
 
 from libs.observability import get_logger
 
 logger = get_logger("debate.engine")
 
-PROMPTS_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "..", "prompts", "debate")
+PROMPTS_DIR = os.path.join(
+    os.path.dirname(__file__), "..", "..", "..", "prompts", "debate"
+)
 
 
 @runtime_checkable
 class LLMBackend(Protocol):
-    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
-        ...
+    async def complete(
+        self, prompt: str, grammar: Optional[str] = None
+    ) -> Optional[str]: ...
 
 
 # GBNF grammars constraining the SLM's output to parseable JSON. The cloud
 # backend ignores these (Anthropic doesn't support GBNF); the local llama.cpp
 # backend uses them to guarantee that bull/bear arguments and judge verdicts
 # come back as valid JSON, not prose.
-_ARGUMENT_GBNF = r'''
+_ARGUMENT_GBNF = r"""
 root ::= "{" ws "\"argument\":" ws string "," ws "\"conviction\":" ws unit ws "}"
 string ::= "\"" char* "\""
 char ::= [^"\\\x00-\x1F] | "\\" (["\\bnrt/] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
 unit ::= ("0" | "1") ("." [0-9]+)?
 ws ::= [ \t\n]*
-'''
+"""
 
-_JUDGE_GBNF = r'''
+_JUDGE_GBNF = r"""
 root ::= "{" ws "\"score\":" ws score "," ws "\"confidence\":" ws unit "," ws "\"reasoning\":" ws string ws "}"
 string ::= "\"" char* "\""
 char ::= [^"\\\x00-\x1F] | "\\" (["\\bnrt/] | "u" [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F] [0-9a-fA-F])
 score ::= "-"? ("0" | "1") ("." [0-9]+)?
 unit ::= ("0" | "1") ("." [0-9]+)?
 ws ::= [ \t\n]*
-'''
+"""
 
 
 @dataclass
@@ -59,8 +62,8 @@ class DebateRound:
 @dataclass
 class DebateResult:
     symbol: str
-    score: float        # -1.0 (strong bear) to 1.0 (strong bull)
-    confidence: float   # 0.0 to 1.0
+    score: float  # -1.0 (strong bear) to 1.0 (strong bull)
+    confidence: float  # 0.0 to 1.0
     reasoning: str
     cycle_id: UUID = field(default_factory=uuid.uuid4)
     rounds: list[DebateRound] = field(default_factory=list)
@@ -98,7 +101,9 @@ def _render(template: str, ctx: MarketContext, **extra) -> str:
     text = text.replace("{{rsi}}", f"{ctx.rsi:.1f}")
     text = text.replace("{{macd_histogram}}", f"{ctx.macd_histogram:.4f}")
     text = text.replace("{{adx}}", f"{ctx.adx:.1f}" if ctx.adx else "N/A")
-    text = text.replace("{{bb_pct_b}}", f"{ctx.bb_pct_b:.3f}" if ctx.bb_pct_b else "N/A")
+    text = text.replace(
+        "{{bb_pct_b}}", f"{ctx.bb_pct_b:.3f}" if ctx.bb_pct_b else "N/A"
+    )
     text = text.replace("{{atr}}", f"{ctx.atr:.2f}")
     text = text.replace("{{regime}}", ctx.regime)
     text = text.replace("{{ta_score}}", f"{ctx.ta_score:.3f}")
@@ -118,7 +123,7 @@ def _extract_json(text: str) -> Optional[dict]:
     end = text.rfind("}")
     if start >= 0 and end > start:
         try:
-            return json.loads(text[start:end + 1])
+            return json.loads(text[start : end + 1])
         except json.JSONDecodeError:
             pass
     return None
@@ -137,6 +142,7 @@ class DebateEngine:
     async def run(self, ctx: MarketContext) -> DebateResult:
         """Execute a full debate and return the result."""
         import time
+
         start = time.monotonic()
 
         rounds: list[DebateRound] = []
@@ -146,7 +152,7 @@ class DebateEngine:
         for round_num in range(1, self._num_rounds + 1):
             # Build previous round context
             if transcript_parts:
-                previous = f"Previous round:\n" + "\n".join(transcript_parts[-2:])
+                previous = "Previous round:\n" + "\n".join(transcript_parts[-2:])
             else:
                 previous = ""
 
@@ -157,7 +163,9 @@ class DebateEngine:
 
             if bull_parsed:
                 bull_arg = bull_parsed.get("argument", "No argument provided")
-                bull_conv = max(0.0, min(1.0, float(bull_parsed.get("conviction", 0.5))))
+                bull_conv = max(
+                    0.0, min(1.0, float(bull_parsed.get("conviction", 0.5)))
+                )
                 any_llm_success = True
             else:
                 bull_arg = bull_raw or "Failed to generate argument"
@@ -170,7 +178,9 @@ class DebateEngine:
 
             if bear_parsed:
                 bear_arg = bear_parsed.get("argument", "No argument provided")
-                bear_conv = max(0.0, min(1.0, float(bear_parsed.get("conviction", 0.5))))
+                bear_conv = max(
+                    0.0, min(1.0, float(bear_parsed.get("conviction", 0.5)))
+                )
                 any_llm_success = True
             else:
                 bear_arg = bear_raw or "Failed to generate argument"
@@ -201,8 +211,12 @@ class DebateEngine:
             any_llm_success = True
         else:
             # Fallback: average conviction difference
-            bull_avg = sum(r.bull_conviction for r in rounds) / len(rounds) if rounds else 0.5
-            bear_avg = sum(r.bear_conviction for r in rounds) / len(rounds) if rounds else 0.5
+            bull_avg = (
+                sum(r.bull_conviction for r in rounds) / len(rounds) if rounds else 0.5
+            )
+            bear_avg = (
+                sum(r.bear_conviction for r in rounds) / len(rounds) if rounds else 0.5
+            )
             score = bull_avg - bear_avg  # positive = bull wins
             confidence = 0.3  # low confidence for fallback
             reasoning = "Judge failed — using conviction difference fallback"

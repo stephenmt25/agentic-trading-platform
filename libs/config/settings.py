@@ -1,21 +1,21 @@
-from typing import List, Optional
 from decimal import Decimal
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import List
+
 from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _INSECURE_DEFAULT_KEY = "praxis-dev-secret-key-change-in-production"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        env_prefix="PRAXIS_",
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", env_prefix="PRAXIS_", extra="ignore"
     )
 
     REDIS_URL: str = Field(default="redis://localhost:6379/1")
-    DATABASE_URL: str = Field(default="postgresql://postgres:postgres@localhost:5432/praxis_trading")
+    DATABASE_URL: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/praxis_trading"
+    )
     BINANCE_TESTNET: bool = Field(default=True)
     COINBASE_SANDBOX: bool = Field(default=True)
     TRADING_ENABLED: bool = Field(default=False)
@@ -61,13 +61,20 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(default=_INSECURE_DEFAULT_KEY)
     REFRESH_SECRET_KEY: str = Field(default="")  # Separate key for refresh tokens
     NEXTAUTH_SECRET: str = Field(default="")  # Must match NextAuth.js NEXTAUTH_SECRET
-    GCP_PROJECT_ID: str = Field(default="")   # Empty = use local Fernet fallback
+    GCP_PROJECT_ID: str = Field(default="")  # Empty = use local Fernet fallback
 
     # CORS — set PRAXIS_CORS_ORIGINS='["https://your-app.vercel.app","http://localhost:3000"]'
     # to allow Vercel frontend through a tunnel
     # REST calls go through Vercel rewrite (same-origin, no CORS needed).
     # CORS is only needed for: local dev and direct WebSocket connections.
-    CORS_ORIGINS: List[str] = Field(default=["http://localhost:3001", "http://localhost:3000", "http://localhost:3002", "https://frontend-seven-khaki-13.vercel.app"])
+    CORS_ORIGINS: List[str] = Field(
+        default=[
+            "http://localhost:3001",
+            "http://localhost:3000",
+            "http://localhost:3002",
+            "https://frontend-seven-khaki-13.vercel.app",
+        ]
+    )
 
     # Connection pool settings
     DB_POOL_MIN_SIZE: int = Field(default=5)
@@ -81,11 +88,13 @@ class Settings(BaseSettings):
     BACKTEST_MAX_QUEUE_DEPTH: int = Field(default=100)
 
     # Local SLM inference
-    LLM_BACKEND: str = Field(default="cloud")           # "cloud", "local", or "auto" (local with cloud fallback)
+    LLM_BACKEND: str = Field(
+        default="cloud"
+    )  # "cloud", "local", or "auto" (local with cloud fallback)
     SLM_INFERENCE_URL: str = Field(default="http://localhost:8095")
-    SLM_MODEL_PATH: str = Field(default="")              # Path to GGUF model file
+    SLM_MODEL_PATH: str = Field(default="")  # Path to GGUF model file
     SLM_CONTEXT_LENGTH: int = Field(default=4096)
-    SLM_GPU_LAYERS: int = Field(default=-1)              # -1 = all layers on GPU
+    SLM_GPU_LAYERS: int = Field(default=-1)  # -1 = all layers on GPU
 
     # Regime HMM emission threshold. With ~30 days of 1h candles, 5-state
     # GaussianHMM confidences typically peak around 0.45-0.55, so a 0.70
@@ -96,9 +105,13 @@ class Settings(BaseSettings):
 
     # HITL (Human-in-the-Loop) execution gate
     HITL_ENABLED: bool = Field(default=False)
-    HITL_SIZE_THRESHOLD_PCT: float = Field(default=5.0)       # Trigger when trade size > X% of allocation
-    HITL_CONFIDENCE_THRESHOLD: float = Field(default=0.5)     # Trigger when confidence < threshold
-    HITL_TIMEOUT_S: int = Field(default=60)                   # Seconds to wait for human response
+    HITL_SIZE_THRESHOLD_PCT: float = Field(
+        default=5.0
+    )  # Trigger when trade size > X% of allocation
+    HITL_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.5
+    )  # Trigger when confidence < threshold
+    HITL_TIMEOUT_S: int = Field(default=60)  # Seconds to wait for human response
 
     # Redis schema invariant scanner cadence (libs/observability/redis_invariants.py).
     # Set to 0 to disable. Background task lives in services/logger.

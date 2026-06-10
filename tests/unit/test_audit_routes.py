@@ -9,7 +9,6 @@ Verifies:
   - 404s are returned when stages are missing
 """
 
-import json
 import uuid
 from unittest.mock import AsyncMock
 
@@ -17,8 +16,6 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from services.api_gateway.src.routes import audit
-from services.api_gateway.src.routes.audit import router as audit_router
 from libs.storage.repositories.order_repo import OrderRepository
 from libs.storage.repositories.position_repo import PositionRepository
 from services.api_gateway.src.deps import (
@@ -28,11 +25,13 @@ from services.api_gateway.src.deps import (
     get_order_repo,
     get_position_repo,
 )
-
+from services.api_gateway.src.routes import audit
+from services.api_gateway.src.routes.audit import router as audit_router
 
 # ---------------------------------------------------------------------------
 # Repo SQL tests
 # ---------------------------------------------------------------------------
+
 
 class TestOrderRepoChainQuery:
     @pytest.mark.asyncio
@@ -77,6 +76,7 @@ class TestPositionRepoChainQuery:
 # Router structure
 # ---------------------------------------------------------------------------
 
+
 class TestAuditRouter:
     def test_router_module_importable(self):
         assert hasattr(audit, "router")
@@ -99,6 +99,7 @@ class TestAuditRouter:
 # Endpoint behavior — using TestClient with dependency overrides
 # ---------------------------------------------------------------------------
 
+
 def _make_test_app(overrides: dict) -> TestClient:
     """Build a minimal FastAPI app mounting only the audit router with overridden deps."""
     app = FastAPI()
@@ -111,10 +112,12 @@ def _make_test_app(overrides: dict) -> TestClient:
 class TestClosedTradesEndpoint:
     def test_list_returns_serialized_rows(self):
         ctr = AsyncMock()
-        ctr.get_recent = AsyncMock(return_value=[
-            {"position_id": uuid.uuid4(), "symbol": "BTC/USDT", "outcome": "win"},
-            {"position_id": uuid.uuid4(), "symbol": "BTC/USDT", "outcome": "loss"},
-        ])
+        ctr.get_recent = AsyncMock(
+            return_value=[
+                {"position_id": uuid.uuid4(), "symbol": "BTC/USDT", "outcome": "win"},
+                {"position_id": uuid.uuid4(), "symbol": "BTC/USDT", "outcome": "loss"},
+            ]
+        )
         client = _make_test_app({get_closed_trade_repo: lambda: ctr})
         resp = client.get("/audit/closed-trades?symbol=BTC/USDT&limit=10")
         assert resp.status_code == 200
@@ -143,13 +146,15 @@ class TestDebateEndpoints:
     def test_get_cycle_returns_cycle_plus_rounds(self):
         cid = uuid.uuid4()
         repo = AsyncMock()
-        repo.get_cycle_with_rounds = AsyncMock(return_value={
-            "cycle": {"cycle_id": cid, "symbol": "BTC/USDT", "final_score": 0.42},
-            "rounds": [
-                {"round_num": 1, "bull_argument": "a", "bear_argument": "b"},
-                {"round_num": 2, "bull_argument": "c", "bear_argument": "d"},
-            ],
-        })
+        repo.get_cycle_with_rounds = AsyncMock(
+            return_value={
+                "cycle": {"cycle_id": cid, "symbol": "BTC/USDT", "final_score": 0.42},
+                "rounds": [
+                    {"round_num": 1, "bull_argument": "a", "bear_argument": "b"},
+                    {"round_num": 2, "bull_argument": "c", "bear_argument": "d"},
+                ],
+            }
+        )
         client = _make_test_app({get_debate_repo: lambda: repo})
         resp = client.get(f"/audit/debate/{cid}")
         assert resp.status_code == 200
@@ -170,20 +175,30 @@ class TestChainEndpoint:
     def test_assembles_full_lineage(self):
         eid = uuid.uuid4()
         decision_repo = AsyncMock()
-        decision_repo.get_decision = AsyncMock(return_value={"event_id": eid, "outcome": "APPROVED"})
+        decision_repo.get_decision = AsyncMock(
+            return_value={"event_id": eid, "outcome": "APPROVED"}
+        )
         order_repo = AsyncMock()
-        order_repo.get_by_decision_event_id = AsyncMock(return_value={"order_id": uuid.uuid4(), "status": "CONFIRMED"})
+        order_repo.get_by_decision_event_id = AsyncMock(
+            return_value={"order_id": uuid.uuid4(), "status": "CONFIRMED"}
+        )
         position_repo = AsyncMock()
-        position_repo.get_by_decision_event_id = AsyncMock(return_value={"position_id": uuid.uuid4(), "status": "CLOSED"})
+        position_repo.get_by_decision_event_id = AsyncMock(
+            return_value={"position_id": uuid.uuid4(), "status": "CLOSED"}
+        )
         ctr = AsyncMock()
-        ctr.get_by_decision_event = AsyncMock(return_value={"position_id": uuid.uuid4(), "outcome": "win"})
+        ctr.get_by_decision_event = AsyncMock(
+            return_value={"position_id": uuid.uuid4(), "outcome": "win"}
+        )
 
-        client = _make_test_app({
-            get_decision_repo: lambda: decision_repo,
-            get_order_repo: lambda: order_repo,
-            get_position_repo: lambda: position_repo,
-            get_closed_trade_repo: lambda: ctr,
-        })
+        client = _make_test_app(
+            {
+                get_decision_repo: lambda: decision_repo,
+                get_order_repo: lambda: order_repo,
+                get_position_repo: lambda: position_repo,
+                get_closed_trade_repo: lambda: ctr,
+            }
+        )
         resp = client.get(f"/audit/chain/{eid}")
         assert resp.status_code == 200
         body = resp.json()
@@ -199,12 +214,14 @@ class TestChainEndpoint:
         order_repo = AsyncMock()
         position_repo = AsyncMock()
         ctr = AsyncMock()
-        client = _make_test_app({
-            get_decision_repo: lambda: decision_repo,
-            get_order_repo: lambda: order_repo,
-            get_position_repo: lambda: position_repo,
-            get_closed_trade_repo: lambda: ctr,
-        })
+        client = _make_test_app(
+            {
+                get_decision_repo: lambda: decision_repo,
+                get_order_repo: lambda: order_repo,
+                get_position_repo: lambda: position_repo,
+                get_closed_trade_repo: lambda: ctr,
+            }
+        )
         resp = client.get(f"/audit/chain/{uuid.uuid4()}")
         assert resp.status_code == 404
 
@@ -212,19 +229,23 @@ class TestChainEndpoint:
         """Decision exists but order/position/closed_trade do not (e.g. brand new APPROVED, still in flight)."""
         eid = uuid.uuid4()
         decision_repo = AsyncMock()
-        decision_repo.get_decision = AsyncMock(return_value={"event_id": eid, "outcome": "APPROVED"})
+        decision_repo.get_decision = AsyncMock(
+            return_value={"event_id": eid, "outcome": "APPROVED"}
+        )
         order_repo = AsyncMock()
         order_repo.get_by_decision_event_id = AsyncMock(return_value=None)
         position_repo = AsyncMock()
         position_repo.get_by_decision_event_id = AsyncMock(return_value=None)
         ctr = AsyncMock()
         ctr.get_by_decision_event = AsyncMock(return_value=None)
-        client = _make_test_app({
-            get_decision_repo: lambda: decision_repo,
-            get_order_repo: lambda: order_repo,
-            get_position_repo: lambda: position_repo,
-            get_closed_trade_repo: lambda: ctr,
-        })
+        client = _make_test_app(
+            {
+                get_decision_repo: lambda: decision_repo,
+                get_order_repo: lambda: order_repo,
+                get_position_repo: lambda: position_repo,
+                get_closed_trade_repo: lambda: ctr,
+            }
+        )
         resp = client.get(f"/audit/chain/{eid}")
         assert resp.status_code == 200
         body = resp.json()

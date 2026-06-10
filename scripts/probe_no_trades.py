@@ -8,6 +8,7 @@ Walks the decision pipeline state to localize the stall:
   - active profiles + the kill switch
   - latest agent scores (sentiment / debate freshness)
 """
+
 import asyncio
 import json
 import sys
@@ -41,7 +42,9 @@ async def main() -> int:
             """
         )
         for r in rows:
-            print(f"  {r['hour']}  approved={r['approved']:>3}  blocked={r['blocked']:>4}  total={r['total']:>4}")
+            print(
+                f"  {r['hour']}  approved={r['approved']:>3}  blocked={r['blocked']:>4}  total={r['total']:>4}"
+            )
 
         print("\n=== blocking outcomes — last 2 hours ===")
         rows = await conn.fetch(
@@ -96,7 +99,9 @@ async def main() -> int:
         for r in rows:
             cb = float(r["cb"]) if r["cb"] else 0.0
             pct = cb / 10000.0 * 100.0
-            print(f"  prof={r['pid'][:8]}  open={r['n']}  cost_basis=${cb:.2f}  ({pct:.1f}% of $10k)")
+            print(
+                f"  prof={r['pid'][:8]}  open={r['n']}  cost_basis=${cb:.2f}  ({pct:.1f}% of $10k)"
+            )
 
         print("\n=== latest decision per profile ===")
         rows = await conn.fetch(
@@ -109,7 +114,9 @@ async def main() -> int:
             """
         )
         for r in rows:
-            print(f"  prof={r['profile_id'][:8]}  {r['symbol']}  {r['outcome']:<25}  {r['created_at']}")
+            print(
+                f"  prof={r['profile_id'][:8]}  {r['symbol']}  {r['outcome']:<25}  {r['created_at']}"
+            )
 
         print("\n=== active profiles ===")
         rows = await conn.fetch(
@@ -118,7 +125,9 @@ async def main() -> int:
         )
         for r in rows:
             mark = "*" if r["is_active"] else " "
-            print(f"  {mark} {r['profile_id'][:8]}  alloc={r['allocation_pct']}  {r['name']}")
+            print(
+                f"  {mark} {r['profile_id'][:8]}  alloc={r['allocation_pct']}  {r['name']}"
+            )
     finally:
         await conn.close()
 
@@ -139,7 +148,9 @@ async def main() -> int:
                 v = v.decode()
             try:
                 obj = json.loads(v)
-                print(f"  agent:{kind}:{sym}  score={obj.get('score')}  source={obj.get('source')}")
+                print(
+                    f"  agent:{kind}:{sym}  score={obj.get('score')}  source={obj.get('source')}"
+                )
             except Exception:
                 print(f"  agent:{kind}:{sym}  raw={v[:80]}")
     return 0

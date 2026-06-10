@@ -6,19 +6,14 @@ import fnmatch
 
 import pytest
 
-from libs.observability.redis_invariants import (
-    KeySchema,
-    RedisInvariantViolation,
-    SCHEMAS,
-    scan,
-)
-
+from libs.observability.redis_invariants import scan
 
 # ---------------------------------------------------------------------------
 # Lightweight fake Redis for testing the scanner without external services.
 # Matches the real client's decode_responses=False contract — every read
 # returns bytes, every write accepts str-or-bytes.
 # ---------------------------------------------------------------------------
+
 
 class FakeRedis:
     """Minimal in-memory Redis stub. Supports the methods scan() needs:
@@ -77,6 +72,7 @@ class FakeRedis:
 # Type-mismatch detection
 # ---------------------------------------------------------------------------
 
+
 class TestTypeChecks:
     @pytest.mark.asyncio
     async def test_clean_redis_no_violations(self):
@@ -89,7 +85,7 @@ class TestTypeChecks:
     async def test_string_where_hash_expected_flags_high(self):
         """f583ffb-class bug: producer wrote hash, key is string."""
         r = FakeRedis()
-        r.set_string("pnl:daily:abc-123", "{\"net_pnl\": 100}")
+        r.set_string("pnl:daily:abc-123", '{"net_pnl": 100}')
         v = await scan(r)
         assert any(
             x.pattern == "pnl:daily:*"
@@ -125,16 +121,20 @@ class TestTypeChecks:
 # Hash field checks
 # ---------------------------------------------------------------------------
 
+
 class TestHashFields:
     @pytest.mark.asyncio
     async def test_tracker_missing_required_field_flags_high(self):
         """acb25ae-class bug: tracker hash missing the field consumers look up."""
         r = FakeRedis()
-        r.set_hash("agent:tracker:BTC/USDT:ta", {
-            # missing ewma_accuracy
-            "sample_count": "10",
-            "last_updated": "12345",
-        })
+        r.set_hash(
+            "agent:tracker:BTC/USDT:ta",
+            {
+                # missing ewma_accuracy
+                "sample_count": "10",
+                "last_updated": "12345",
+            },
+        )
         v = await scan(r)
         match = [x for x in v if x.key == "agent:tracker:BTC/USDT:ta"]
         assert len(match) == 1
@@ -144,11 +144,14 @@ class TestHashFields:
     @pytest.mark.asyncio
     async def test_tracker_complete_no_violation(self):
         r = FakeRedis()
-        r.set_hash("agent:tracker:BTC/USDT:ta", {
-            "ewma_accuracy": "0.5",
-            "sample_count": "10",
-            "last_updated": "12345",
-        })
+        r.set_hash(
+            "agent:tracker:BTC/USDT:ta",
+            {
+                "ewma_accuracy": "0.5",
+                "sample_count": "10",
+                "last_updated": "12345",
+            },
+        )
         v = await scan(r)
         assert v == []
 
@@ -166,33 +169,46 @@ class TestHashFields:
 # Stream entry checks
 # ---------------------------------------------------------------------------
 
+
 class TestStreamEntries:
     @pytest.mark.asyncio
     async def test_closed_stream_with_complete_entry_passes(self):
         r = FakeRedis()
-        r.set_stream("agent:closed:BTC/USDT", [
-            ("1700000000-0", {
-                "position_id": "p1",
-                "outcome": "win",
-                "pnl_pct": "0.012",
-                "agents_json": '{"ta": {"score": 0.5}}',
-                "timestamp": "1700000000",
-            })
-        ])
+        r.set_stream(
+            "agent:closed:BTC/USDT",
+            [
+                (
+                    "1700000000-0",
+                    {
+                        "position_id": "p1",
+                        "outcome": "win",
+                        "pnl_pct": "0.012",
+                        "agents_json": '{"ta": {"score": 0.5}}',
+                        "timestamp": "1700000000",
+                    },
+                )
+            ],
+        )
         v = await scan(r)
         assert v == []
 
     @pytest.mark.asyncio
     async def test_closed_stream_missing_field_flags(self):
         r = FakeRedis()
-        r.set_stream("agent:closed:BTC/USDT", [
-            ("1700000000-0", {
-                "position_id": "p1",
-                "outcome": "win",
-                # missing pnl_pct, agents_json
-                "timestamp": "1700000000",
-            })
-        ])
+        r.set_stream(
+            "agent:closed:BTC/USDT",
+            [
+                (
+                    "1700000000-0",
+                    {
+                        "position_id": "p1",
+                        "outcome": "win",
+                        # missing pnl_pct, agents_json
+                        "timestamp": "1700000000",
+                    },
+                )
+            ],
+        )
         v = await scan(r)
         match = [x for x in v if x.pattern == "agent:closed:*"]
         assert len(match) == 1
@@ -212,11 +228,13 @@ class TestStreamEntries:
 # Bounds
 # ---------------------------------------------------------------------------
 
+
 class TestBounds:
     @pytest.mark.asyncio
     async def test_scan_bounds_keys_per_pattern(self, monkeypatch):
         """When MAX_KEYS_PER_PATTERN is exceeded, scan stops sampling that pattern."""
         from libs.observability import redis_invariants
+
         monkeypatch.setattr(redis_invariants, "MAX_KEYS_PER_PATTERN", 3)
 
         r = FakeRedis()
@@ -232,10 +250,12 @@ class TestBounds:
 # Robustness
 # ---------------------------------------------------------------------------
 
+
 class TestRobustness:
     @pytest.mark.asyncio
     async def test_per_key_failure_does_not_abort_scan(self):
         """A single key's hgetall raising must not stop other patterns."""
+
         class FlakyRedis(FakeRedis):
             async def hgetall(self, key):
                 if key == "pnl:daily:flaky":

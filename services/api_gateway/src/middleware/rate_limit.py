@@ -1,14 +1,22 @@
+import time
+
 from fastapi import Request, Response
 from fastapi.routing import APIRoute
-from libs.storage._redis_client import RedisClient
+
 from libs.observability import get_logger
-import time
+from libs.storage._redis_client import RedisClient
 
 logger = get_logger("api-gateway.rate-limit")
 
 
 class RateLimiterMiddleware:
-    def __init__(self, redis_client: RedisClient, limit: int = 60, window: int = 60, auth_limit: int = 10):
+    def __init__(
+        self,
+        redis_client: RedisClient,
+        limit: int = 60,
+        window: int = 60,
+        auth_limit: int = 10,
+    ):
         self._redis = redis_client
         self._limit = limit
         self._window = window
@@ -49,7 +57,9 @@ class RateLimiterMiddleware:
             results = await pipe.execute()
             current_count = results[1]
         except Exception as e:
-            logger.warning("Rate limiter Redis unreachable — failing open", error=str(e))
+            logger.warning(
+                "Rate limiter Redis unreachable — failing open", error=str(e)
+            )
             return await call_next(request)
 
         if current_count >= current_limit:
@@ -65,7 +75,7 @@ class RateLimiterMiddleware:
             return Response(
                 content="Rate limit exceeded",
                 status_code=429,
-                headers={"Retry-After": str(retry_after_sec)}
+                headers={"Retry-After": str(retry_after_sec)},
             )
 
         # Only record the request if not rate-limited

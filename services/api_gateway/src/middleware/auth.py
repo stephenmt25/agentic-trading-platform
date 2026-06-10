@@ -1,9 +1,11 @@
 import uuid as _uuid
-import jwt
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
-from fastapi import Request, HTTPException
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
+import jwt
+from fastapi import HTTPException, Request
+from fastapi.security import HTTPBearer
+
 from libs.config import settings
 
 security = HTTPBearer()
@@ -37,18 +39,24 @@ def create_refresh_token(
         jti = str(_uuid.uuid4())
     to_encode.update({"exp": expire, "type": "refresh", "jti": jti})
     if not settings.REFRESH_SECRET_KEY:
-        raise RuntimeError("REFRESH_SECRET_KEY must be configured separately from SECRET_KEY")
+        raise RuntimeError(
+            "REFRESH_SECRET_KEY must be configured separately from SECRET_KEY"
+        )
     encoded_jwt = jwt.encode(to_encode, settings.REFRESH_SECRET_KEY, algorithm="HS256")
     return encoded_jwt, jti
 
 
 def verify_refresh_token(token: str) -> dict:
     if not settings.REFRESH_SECRET_KEY:
-        raise HTTPException(status_code=500, detail="Refresh token infrastructure not configured")
+        raise HTTPException(
+            status_code=500, detail="Refresh token infrastructure not configured"
+        )
     key = settings.REFRESH_SECRET_KEY
     try:
         payload = jwt.decode(
-            token, key, algorithms=["HS256"],
+            token,
+            key,
+            algorithms=["HS256"],
             options={"require": ["exp"], "verify_exp": True},
         )
         if payload.get("type") != "refresh":
@@ -60,7 +68,9 @@ def verify_refresh_token(token: str) -> dict:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
 
 
-async def revoke_refresh_token(redis_client, token: str, ttl_seconds: int = 7 * 24 * 3600):
+async def revoke_refresh_token(
+    redis_client, token: str, ttl_seconds: int = 7 * 24 * 3600
+):
     """Add a refresh token to the revocation denylist in Redis."""
     key = f"{_REVOKED_TOKEN_PREFIX}{token}"
     await redis_client.set(key, "1", ex=ttl_seconds)
@@ -81,7 +91,9 @@ async def verify_jwt(request: Request):
 
     auth_header = request.headers.get("Authorization")
     if not auth_header or not auth_header.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+        raise HTTPException(
+            status_code=401, detail="Missing or invalid Authorization header"
+        )
 
     token = auth_header.split(" ")[1]
 
@@ -97,7 +109,9 @@ async def verify_jwt(request: Request):
         )
         request.state.user_id = payload.get("sub")
         if not request.state.user_id:
-            raise HTTPException(status_code=401, detail="Token invalid: missing subject")
+            raise HTTPException(
+                status_code=401, detail="Token invalid: missing subject"
+            )
         # session_id is only present on tokens minted after the user_sessions
         # migration; older tokens (in-flight at the time of rollout) still work
         # but will have None — the sessions list will mark no row as current.

@@ -1,20 +1,25 @@
 """Tests for Logger service: alerter dispatch to PagerDuty and Slack."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
 from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from services.logger.src.alerter import Alerter
 
-
 # ---------------------------------------------------------------------------
 # Alerter tests
 # ---------------------------------------------------------------------------
 
+
 class TestAlerter:
-    def _make_event(self, event_type="ORDER_REJECTED", profile_id="prof-1",
-                    timestamp_us=1000000, reason="Risk limit exceeded"):
+    def _make_event(
+        self,
+        event_type="ORDER_REJECTED",
+        profile_id="prof-1",
+        timestamp_us=1000000,
+        reason="Risk limit exceeded",
+    ):
         return SimpleNamespace(
             event_type=event_type,
             profile_id=profile_id,
@@ -61,7 +66,9 @@ class TestAlerter:
 
     @pytest.mark.asyncio
     async def test_send_alert_both_channels(self):
-        alerter = Alerter(pagerduty_key="key", slack_webhook="https://hooks.slack.com/test")
+        alerter = Alerter(
+            pagerduty_key="key", slack_webhook="https://hooks.slack.com/test"
+        )
         event = self._make_event()
 
         with patch("services.logger.src.alerter.httpx.AsyncClient") as mock_cls:

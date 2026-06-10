@@ -148,7 +148,11 @@ class TestQueries:
     @pytest.mark.asyncio
     async def test_get_cycle_with_rounds_assembles_payload(self):
         db = AsyncMock()
-        cycle_row = {"cycle_id": "abc", "symbol": "BTC/USDT", "final_score": Decimal("0.5")}
+        cycle_row = {
+            "cycle_id": "abc",
+            "symbol": "BTC/USDT",
+            "final_score": Decimal("0.5"),
+        }
         round_rows = [
             {"round_num": 1, "bull_argument": "a"},
             {"round_num": 2, "bull_argument": "b"},

@@ -10,13 +10,7 @@ loudly if the gate is ever moved or removed from the production pipeline.
 import pytest
 
 from ._pipeline import run_pipeline
-from .scenarios import (
-    SCENARIOS,
-    make_indicators,
-    make_signal,
-    make_state,
-    make_tick,
-)
+from .scenarios import SCENARIOS, make_indicators, make_signal, make_state, make_tick
 
 
 @pytest.mark.asyncio
@@ -28,6 +22,6 @@ async def test_circuit_breaker_blocks_when_daily_loss_exceeds_threshold():
         tick=make_tick(scenario),
         indicators=make_indicators(scenario),
     )
-    assert outcome.decision == "BLOCKED_CIRCUIT_BREAKER", (
-        f"expected circuit breaker to block, got {outcome.decision} (reason={outcome.reason!r})"
-    )
+    assert (
+        outcome.decision == "BLOCKED_CIRCUIT_BREAKER"
+    ), f"expected circuit breaker to block, got {outcome.decision} (reason={outcome.reason!r})"

@@ -65,7 +65,11 @@ async def handle_tick(tick):
     """Live pricing path — publishes per-tick to Redis. Unchanged behaviour."""
     await telemetry.emit(
         "input_received",
-        {"symbol": tick.symbol, "exchange": tick.exchange, "message_type": "exchange_tick"},
+        {
+            "symbol": tick.symbol,
+            "exchange": tick.exchange,
+            "message_type": "exchange_tick",
+        },
         source_agent="external",
     )
 
@@ -80,7 +84,9 @@ async def handle_tick(tick):
 
     with timer("ingestion.publish"):
         await asyncio.gather(
-            stream_pub.publish(MARKET_DATA_STREAM, event, maxlen=MARKET_DATA_STREAM_MAXLEN),
+            stream_pub.publish(
+                MARKET_DATA_STREAM, event, maxlen=MARKET_DATA_STREAM_MAXLEN
+            ),
             pubsub_broadcaster.publish(PUBSUB_PRICE_TICKS, event),
         )
 
@@ -170,4 +176,6 @@ app = create_health_app(ws_manager)
 app.router.lifespan_context = lifespan
 
 if __name__ == "__main__":
-    uvicorn.run("services.ingestion.src.main:app", host="0.0.0.0", port=8080, log_level="error")
+    uvicorn.run(
+        "services.ingestion.src.main:app", host="0.0.0.0", port=8080, log_level="error"
+    )

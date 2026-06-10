@@ -12,7 +12,7 @@ import json
 import uuid
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -68,6 +68,7 @@ def _make_closer(closed_trade_repo=None, snapshot_payload=None):
 # _get_position_snapshot
 # ---------------------------------------------------------------------------
 
+
 class TestGetPositionSnapshot:
     @pytest.mark.asyncio
     async def test_returns_none_when_missing(self):
@@ -109,12 +110,15 @@ class TestGetPositionSnapshot:
 # close() — full flow
 # ---------------------------------------------------------------------------
 
+
 class TestCloseEndToEnd:
     @pytest.mark.asyncio
     async def test_writes_closed_trade_with_full_lineage(self):
         decision_event_id = uuid.uuid4()
         order_id = uuid.uuid4()
-        position = _make_position(decision_event_id=decision_event_id, order_id=order_id)
+        position = _make_position(
+            decision_event_id=decision_event_id, order_id=order_id
+        )
 
         snapshot_payload = {
             "agents": {"ta": {"score": 0.8}, "debate": {"score": 0.6}},
@@ -123,16 +127,25 @@ class TestCloseEndToEnd:
         ctr = AsyncMock()
         ctr.write_closed_trade = AsyncMock()
 
-        closer, position_repo, _ = _make_closer(closed_trade_repo=ctr, snapshot_payload=snapshot_payload)
+        closer, position_repo, _ = _make_closer(
+            closed_trade_repo=ctr, snapshot_payload=snapshot_payload
+        )
         # Stub tracker so it doesn't try to talk to Redis
         closer._tracker = AsyncMock()
 
         exit_price = Decimal("51000")  # +2% before fees
         taker_rate = Decimal("0.001")
-        await closer.close(position, exit_price=exit_price, taker_rate=taker_rate, close_reason="take_profit")
+        await closer.close(
+            position,
+            exit_price=exit_price,
+            taker_rate=taker_rate,
+            close_reason="take_profit",
+        )
 
         # 1. Position was closed in DB
-        position_repo.close_position.assert_awaited_once_with(position.position_id, exit_price)
+        position_repo.close_position.assert_awaited_once_with(
+            position.position_id, exit_price
+        )
 
         # 2. closed_trades row was written with correct lineage
         ctr.write_closed_trade.assert_awaited_once()
@@ -167,7 +180,12 @@ class TestCloseEndToEnd:
         )
         closer._tracker = AsyncMock()
         # Exit at 49000 → loss
-        await closer.close(position, exit_price=Decimal("49000"), taker_rate=Decimal("0.001"), close_reason="stop_loss")
+        await closer.close(
+            position,
+            exit_price=Decimal("49000"),
+            taker_rate=Decimal("0.001"),
+            close_reason="stop_loss",
+        )
         kwargs = ctr.write_closed_trade.call_args.kwargs
         assert kwargs["outcome"] == "loss"
         assert kwargs["close_reason"] == "stop_loss"
@@ -179,7 +197,9 @@ class TestCloseEndToEnd:
         closer, position_repo, _ = _make_closer(closed_trade_repo=None)
         closer._tracker = AsyncMock()
         # Should not raise
-        await closer.close(position, exit_price=Decimal("50000"), taker_rate=Decimal("0.001"))
+        await closer.close(
+            position, exit_price=Decimal("50000"), taker_rate=Decimal("0.001")
+        )
         position_repo.close_position.assert_awaited_once()
 
     @pytest.mark.asyncio
@@ -195,7 +215,9 @@ class TestCloseEndToEnd:
         closer._tracker = AsyncMock()
 
         # Should complete without raising
-        snapshot = await closer.close(position, exit_price=Decimal("51000"), taker_rate=Decimal("0.001"))
+        snapshot = await closer.close(
+            position, exit_price=Decimal("51000"), taker_rate=Decimal("0.001")
+        )
         assert snapshot is not None
 
         # Other steps still ran
@@ -211,7 +233,9 @@ class TestCloseEndToEnd:
         closer, _, _ = _make_closer(closed_trade_repo=ctr, snapshot_payload=None)
         closer._tracker = AsyncMock()
 
-        await closer.close(position, exit_price=Decimal("50000"), taker_rate=Decimal("0.001"))
+        await closer.close(
+            position, exit_price=Decimal("50000"), taker_rate=Decimal("0.001")
+        )
 
         ctr.write_closed_trade.assert_awaited_once()
         kwargs = ctr.write_closed_trade.call_args.kwargs

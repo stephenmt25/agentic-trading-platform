@@ -34,7 +34,9 @@ class RateLimiterClient:
     def __init__(self, redis_client: redis.Redis):
         self._redis = redis_client
 
-    async def check_and_reserve(self, exchange: ExchangeName, profile_id: ProfileId) -> RateLimitResult:
+    async def check_and_reserve(
+        self, exchange: ExchangeName, profile_id: ProfileId
+    ) -> RateLimitResult:
         """Check rate limit and reserve a slot if allowed.
 
         Uses a Redis sorted set sliding window:

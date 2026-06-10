@@ -14,8 +14,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
 import uvicorn
+from fastapi import FastAPI, HTTPException
 
 
 def _register_cuda_dll_dirs() -> None:
@@ -40,11 +40,19 @@ def _register_cuda_dll_dirs() -> None:
         for sub in ("cuda_runtime", "cublas"):
             bin_dir = nvidia_root / sub / "bin"
             if bin_dir.is_dir():
-                os.environ["PATH"] = str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+                os.environ["PATH"] = (
+                    str(bin_dir) + os.pathsep + os.environ.get("PATH", "")
+                )
                 os.add_dll_directory(str(bin_dir))
 
+
 from libs.config import settings
-from libs.core.schemas import CompletionRequest, CompletionResponse, SentimentRequest, SentimentResponse
+from libs.core.schemas import (
+    CompletionRequest,
+    CompletionResponse,
+    SentimentRequest,
+    SentimentResponse,
+)
 from libs.observability import get_logger
 
 logger = get_logger("slm-inference")
@@ -57,6 +65,7 @@ _model_info = {"model_path": "", "loaded": False, "load_time_ms": 0}
 # ---------------------------------------------------------------------------
 # Model loading
 # ---------------------------------------------------------------------------
+
 
 def _load_model():
     """Load the GGUF model. Imports llama-cpp-python lazily."""
@@ -81,15 +90,24 @@ def _load_model():
         _model_info["model_path"] = model_path
         _model_info["loaded"] = True
         _model_info["load_time_ms"] = load_time
-        logger.info("SLM model loaded", model_path=model_path, load_time_ms=f"{load_time:.0f}")
+        logger.info(
+            "SLM model loaded", model_path=model_path, load_time_ms=f"{load_time:.0f}"
+        )
     except ImportError:
-        logger.error("llama-cpp-python not installed — run: pip install llama-cpp-python")
+        logger.error(
+            "llama-cpp-python not installed — run: pip install llama-cpp-python"
+        )
     except Exception as e:
         logger.error("Failed to load SLM model", error=str(e), model_path=model_path)
 
 
-def _generate(prompt: str, max_tokens: int = 256, temperature: float = 0.1,
-              stop: Optional[list[str]] = None, grammar: Optional[str] = None) -> tuple[str, int]:
+def _generate(
+    prompt: str,
+    max_tokens: int = 256,
+    temperature: float = 0.1,
+    stop: Optional[list[str]] = None,
+    grammar: Optional[str] = None,
+) -> tuple[str, int]:
     """Generate text from the loaded model via its bundled chat template.
 
     Uses ``create_chat_completion()`` so the model's own chat template
@@ -110,6 +128,7 @@ def _generate(prompt: str, max_tokens: int = 256, temperature: float = 0.1,
     }
     if grammar:
         from llama_cpp import LlamaGrammar
+
         kwargs["grammar"] = LlamaGrammar.from_string(grammar, verbose=False)
 
     output = _llm.create_chat_completion(**kwargs)
@@ -121,6 +140,7 @@ def _generate(prompt: str, max_tokens: int = 256, temperature: float = 0.1,
 # ---------------------------------------------------------------------------
 # App lifecycle
 # ---------------------------------------------------------------------------
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -137,17 +157,22 @@ app = FastAPI(title="SLM Inference Service", lifespan=lifespan)
 # Endpoints
 # ---------------------------------------------------------------------------
 
+
 @app.post("/v1/completions", response_model=CompletionResponse)
 async def completions(req: CompletionRequest):
     start = time.monotonic()
     try:
-        text, tokens = _generate(req.prompt, req.max_tokens, req.temperature, req.stop, req.grammar)
+        text, tokens = _generate(
+            req.prompt, req.max_tokens, req.temperature, req.stop, req.grammar
+        )
     except Exception as e:
         logger.error("Inference error", error=str(e))
         raise HTTPException(status_code=500, detail="Internal inference error")
     latency = (time.monotonic() - start) * 1000
 
-    return CompletionResponse(text=text, tokens_used=tokens, latency_ms=round(latency, 1))
+    return CompletionResponse(
+        text=text, tokens_used=tokens, latency_ms=round(latency, 1)
+    )
 
 
 @app.post("/v1/sentiment", response_model=SentimentResponse)
@@ -187,7 +212,9 @@ async def sentiment(req: SentimentRequest):
         score = 0.0
         confidence = 0.3
 
-    return SentimentResponse(score=score, confidence=confidence, latency_ms=round(latency, 1))
+    return SentimentResponse(
+        score=score, confidence=confidence, latency_ms=round(latency, 1)
+    )
 
 
 @app.get("/health")
@@ -202,9 +229,14 @@ def health():
     # GPU memory info if available
     try:
         import torch
+
         if torch.cuda.is_available():
-            info["gpu_memory_allocated_mb"] = round(torch.cuda.memory_allocated() / 1024 / 1024, 1)
-            info["gpu_memory_reserved_mb"] = round(torch.cuda.memory_reserved() / 1024 / 1024, 1)
+            info["gpu_memory_allocated_mb"] = round(
+                torch.cuda.memory_allocated() / 1024 / 1024, 1
+            )
+            info["gpu_memory_reserved_mb"] = round(
+                torch.cuda.memory_reserved() / 1024 / 1024, 1
+            )
     except ImportError:
         pass
 

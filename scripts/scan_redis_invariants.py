@@ -4,6 +4,7 @@ Useful for operators to verify the rails are clean without booting
 services/logger. The same scan runs in services/logger every
 REDIS_INVARIANT_INTERVAL_S seconds in production.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -14,8 +15,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from libs.config import settings  # noqa: E402
-from libs.storage import RedisClient  # noqa: E402
 from libs.observability.redis_invariants import scan  # noqa: E402
+from libs.storage import RedisClient  # noqa: E402
 
 
 async def main() -> int:

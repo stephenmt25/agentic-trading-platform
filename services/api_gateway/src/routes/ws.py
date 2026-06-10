@@ -1,15 +1,23 @@
 import asyncio
 import json
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from typing import Any, Dict, List
 
 import jwt
 import msgpack
-from libs.config import settings
-from libs.observability import get_logger
-from ..deps import get_redis
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from libs.messaging.channels import PUBSUB_PNL_UPDATES, PUBSUB_SYSTEM_ALERTS, PUBSUB_AGENT_TELEMETRY, PUBSUB_HITL_PENDING, PUBSUB_ORDERBOOK, PUBSUB_TRADES
+from libs.config import settings
+from libs.messaging.channels import (
+    PUBSUB_AGENT_TELEMETRY,
+    PUBSUB_HITL_PENDING,
+    PUBSUB_ORDERBOOK,
+    PUBSUB_PNL_UPDATES,
+    PUBSUB_SYSTEM_ALERTS,
+    PUBSUB_TRADES,
+)
+from libs.observability import get_logger
+
+from ..deps import get_redis
 
 
 def _decode_pubsub_payload(data_raw: Any) -> Any:
@@ -28,8 +36,13 @@ def _decode_pubsub_payload(data_raw: Any) -> Any:
         if data_raw and data_raw[0] >= 0x80:
             try:
                 return msgpack.unpackb(data_raw, raw=False)
-            except (ValueError, TypeError, msgpack.exceptions.ExtraData,
-                    msgpack.exceptions.UnpackException, msgpack.exceptions.FormatError):
+            except (
+                ValueError,
+                TypeError,
+                msgpack.exceptions.ExtraData,
+                msgpack.exceptions.UnpackException,
+                msgpack.exceptions.FormatError,
+            ):
                 pass
         try:
             data_str = data_raw.decode("utf-8")
@@ -42,6 +55,7 @@ def _decode_pubsub_payload(data_raw: Any) -> Any:
         return json.loads(data_str)
     except (json.JSONDecodeError, TypeError):
         return data_str
+
 
 logger = get_logger("ws")
 
@@ -147,24 +161,35 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                 reconnect_delay = INITIAL_RECONNECT_DELAY  # reset on success
 
                 while True:
-                    message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=0.1)
+                    message = await pubsub.get_message(
+                        ignore_subscribe_messages=True, timeout=0.1
+                    )
                     if message and message.get("type") == "message":
                         channel = message["channel"]
-                        channel_str = channel.decode("utf-8") if isinstance(channel, bytes) else channel
+                        channel_str = (
+                            channel.decode("utf-8")
+                            if isinstance(channel, bytes)
+                            else channel
+                        )
                         data = _decode_pubsub_payload(message["data"])
 
                         env = {"channel": channel_str, "data": data}
                         msg_text = json.dumps(env, default=str)
 
                         if channel_str == PUBSUB_PNL_UPDATES:
-                            msg_user_id = data.get("user_id") if isinstance(data, dict) else None
+                            msg_user_id = (
+                                data.get("user_id") if isinstance(data, dict) else None
+                            )
                             if msg_user_id and msg_user_id != user_id:
                                 continue
 
                         try:
                             await websocket.send_text(msg_text)
                         except Exception:
-                            logger.info("WebSocket send failed, stopping listener", user_id=user_id)
+                            logger.info(
+                                "WebSocket send failed, stopping listener",
+                                user_id=user_id,
+                            )
                             return  # WebSocket is dead — exit entirely
                     else:
                         await asyncio.sleep(0.01)

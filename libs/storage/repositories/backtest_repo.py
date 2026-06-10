@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
+
 from ._repository_base import BaseRepository
 
 
@@ -72,9 +73,21 @@ class BacktestRepository(BaseRepository):
         if not row:
             return None
         result = dict(row)
-        result["strategy_rules"] = json.loads(result["strategy_rules"]) if isinstance(result["strategy_rules"], str) else result["strategy_rules"]
-        result["equity_curve"] = json.loads(result["equity_curve"]) if isinstance(result["equity_curve"], str) else result["equity_curve"]
-        result["trades"] = json.loads(result["trades"]) if isinstance(result["trades"], str) else result["trades"]
+        result["strategy_rules"] = (
+            json.loads(result["strategy_rules"])
+            if isinstance(result["strategy_rules"], str)
+            else result["strategy_rules"]
+        )
+        result["equity_curve"] = (
+            json.loads(result["equity_curve"])
+            if isinstance(result["equity_curve"], str)
+            else result["equity_curve"]
+        )
+        result["trades"] = (
+            json.loads(result["trades"])
+            if isinstance(result["trades"], str)
+            else result["trades"]
+        )
         return result
 
     async def get_history(

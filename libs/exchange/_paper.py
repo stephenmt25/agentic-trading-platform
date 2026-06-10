@@ -1,12 +1,13 @@
 import uuid
 from decimal import Decimal
-from typing import Callable, Coroutine, List, Any, Optional
+from typing import Any, Callable, Coroutine, List, Optional
 
-from ._base import ExchangeAdapter, OrderResult
-from libs.core.types import ProfileId, SymbolPair, Quantity, Price
 from libs.core.enums import OrderSide, OrderStatus
 from libs.core.models import NormalisedCandle, NormalisedTick
+from libs.core.types import Price, ProfileId, Quantity, SymbolPair
 from libs.observability import get_logger
+
+from ._base import ExchangeAdapter, OrderResult
 
 logger = get_logger("exchange.paper")
 

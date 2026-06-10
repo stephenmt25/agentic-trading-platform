@@ -17,6 +17,7 @@ A "report" aggregates a single UTC date's activity:
 Idempotent: ON CONFLICT (report_date) DO UPDATE so re-running for the same
 date overwrites the prior row.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -91,7 +92,7 @@ async def generate_for_date(db: TimescaleClient, day: date) -> bool:
     if len(returns) >= 2:
         mean_ret = sum(returns) / len(returns)
         variance = sum((r - mean_ret) ** 2 for r in returns) / len(returns)
-        std_ret = variance ** 0.5
+        std_ret = variance**0.5
         sharpe = (mean_ret / std_ret) if std_ret > 0 else 0.0
     else:
         sharpe = 0.0
@@ -113,7 +114,13 @@ async def generate_for_date(db: TimescaleClient, day: date) -> bool:
             max_drawdown = EXCLUDED.max_drawdown,
             sharpe_ratio = EXCLUDED.sharpe_ratio
         """,
-        day, total_trades, win_rate, gross_pnl, net_pnl, max_drawdown, sharpe,
+        day,
+        total_trades,
+        win_rate,
+        gross_pnl,
+        net_pnl,
+        max_drawdown,
+        sharpe,
     )
     logger.info(
         "Wrote daily report",

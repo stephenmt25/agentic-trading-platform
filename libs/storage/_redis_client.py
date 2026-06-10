@@ -1,5 +1,6 @@
-import redis.asyncio as redis
 from typing import Optional
+
+import redis.asyncio as redis
 
 # Default short-timeout settings. Used by everything by default so a Redis
 # outage produces an exception within seconds instead of an infinite hang.
@@ -11,8 +12,8 @@ _DEFAULT_HEALTH_CHECK_INTERVAL_S = 15
 
 
 class RedisClient:
-    _instance: Optional['RedisClient'] = None
-    _long_instance: Optional['RedisClient'] = None
+    _instance: Optional["RedisClient"] = None
+    _long_instance: Optional["RedisClient"] = None
 
     def __init__(self, url: str, *, long_blocking: bool = False):
         kwargs = {"max_connections": 100}
@@ -26,13 +27,13 @@ class RedisClient:
         self._client = redis.Redis(connection_pool=self._pool)
 
     @classmethod
-    def get_instance(cls, url: str) -> 'RedisClient':
+    def get_instance(cls, url: str) -> "RedisClient":
         if cls._instance is None:
             cls._instance = cls(url)
         return cls._instance
 
     @classmethod
-    def get_long_blocking_instance(cls, url: str) -> 'RedisClient':
+    def get_long_blocking_instance(cls, url: str) -> "RedisClient":
         # Separate pool with no socket_timeout — for BLPOP with human-scale
         # timeouts (HITL approval, 60 s) and xreadgroup with multi-second
         # block windows (backtest job worker, 5 s).

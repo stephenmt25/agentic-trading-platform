@@ -5,6 +5,7 @@ Each section pairs the screenshot with a code-grounded explanation of what
 the UI is showing — citations point to the React component and line range
 that produces the rendered behavior.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -15,8 +16,8 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
+from reportlab.platypus import Image as RLImage
 from reportlab.platypus import (
-    Image as RLImage,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -24,7 +25,6 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
-
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRNSHTS = ROOT / "scrnshts"
@@ -96,7 +96,14 @@ def styles() -> dict[str, ParagraphStyle]:
         borderPadding=4,
         spaceAfter=8,
     )
-    return {"body": body, "h1": h1, "h2": h2, "h3": h3, "caption": caption, "code": code}
+    return {
+        "body": body,
+        "h1": h1,
+        "h2": h2,
+        "h3": h3,
+        "caption": caption,
+        "code": code,
+    }
 
 
 def fit_image(path: Path, max_w: float, max_h: float) -> RLImage:
@@ -116,7 +123,9 @@ def fit_image(path: Path, max_w: float, max_h: float) -> RLImage:
 
 def hr() -> Table:
     t = Table([[""]], colWidths=[USABLE_W], rowHeights=[1])
-    t.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4d9"))]))
+    t.setStyle(
+        TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4d9"))])
+    )
     return t
 
 
@@ -132,7 +141,12 @@ def section(
     code_refs: list[str],
 ) -> None:
     story.append(Paragraph(title, s["h2"]))
-    story.append(Paragraph(f"<i>Screenshot file:</i> <font face='Courier'>{file_label}</font>", s["caption"]))
+    story.append(
+        Paragraph(
+            f"<i>Screenshot file:</i> <font face='Courier'>{file_label}</font>",
+            s["caption"],
+        )
+    )
     story.append(fit_image(image, USABLE_W, 4.6 * inch))
     story.append(Spacer(1, 6))
     story.append(Paragraph(summary, s["body"]))
@@ -143,7 +157,9 @@ def section(
     if code_refs:
         story.append(Paragraph("<b>Source of truth (code)</b>", s["h3"]))
         for c in code_refs:
-            story.append(Paragraph(f"<font face='Courier' size='9'>{c}</font>", s["body"]))
+            story.append(
+                Paragraph(f"<font face='Courier' size='9'>{c}</font>", s["body"])
+            )
     story.append(Spacer(1, 8))
     story.append(hr())
     story.append(Spacer(1, 8))
@@ -168,30 +184,40 @@ def build() -> None:
     story.append(Paragraph("Praxis Trading Platform", s["h1"]))
     story.append(Paragraph("UI Walkthrough &mdash; Partner Brief", s["h2"]))
     story.append(Spacer(1, 0.15 * inch))
-    story.append(Paragraph(
-        "This document walks through the current state of the Praxis dashboard, "
-        "section by section, using screenshots from <font face='Courier'>scrnshts/</font> "
-        "and the React components that render them. Every behavior described below is "
-        "grounded in source code &mdash; file paths and line ranges are listed under each section.",
-        s["body"],
-    ))
+    story.append(
+        Paragraph(
+            "This document walks through the current state of the Praxis dashboard, "
+            "section by section, using screenshots from <font face='Courier'>scrnshts/</font> "
+            "and the React components that render them. Every behavior described below is "
+            "grounded in source code &mdash; file paths and line ranges are listed under each section.",
+            s["body"],
+        )
+    )
     story.append(Spacer(1, 0.1 * inch))
-    story.append(Paragraph(
-        "Scope tags used throughout the dashboard:",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>PROFILE</b> &mdash; the panel reflects the active profile selected in the picker.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>SYSTEM</b> &mdash; the panel reflects the engine as a whole, ignoring the profile picker.",
-        s["body"],
-    ))
-    story.append(Paragraph(
-        "&bull;&nbsp; <b>SYMBOL</b> &mdash; the panel reflects whichever chart symbol (BTC/USDT, ETH/USDT) is selected.",
-        s["body"],
-    ))
+    story.append(
+        Paragraph(
+            "Scope tags used throughout the dashboard:",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>PROFILE</b> &mdash; the panel reflects the active profile selected in the picker.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>SYSTEM</b> &mdash; the panel reflects the engine as a whole, ignoring the profile picker.",
+            s["body"],
+        )
+    )
+    story.append(
+        Paragraph(
+            "&bull;&nbsp; <b>SYMBOL</b> &mdash; the panel reflects whichever chart symbol (BTC/USDT, ETH/USDT) is selected.",
+            s["body"],
+        )
+    )
     story.append(Spacer(1, 0.2 * inch))
     story.append(Paragraph("Contents", s["h3"]))
     toc = [
@@ -212,7 +238,8 @@ def build() -> None:
 
     # ── 1. Landing page ────────────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="1. Landing page",
         file_label="landing_page.png",
         image=SCRNSHTS / "landing_page.png",
@@ -237,7 +264,8 @@ def build() -> None:
 
     # ── 2. Trade dashboard top section ─────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="2. Trade dashboard &mdash; top section",
         file_label="trade_dashboard_top_section.png",
         image=SCRNSHTS / "trade_dashboard_top_section.png",
@@ -272,7 +300,8 @@ def build() -> None:
 
     # ── 3. Trade dashboard live activity ───────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="3. Trade dashboard &mdash; Live Activity",
         file_label="trade_dashboard_middle_live_activity_section.png",
         image=SCRNSHTS / "trade_dashboard_middle_live_activity_section.png",
@@ -301,7 +330,8 @@ def build() -> None:
 
     # ── 4. Decision Feed expanded row ──────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="4. Decision Feed &mdash; expanded row",
         file_label="trade_dashboard_live_activity_decision_feed_expanded.png",
         image=SCRNSHTS / "trade_dashboard_live_activity_decision_feed_expanded.png",
@@ -340,7 +370,8 @@ def build() -> None:
 
     # ── 5. Trade dashboard open positions ──────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="5. Trade dashboard &mdash; Open positions",
         file_label="trade_dashboard_open_positions_panel.png",
         image=SCRNSHTS / "trade_dashboard_open_positions_panel.png",
@@ -365,7 +396,8 @@ def build() -> None:
 
     # ── 6. Daily transparency report ───────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="6. Daily transparency report (drawer)",
         file_label="daily_transparency_report.png",
         image=SCRNSHTS / "daily_transparency_report.png",
@@ -390,7 +422,8 @@ def build() -> None:
     )
 
     section(
-        story, s,
+        story,
+        s,
         title="7. Daily transparency report &mdash; expanded trade lineage",
         file_label="daily_transparency_report_expanded.png",
         image=SCRNSHTS / "daily_transparency_report_expanded.png",
@@ -417,7 +450,8 @@ def build() -> None:
 
     # ── 8. Performance review drawer ───────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="8. Performance review drawer",
         file_label="performance_review_drawer.png",
         image=SCRNSHTS / "performance_review_drawer.png",
@@ -445,7 +479,8 @@ def build() -> None:
 
     # ── 9. Strategies templates ────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="9. Strategies &mdash; Templates tab",
         file_label="strategies_page_templates_tab.png",
         image=SCRNSHTS / "strategies_page_templates_tab.png",
@@ -472,7 +507,8 @@ def build() -> None:
 
     # ── 10. Strategies verify ──────────────────────────────────────────
     section(
-        story, s,
+        story,
+        s,
         title="10. Strategies &mdash; Verify tab (backtest)",
         file_label="strategies_page_verify_tab.png",
         image=SCRNSHTS / "strategies_page_verify_tab.png",
@@ -502,15 +538,17 @@ def build() -> None:
 
     # ── Closing notes ──────────────────────────────────────────────────
     story.append(Paragraph("Notes", s["h2"]))
-    story.append(Paragraph(
-        "Every screenshot above is taken from a single, currently-deployed branch &mdash; the "
-        "components named are the actual files that render the visible UI. Where panels poll "
-        "the backend, the polling cadence is shown in the bullets so latency expectations are "
-        "explicit. Refresh / drawer behavior (Escape closes, body scroll locks while open, "
-        "backdrop is click-dismissable) is consistent across the app and is implemented inline "
-        "in <font face='Courier'>app/trade/page.tsx</font>.",
-        s["body"],
-    ))
+    story.append(
+        Paragraph(
+            "Every screenshot above is taken from a single, currently-deployed branch &mdash; the "
+            "components named are the actual files that render the visible UI. Where panels poll "
+            "the backend, the polling cadence is shown in the bullets so latency expectations are "
+            "explicit. Refresh / drawer behavior (Escape closes, body scroll locks while open, "
+            "backdrop is click-dismissable) is consistent across the app and is implemented inline "
+            "in <font face='Courier'>app/trade/page.tsx</font>.",
+            s["body"],
+        )
+    )
 
     doc.build(story)
     print(f"Wrote {OUT_PDF}")

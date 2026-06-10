@@ -13,6 +13,7 @@ Usage:
   poetry run python scripts/close_all_open_positions.py --apply    # do it
   poetry run python scripts/close_all_open_positions.py --apply --profile-id <uuid>
 """
+
 from __future__ import annotations
 
 import argparse
@@ -20,8 +21,6 @@ import asyncio
 import sys
 from decimal import Decimal
 from pathlib import Path
-
-import asyncpg
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -52,7 +51,9 @@ def _record_to_position(rec) -> Position:
         quantity=Decimal(str(rec["quantity"])),
         entry_fee=Decimal(str(rec["entry_fee"])),
         opened_at=rec["opened_at"],
-        status=PositionStatus(rec["status"]) if rec.get("status") else PositionStatus.OPEN,
+        status=(
+            PositionStatus(rec["status"]) if rec.get("status") else PositionStatus.OPEN
+        ),
         closed_at=rec.get("closed_at"),
         exit_price=Decimal(str(rec["exit_price"])) if rec.get("exit_price") else None,
         order_id=rec.get("order_id"),
@@ -60,7 +61,9 @@ def _record_to_position(rec) -> Position:
     )
 
 
-async def _latest_close_price(timescale: TimescaleClient, symbol: str) -> Decimal | None:
+async def _latest_close_price(
+    timescale: TimescaleClient, symbol: str
+) -> Decimal | None:
     """Most recent 1m candle close for a symbol."""
     row = await timescale.fetchrow(
         """
@@ -75,8 +78,12 @@ async def _latest_close_price(timescale: TimescaleClient, symbol: str) -> Decima
 
 async def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--apply", action="store_true", help="actually close (default: dry run)")
-    parser.add_argument("--profile-id", help="restrict to a single profile UUID (default: all)")
+    parser.add_argument(
+        "--apply", action="store_true", help="actually close (default: dry run)"
+    )
+    parser.add_argument(
+        "--profile-id", help="restrict to a single profile UUID (default: all)"
+    )
     args = parser.parse_args()
 
     timescale = TimescaleClient(settings.DATABASE_URL)
@@ -115,7 +122,9 @@ async def main() -> int:
         if sym not in price_cache:
             price = await _latest_close_price(timescale, sym)
             if price is None:
-                print(f"  WARNING: no recent 1m candle for {sym} — skipping its positions")
+                print(
+                    f"  WARNING: no recent 1m candle for {sym} — skipping its positions"
+                )
             price_cache[sym] = price
 
     # Show what we'd do
@@ -155,7 +164,11 @@ async def main() -> int:
                 taker_rate=TAKER_RATE,
                 close_reason="manual",
             )
-            outcome = "win" if snap.pct_return > 0 else "loss" if snap.pct_return < 0 else "breakeven"
+            outcome = (
+                "win"
+                if snap.pct_return > 0
+                else "loss" if snap.pct_return < 0 else "breakeven"
+            )
             print(
                 f"  CLOSED {pos.position_id}  {pos.symbol}  "
                 f"pnl=${float(snap.net_pre_tax):+.2f}  "

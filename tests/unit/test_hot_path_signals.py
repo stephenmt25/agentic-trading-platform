@@ -5,7 +5,6 @@ integration with strategy evaluation.
 """
 
 import json
-from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -13,20 +12,23 @@ import pytest
 from libs.core.enums import Regime, SignalDirection
 from libs.core.models import NormalisedTick
 from services.hot_path.src.abstention import AbstentionChecker
-from services.hot_path.src.kill_switch import KillSwitch, KILL_SWITCH_KEY
-from services.hot_path.src.reentry_gate import ReentryGate
+from services.hot_path.src.kill_switch import KILL_SWITCH_KEY, KillSwitch
 from services.hot_path.src.pnl_sync import reconcile_position_symbols
-from services.hot_path.src.strategy_eval import SignalResult, EvaluatedIndicators
-
+from services.hot_path.src.reentry_gate import ReentryGate
+from services.hot_path.src.strategy_eval import EvaluatedIndicators, SignalResult
 
 # ---------------------------------------------------------------------------
 # Helper factories
 # ---------------------------------------------------------------------------
 
+
 def _make_tick(symbol="BTC/USDT", price=50000.0, volume=1.0):
     return NormalisedTick(
-        symbol=symbol, exchange="binance", timestamp=1000000,
-        price=price, volume=volume,
+        symbol=symbol,
+        exchange="binance",
+        timestamp=1000000,
+        price=price,
+        volume=volume,
     )
 
 
@@ -36,7 +38,11 @@ def _make_signal(direction=SignalDirection.BUY, confidence=0.85):
 
 def _make_indicators(rsi=28.0, atr=100.0):
     return EvaluatedIndicators(
-        rsi=rsi, macd_line=0.5, signal_line=0.3, histogram=0.2, atr=atr,
+        rsi=rsi,
+        macd_line=0.5,
+        signal_line=0.3,
+        histogram=0.2,
+        atr=atr,
     )
 
 
@@ -50,6 +56,7 @@ def _make_state(regime=None):
 # ---------------------------------------------------------------------------
 # AbstentionChecker tests
 # ---------------------------------------------------------------------------
+
 
 class TestAbstentionChecker:
     def test_abstain_on_low_atr(self):
@@ -91,6 +98,7 @@ class TestAbstentionChecker:
 # ReentryGate tests — one open position per (profile, symbol)
 # ---------------------------------------------------------------------------
 
+
 class TestReentryGate:
     def test_blocks_when_symbol_already_held(self):
         """A symbol with an open position blocks re-entry — the guard that
@@ -115,6 +123,7 @@ class TestReentryGate:
 # reconcile_position_symbols — the re-entry guard race fix
 # ---------------------------------------------------------------------------
 
+
 class TestReconcilePositionSymbols:
     """PnlSync's DB reconciliation must not clobber an optimistic add whose
     position row hasn't appeared yet — that race let a duplicate position
@@ -123,7 +132,9 @@ class TestReconcilePositionSymbols:
     GRACE = 15.0
 
     def test_db_symbol_is_kept(self):
-        open_syms, pruned = reconcile_position_symbols({"ETH/USDT"}, {}, 100.0, self.GRACE)
+        open_syms, pruned = reconcile_position_symbols(
+            {"ETH/USDT"}, {}, 100.0, self.GRACE
+        )
         assert open_syms == {"ETH/USDT"}
         assert pruned == {}
 
@@ -163,6 +174,7 @@ class TestReconcilePositionSymbols:
 # ---------------------------------------------------------------------------
 # KillSwitch tests
 # ---------------------------------------------------------------------------
+
 
 class TestKillSwitch:
     @pytest.mark.asyncio
@@ -208,9 +220,13 @@ class TestKillSwitch:
         """status() should return current state and recent log entries."""
         redis = AsyncMock()
         redis.get = AsyncMock(return_value="1")
-        redis.lrange = AsyncMock(return_value=[
-            json.dumps({"action": "ACTIVATED", "reason": "test", "timestamp": 1000.0}),
-        ])
+        redis.lrange = AsyncMock(
+            return_value=[
+                json.dumps(
+                    {"action": "ACTIVATED", "reason": "test", "timestamp": 1000.0}
+                ),
+            ]
+        )
         result = await KillSwitch.status(redis)
         assert result["active"] is True
         assert len(result["recent_log"]) == 1

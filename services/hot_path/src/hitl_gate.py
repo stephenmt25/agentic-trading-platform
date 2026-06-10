@@ -8,21 +8,20 @@ Fail-safe: timeout or error → reject (block trade).
 """
 
 import json
-import time
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional, Dict, Any
-from uuid import UUID
+from typing import Any, Dict, Optional
 
 from libs.config import settings
-from libs.core.enums import Regime, HITLStatus, SignalDirection
-from libs.core.schemas import HITLApprovalRequest, HITLApprovalResponse
+from libs.core.enums import HITLStatus, Regime, SignalDirection
 from libs.core.models import NormalisedTick
-from libs.messaging.channels import PUBSUB_HITL_PENDING, HITL_RESPONSE_STREAM
+from libs.core.schemas import HITLApprovalRequest
+from libs.messaging.channels import PUBSUB_HITL_PENDING
 from libs.observability import get_logger
-from .state import ProfileState
-from .strategy_eval import SignalResult, EvaluatedIndicators
+
 from .risk_gate import RiskGateResult
+from .state import ProfileState
+from .strategy_eval import EvaluatedIndicators, SignalResult
 
 logger = get_logger("hot-path.hitl-gate")
 
@@ -132,7 +131,9 @@ class HITLGate:
             status = HITLStatus(data.get("status", "REJECTED"))
         except Exception as e:
             logger.error("Failed to parse HITL response", error=str(e))
-            return HITLGateResult(blocked=True, reason="hitl_parse_error", hitl_triggered=True)
+            return HITLGateResult(
+                blocked=True, reason="hitl_parse_error", hitl_triggered=True
+            )
 
         if status == HITLStatus.APPROVED:
             logger.info("HITL approved", request_id=str(request.event_id))
@@ -187,7 +188,9 @@ class HITLGate:
             allocation_dollars = notional * max_alloc
             if allocation_dollars > 0:
                 size_pct = trade_dollars / allocation_dollars * Decimal("100")
-                if float(size_pct) > settings.HITL_SIZE_THRESHOLD_PCT:  # float-ok: comparison with float setting
+                if (
+                    float(size_pct) > settings.HITL_SIZE_THRESHOLD_PCT
+                ):  # float-ok: comparison with float setting
                     return f"large_trade_{size_pct:.1f}pct"
 
         return None

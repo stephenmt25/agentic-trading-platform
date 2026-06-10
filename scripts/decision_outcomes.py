@@ -1,13 +1,18 @@
 import asyncio
 from pathlib import Path
+
 import asyncpg
 
 
 def url() -> str:
     for line in Path(".env").read_text().splitlines():
         if line.startswith("PRAXIS_DATABASE_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'").replace(
-                "postgresql+asyncpg://", "postgresql://"
+            return (
+                line.split("=", 1)[1]
+                .strip()
+                .strip('"')
+                .strip("'")
+                .replace("postgresql+asyncpg://", "postgresql://")
             )
 
 

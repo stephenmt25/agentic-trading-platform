@@ -1,5 +1,6 @@
 from dataclasses import dataclass
-from typing import Dict, Any, Optional, List
+from typing import Any, Dict, List, Optional
+
 from libs.core.enums import SignalDirection
 from libs.observability import get_logger
 
@@ -24,7 +25,9 @@ class StrategyTrace:
     conditions: List[ConditionTrace]
 
 
-def _eval_conditions(conditions: List[Dict[str, Any]], indicators: Dict[str, float]) -> Optional[List[bool]]:
+def _eval_conditions(
+    conditions: List[Dict[str, Any]], indicators: Dict[str, float]
+) -> Optional[List[bool]]:
     """Evaluate each condition against the indicator dict. Returns a list of
     bool results, OR None when any referenced indicator is still priming."""
     results: List[bool] = []
@@ -69,13 +72,15 @@ class CompiledRuleSet:
     # instead of (logic, direction, conditions) — those legacy fields are
     # still populated as a fallback so the profile loader's required-keys
     # check keeps passing.
-    long_leg: Optional[Dict[str, Any]] = None   # {"logic": str, "conditions": [...]}
+    long_leg: Optional[Dict[str, Any]] = None  # {"logic": str, "conditions": [...]}
     short_leg: Optional[Dict[str, Any]] = None
 
     def _has_explicit_legs(self) -> bool:
         return self.long_leg is not None or self.short_leg is not None
 
-    def evaluate(self, indicators: Dict[str, float]) -> Optional[tuple[SignalDirection, float]]:
+    def evaluate(
+        self, indicators: Dict[str, float]
+    ) -> Optional[tuple[SignalDirection, float]]:
         if self._has_explicit_legs():
             long_match = False
             short_match = False
@@ -181,13 +186,17 @@ class CompiledRuleSet:
             still_priming = False
 
             if self.long_leg is not None:
-                long_traces, long_results = self._trace_for_conditions(self.long_leg["conditions"], indicators)
+                long_traces, long_results = self._trace_for_conditions(
+                    self.long_leg["conditions"], indicators
+                )
                 if long_results is None:
                     still_priming = True
                 else:
                     long_match = _combine(long_results, self.long_leg["logic"])
             if self.short_leg is not None:
-                short_traces, short_results = self._trace_for_conditions(self.short_leg["conditions"], indicators)
+                short_traces, short_results = self._trace_for_conditions(
+                    self.short_leg["conditions"], indicators
+                )
                 if short_results is None:
                     still_priming = True
                 else:
@@ -197,8 +206,12 @@ class CompiledRuleSet:
                 # Mirror the legacy path: priming leaves the trace marked
                 # not-matched and emits no signal.
                 primary = "BUY" if self.long_leg is not None else "SELL"
-                primary_logic = self.long_leg["logic"] if self.long_leg else self.short_leg["logic"]
-                primary_traces = long_traces if self.long_leg is not None else short_traces
+                primary_logic = (
+                    self.long_leg["logic"] if self.long_leg else self.short_leg["logic"]
+                )
+                primary_traces = (
+                    long_traces if self.long_leg is not None else short_traces
+                )
                 return None, StrategyTrace(
                     direction=primary,
                     logic=primary_logic,
@@ -232,8 +245,12 @@ class CompiledRuleSet:
             else:
                 signal = None
                 primary = "BUY" if self.long_leg is not None else "SELL"
-                primary_logic = self.long_leg["logic"] if self.long_leg else self.short_leg["logic"]
-                primary_traces = long_traces if self.long_leg is not None else short_traces
+                primary_logic = (
+                    self.long_leg["logic"] if self.long_leg else self.short_leg["logic"]
+                )
+                primary_traces = (
+                    long_traces if self.long_leg is not None else short_traces
+                )
                 matched = False
 
             return signal, StrategyTrace(

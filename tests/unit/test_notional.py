@@ -2,8 +2,6 @@
 
 from decimal import Decimal
 
-import pytest
-
 from libs.core.notional import (
     DEFAULT_ALLOCATION_PCT,
     DEFAULT_NOTIONAL_USD,
@@ -19,7 +17,9 @@ class TestConstants:
         assert isinstance(DEFAULT_NOTIONAL_USD, Decimal)
 
     def test_default_notional_matches_alloc_unit_at_alloc_one(self):
-        assert DEFAULT_NOTIONAL_USD == DEFAULT_ALLOCATION_PCT * NOTIONAL_PER_ALLOC_UNIT_USD
+        assert (
+            DEFAULT_NOTIONAL_USD == DEFAULT_ALLOCATION_PCT * NOTIONAL_PER_ALLOC_UNIT_USD
+        )
 
     def test_default_notional_is_ten_thousand(self):
         # Explicit assertion so a future bump to the constant trips here
@@ -62,7 +62,10 @@ class TestProfileNotional:
 
     def test_negative_returns_default(self):
         assert profile_notional({"allocation_pct": -1}) == DEFAULT_NOTIONAL_USD
-        assert profile_notional({"allocation_pct": Decimal("-2.5")}) == DEFAULT_NOTIONAL_USD
+        assert (
+            profile_notional({"allocation_pct": Decimal("-2.5")})
+            == DEFAULT_NOTIONAL_USD
+        )
 
     def test_garbage_string_returns_default(self):
         assert profile_notional({"allocation_pct": "garbage"}) == DEFAULT_NOTIONAL_USD

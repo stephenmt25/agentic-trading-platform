@@ -1,11 +1,13 @@
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
-from libs.core.models import Position
+
 from libs.core.enums import SignalDirection
+from libs.core.models import Position
 from services.tax.src.us_tax import TaxEstimate
 
 _ZERO = Decimal("0")
+
 
 @dataclass
 class PnLSnapshot:
@@ -18,9 +20,15 @@ class PnLSnapshot:
     pct_return: Decimal
     tax_estimate: Decimal
 
+
 class PnLCalculator:
     @staticmethod
-    def calculate(position: Position, current_price: Decimal, taker_rate: Decimal, tax_result: Optional[TaxEstimate] = None) -> PnLSnapshot:
+    def calculate(
+        position: Position,
+        current_price: Decimal,
+        taker_rate: Decimal,
+        tax_result: Optional[TaxEstimate] = None,
+    ) -> PnLSnapshot:
         qty = position.quantity
         entry = position.entry_price
         cp = current_price
@@ -49,5 +57,5 @@ class PnLCalculator:
             net_pre_tax=net_pre_tax,
             net_post_tax=net_post_tax,
             pct_return=pct_return,
-            tax_estimate=tax_est
+            tax_estimate=tax_est,
         )

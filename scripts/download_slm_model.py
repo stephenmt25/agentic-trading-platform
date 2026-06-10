@@ -28,8 +28,14 @@ DEFAULT_FILE = "Phi-3-mini-4k-instruct-q4.gguf"
 
 def parse_args(argv: list | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Download a GGUF SLM model into ./models/")
-    p.add_argument("--repo", default=DEFAULT_REPO, help="HuggingFace repo (default: %(default)s)")
-    p.add_argument("--file", default=DEFAULT_FILE, help="Filename within the repo (default: %(default)s)")
+    p.add_argument(
+        "--repo", default=DEFAULT_REPO, help="HuggingFace repo (default: %(default)s)"
+    )
+    p.add_argument(
+        "--file",
+        default=DEFAULT_FILE,
+        help="Filename within the repo (default: %(default)s)",
+    )
     return p.parse_args(argv)
 
 
@@ -41,12 +47,16 @@ def main() -> int:
     if target.exists():
         size_mb = target.stat().st_size / (1024 * 1024)
         print(f"Already present: {target} ({size_mb:.1f} MB) — skipping download.")
-        print(f'Set in .env:  PRAXIS_SLM_MODEL_PATH={target.relative_to(ROOT).as_posix()}')
+        print(
+            f"Set in .env:  PRAXIS_SLM_MODEL_PATH={target.relative_to(ROOT).as_posix()}"
+        )
         return 0
 
     cli = shutil.which("hf") or shutil.which("huggingface-cli")
     if cli is None:
-        print("Neither 'hf' nor 'huggingface-cli' on PATH. Install it once:\n    pip install huggingface_hub[cli]")
+        print(
+            "Neither 'hf' nor 'huggingface-cli' on PATH. Install it once:\n    pip install huggingface_hub[cli]"
+        )
         return 2
 
     cmd = [
@@ -64,7 +74,7 @@ def main() -> int:
         return rc
 
     print(f"\nDownloaded {target}")
-    print(f'Set in .env:  PRAXIS_SLM_MODEL_PATH={target.relative_to(ROOT).as_posix()}')
+    print(f"Set in .env:  PRAXIS_SLM_MODEL_PATH={target.relative_to(ROOT).as_posix()}")
     return 0
 
 

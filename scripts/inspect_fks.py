@@ -1,6 +1,7 @@
 import asyncio
-import asyncpg
 from pathlib import Path
+
+import asyncpg
 
 
 def db_url() -> str:

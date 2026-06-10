@@ -2,11 +2,11 @@ import json
 import time
 from decimal import Decimal
 
-from libs.storage._redis_client import RedisClient
+from libs.core.schemas import DrawdownPayload, PnlUpdateEvent
 from libs.messaging import PubSubBroadcaster
 from libs.messaging.channels import PUBSUB_PNL_UPDATES
+from libs.storage._redis_client import RedisClient
 from libs.storage.repositories import PnlRepository
-from libs.core.schemas import PnlUpdateEvent, DrawdownPayload
 
 _ZERO = Decimal("0")
 _SNAPSHOT_THRESHOLD = Decimal("0.005")
@@ -16,13 +16,18 @@ class _DecimalEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, Decimal):
             return float(o)
-        if hasattr(o, 'hex'):  # UUID
+        if hasattr(o, "hex"):  # UUID
             return str(o)
         return super().default(o)
 
 
 class PnLPublisher:
-    def __init__(self, redis_client: RedisClient, pubsub: PubSubBroadcaster, pnl_repo: PnlRepository):
+    def __init__(
+        self,
+        redis_client: RedisClient,
+        pubsub: PubSubBroadcaster,
+        pnl_repo: PnlRepository,
+    ):
         self._redis = redis_client
         self._pubsub = pubsub
         self._pnl_repo = pnl_repo
@@ -57,25 +62,31 @@ class PnLPublisher:
         last_pct = self._last_snapshot.get(snapshot.position_id, _ZERO)
         diff = abs(snapshot.pct_return - last_pct)
         if diff > _SNAPSHOT_THRESHOLD:
-            cost_basis = snapshot.gross_pnl + snapshot.net_pre_tax  # entry_price * qty approximation
+            cost_basis = (
+                snapshot.gross_pnl + snapshot.net_pre_tax
+            )  # entry_price * qty approximation
             # Use the PnLSnapshot fields directly — matches pnl_repo.write_snapshot() expected dict
-            await self._pnl_repo.write_snapshot({
-                "profile_id": profile_id,
-                "symbol": snapshot.symbol,
-                "gross_pnl": snapshot.gross_pnl,
-                "net_pnl_pre_tax": snapshot.net_pre_tax,
-                "net_pnl_post_tax": snapshot.net_post_tax,
-                "total_fees": snapshot.fees,
-                "estimated_tax": snapshot.tax_estimate,
-                "cost_basis": cost_basis,
-                "pct_return": snapshot.pct_return,
-            })
+            await self._pnl_repo.write_snapshot(
+                {
+                    "profile_id": profile_id,
+                    "symbol": snapshot.symbol,
+                    "gross_pnl": snapshot.gross_pnl,
+                    "net_pnl_pre_tax": snapshot.net_pre_tax,
+                    "net_pnl_post_tax": snapshot.net_post_tax,
+                    "total_fees": snapshot.fees,
+                    "estimated_tax": snapshot.tax_estimate,
+                    "cost_basis": cost_basis,
+                    "pct_return": snapshot.pct_return,
+                }
+            )
             self._last_snapshot[snapshot.position_id] = snapshot.pct_return
 
     async def _update_drawdown(self, profile_id: str, snapshot):
         """Track current drawdown in Redis."""
         key = f"risk:drawdown:{profile_id}"
-        drawdown_pct = max(_ZERO, -snapshot.pct_return) if snapshot.pct_return < 0 else _ZERO
+        drawdown_pct = (
+            max(_ZERO, -snapshot.pct_return) if snapshot.pct_return < 0 else _ZERO
+        )
 
         raw = await self._redis.get(key)
         if raw:

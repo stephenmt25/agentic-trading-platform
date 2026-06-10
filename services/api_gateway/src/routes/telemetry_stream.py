@@ -7,13 +7,14 @@ is operational data, not user data.
 
 import asyncio
 import json
+
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from libs.config import settings
-from libs.storage import RedisClient
 from libs.messaging.channels import PUBSUB_AGENT_TELEMETRY
 from libs.observability import get_logger
+from libs.storage import RedisClient
 
 logger = get_logger("api-gateway.telemetry-stream")
 

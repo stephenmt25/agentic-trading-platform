@@ -1,5 +1,7 @@
-import httpx
 from typing import List
+
+import httpx
+
 from libs.observability import get_logger
 
 logger = get_logger("analyst.news_scraper")
@@ -11,26 +13,30 @@ class NewsScraper:
         # Example using CryptoCompare News API
         self._base_url = "https://min-api.cryptocompare.com/data/v2/news/?categories="
         if not self._api_key:
-            logger.warning("NEWS_API_KEY not set — news scraper will return empty results. Set PRAXIS_NEWS_API_KEY to enable.")
+            logger.warning(
+                "NEWS_API_KEY not set — news scraper will return empty results. Set PRAXIS_NEWS_API_KEY to enable."
+            )
 
     async def get_headlines(self, symbol: str, limit: int = 10) -> List[str]:
         if not self._api_key:
             return []
 
         # Map symbol "BTC/USDT" to "BTC"
-        base_asset = symbol.split('/')[0]
+        base_asset = symbol.split("/")[0]
         url = f"{self._base_url}{base_asset}"
-        
+
         headers = {"authorization": f"Apikey {self._api_key}"}
-        
+
         try:
             async with httpx.AsyncClient() as client:
                 res = await client.get(url, headers=headers, timeout=5.0)
                 if res.status_code == 200:
                     data = res.json()
                     articles = data.get("Data", [])[:limit]
-                    return [a.get("title", "") + " - " + a.get("body", "") for a in articles]
+                    return [
+                        a.get("title", "") + " - " + a.get("body", "") for a in articles
+                    ]
         except Exception:
             pass
-            
+
         return []

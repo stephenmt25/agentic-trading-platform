@@ -1,8 +1,11 @@
-import asyncio, sys
+import asyncio
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from libs.config import settings
 import asyncpg
+
+from libs.config import settings
 
 
 async def main() -> int:
@@ -16,7 +19,7 @@ async def main() -> int:
         )
         print(f"Open positions: {len(rows)}")
         for r in rows:
-            cb = float(r['quantity']) * float(r['entry_price'])
+            cb = float(r["quantity"]) * float(r["entry_price"])
             print(
                 f"  {r['opened_at']}  prof={r['pid'][:8]}  {r['symbol']:<10}  "
                 f"{r['side']}  qty={float(r['quantity']):.6f}  "

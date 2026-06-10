@@ -1,9 +1,19 @@
 import asyncio
-from fastapi import FastAPI
-import uvicorn
 from contextlib import asynccontextmanager
 
+import uvicorn
+from fastapi import FastAPI
+
 from libs.config import settings
+from libs.core.agent_registry import (
+    AGENT_DEFAULTS,
+    TRACKER_KEY,
+    WEIGHTS_KEY,
+    AgentPerformanceTracker,
+    _decode_hash,
+)
+from libs.observability import get_logger, supervised_task
+from libs.observability.telemetry import TelemetryPublisher
 from libs.storage import RedisClient
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.decision_repo import DecisionRepository
@@ -11,15 +21,7 @@ from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
 from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
-from libs.observability import get_logger, supervised_task
-from libs.observability.telemetry import TelemetryPublisher
-from libs.core.agent_registry import (
-    AgentPerformanceTracker,
-    AGENT_DEFAULTS,
-    TRACKER_KEY,
-    WEIGHTS_KEY,
-    _decode_hash,
-)
+
 from .insight_engine import insight_engine_loop
 
 logger = get_logger("analyst")
@@ -43,7 +45,11 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 for symbol in settings.TRADING_SYMBOLS:
-                    await telemetry.emit("input_received", {"symbol": symbol, "message_type": "outcome_read"}, source_agent="pnl")
+                    await telemetry.emit(
+                        "input_received",
+                        {"symbol": symbol, "message_type": "outcome_read"},
+                        source_agent="pnl",
+                    )
                     await tracker.recompute_weights(symbol)
 
                     # Persist weight snapshot to TimescaleDB for evolution charts
@@ -55,13 +61,19 @@ async def lifespan(app: FastAPI):
                             wk = WEIGHTS_KEY.format(symbol=symbol)
                             w_raw = await redis_conn.hget(wk, agent_name)
                             snapshot[agent_name] = {
-                                "weight": float(w_raw) if w_raw else AGENT_DEFAULTS[agent_name],
+                                "weight": (
+                                    float(w_raw)
+                                    if w_raw
+                                    else AGENT_DEFAULTS[agent_name]
+                                ),
                                 "ewma": float(tr.get("ewma_accuracy", 0)),
                                 "samples": int(tr.get("sample_count", 0)),
                             }
                         await weight_repo.write_weights(symbol, snapshot)
                     except Exception as pe:
-                        logger.warning("Failed to persist weight history", error=str(pe))
+                        logger.warning(
+                            "Failed to persist weight history", error=str(pe)
+                        )
 
                     await telemetry.emit(
                         "output_emitted",
@@ -82,9 +94,13 @@ async def lifespan(app: FastAPI):
     gate_repo = GateEfficacyRepository(timescale)
 
     logger.info("Analyst Agent started — weight computation + insight engine")
-    weight_task = supervised_task(weight_recompute_loop, name="analyst.weight_recompute")
+    weight_task = supervised_task(
+        weight_recompute_loop, name="analyst.weight_recompute"
+    )
     insight_task = supervised_task(
-        lambda: insight_engine_loop(profile_repo, decision_repo, market_repo, gate_repo),
+        lambda: insight_engine_loop(
+            profile_repo, decision_repo, market_repo, gate_repo
+        ),
         name="analyst.insight_engine",
     )
 
@@ -100,9 +116,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Analyst Agent", lifespan=lifespan)
 
+
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 if __name__ == "__main__":
     uvicorn.run("services.analyst.src.main:app", host="0.0.0.0", port=8087)

@@ -13,13 +13,12 @@ None and the caller should leave the existing strategy_rules unchanged.
 
 from typing import Any, Dict, Optional
 
-from .schemas import (
-    StrategyRulesInput,
-    strategy_rules_to_canonical,
-)
+from .schemas import StrategyRulesInput, strategy_rules_to_canonical
 
 
-def compile_pipeline_to_canonical_rules(pipeline_config: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def compile_pipeline_to_canonical_rules(
+    pipeline_config: Dict[str, Any]
+) -> Optional[Dict[str, Any]]:
     """Extract canonical strategy_rules from a pipeline_config canvas.
 
     Returns the canonical dict ready to persist into trading_profiles.strategy_rules,
@@ -29,7 +28,11 @@ def compile_pipeline_to_canonical_rules(pipeline_config: Dict[str, Any]) -> Opti
         return None
 
     strategy_node = next(
-        (n for n in pipeline_config["nodes"] if n.get("id") == "strategy_eval" or n.get("type") == "strategy_eval"),
+        (
+            n
+            for n in pipeline_config["nodes"]
+            if n.get("id") == "strategy_eval" or n.get("type") == "strategy_eval"
+        ),
         None,
     )
     if not strategy_node:

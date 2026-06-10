@@ -1,11 +1,17 @@
 import pytest
-import math
-from libs.indicators import ADXCalculator, BollingerCalculator, BollingerResult, OBVCalculator, ChoppinessCalculator
 
+from libs.indicators import (
+    ADXCalculator,
+    BollingerCalculator,
+    BollingerResult,
+    ChoppinessCalculator,
+    OBVCalculator,
+)
 
 # ---------------------------------------------------------------------------
 # ADX
 # ---------------------------------------------------------------------------
+
 
 class TestADXCalculator:
     def test_returns_none_during_priming(self):
@@ -50,6 +56,7 @@ class TestADXCalculator:
 # ---------------------------------------------------------------------------
 # Bollinger Bands
 # ---------------------------------------------------------------------------
+
 
 class TestBollingerCalculator:
     def test_returns_none_during_priming(self):
@@ -110,6 +117,7 @@ class TestBollingerCalculator:
 # OBV
 # ---------------------------------------------------------------------------
 
+
 class TestOBVCalculator:
     def test_returns_none_on_first_bar(self):
         obv = OBVCalculator()
@@ -135,16 +143,17 @@ class TestOBVCalculator:
 
     def test_multi_bar_sequence(self):
         obv = OBVCalculator()
-        obv.update(10.0, 100.0)          # initial OBV = 100, returns None
-        assert obv.update(11.0, 200.0) == 300.0   # up: 100 + 200
-        assert obv.update(10.5, 150.0) == 150.0   # down: 300 - 150
-        assert obv.update(10.5, 100.0) == 150.0   # flat: no change
-        assert obv.update(12.0, 300.0) == 450.0   # up: 150 + 300
+        obv.update(10.0, 100.0)  # initial OBV = 100, returns None
+        assert obv.update(11.0, 200.0) == 300.0  # up: 100 + 200
+        assert obv.update(10.5, 150.0) == 150.0  # down: 300 - 150
+        assert obv.update(10.5, 100.0) == 150.0  # flat: no change
+        assert obv.update(12.0, 300.0) == 450.0  # up: 150 + 300
 
 
 # ---------------------------------------------------------------------------
 # Choppiness Index
 # ---------------------------------------------------------------------------
+
 
 class TestChoppinessCalculator:
     def test_returns_none_during_priming(self):

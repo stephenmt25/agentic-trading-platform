@@ -1,6 +1,6 @@
+import math
 from dataclasses import dataclass
 from typing import Optional
-import math
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,7 +19,7 @@ class BollingerCalculator:
     Returns None during the priming period (first `period - 1` bars).
     """
 
-    __slots__ = ('period', 'num_std', 'count', '_buf', '_sum', '_sum_sq')
+    __slots__ = ("period", "num_std", "count", "_buf", "_sum", "_sum_sq")
 
     def __init__(self, period: int = 20, num_std: float = 2.0):
         self.period = period

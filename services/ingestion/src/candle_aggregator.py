@@ -11,7 +11,6 @@ same idempotent path as startup backfill.
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any, Dict
 
 from libs.core.models import NormalisedCandle
 from libs.exchange.backfill import fill_gap
@@ -73,7 +72,9 @@ class CandleAggregator:
                         error=str(e),
                     )
 
-    async def _write(self, symbol: str, timeframe: str, candle: NormalisedCandle) -> None:
+    async def _write(
+        self, symbol: str, timeframe: str, candle: NormalisedCandle
+    ) -> None:
         await self._repo.write_candle(
             symbol,
             timeframe,

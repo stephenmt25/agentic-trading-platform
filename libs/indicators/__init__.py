@@ -1,24 +1,36 @@
-from ._rsi import RSICalculator
-from ._ema import EMACalculator
-from ._macd import MACDCalculator, MACDResult
-from ._atr import ATRCalculator
-from ._regime import SimpleRegimeClassifier
-from ._adx import ADXCalculator
-from ._bollinger import BollingerCalculator, BollingerResult
-from ._obv import OBVCalculator
-from ._choppiness import ChoppinessCalculator
-from ._vwap import VWAPCalculator
-from ._keltner import KeltnerCalculator, KeltnerResult
-from ._rvol import RVOLCalculator
-from ._zscore import ZScoreCalculator
-from ._hurst import HurstCalculator
+from typing import Any, Dict
 
-from typing import Dict, Any
+from ._adx import ADXCalculator
+from ._atr import ATRCalculator
+from ._bollinger import BollingerCalculator, BollingerResult
+from ._choppiness import ChoppinessCalculator
+from ._ema import EMACalculator
+from ._hurst import HurstCalculator
+from ._keltner import KeltnerCalculator, KeltnerResult
+from ._macd import MACDCalculator, MACDResult
+from ._obv import OBVCalculator
+from ._regime import SimpleRegimeClassifier
+from ._rsi import RSICalculator
+from ._rvol import RVOLCalculator
+from ._vwap import VWAPCalculator
+from ._zscore import ZScoreCalculator
+
 
 class IndicatorSet:
     __slots__ = (
-        'rsi', 'macd', 'atr', 'regime', 'adx', 'bollinger', 'obv', 'choppiness',
-        'vwap', 'keltner', 'rvol', 'zscore', 'hurst',
+        "rsi",
+        "macd",
+        "atr",
+        "regime",
+        "adx",
+        "bollinger",
+        "obv",
+        "choppiness",
+        "vwap",
+        "keltner",
+        "rvol",
+        "zscore",
+        "hurst",
     )
 
     def __init__(
@@ -51,6 +63,7 @@ class IndicatorSet:
         self.zscore = zscore
         self.hurst = hurst
 
+
 def create_indicator_set(profile_config: Dict[str, Any] = None) -> IndicatorSet:
     # Later profile_config allows customization of periods
     return IndicatorSet(
@@ -68,6 +81,7 @@ def create_indicator_set(profile_config: Dict[str, Any] = None) -> IndicatorSet:
         zscore=ZScoreCalculator(),
         hurst=HurstCalculator(),
     )
+
 
 __all__ = [
     "RSICalculator",
