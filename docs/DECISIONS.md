@@ -317,3 +317,78 @@ feature-flag system we don't have yet.
 ### Approved by
 
 Architect (partner), via Stevo, 2026-06-10.
+
+---
+
+## 2026-06-11 — Cloud region: AWS Tokyo (ap-northeast-1)
+
+### Context
+
+Viability Plan §4 Decision 1 deferred the region choice (AWS Tokyo vs GCP
+asia-northeast1). Locked as decision #1 in `NEXT-SESSION-PLAN-2026-06-10.md` §2.
+
+### Decision
+
+**AWS Tokyo (`ap-northeast-1`).** One Linux VM (4–8 vCPU, 16–32 GB) running the
+existing `bash run_all.sh` under Docker Compose — same architecture as local,
+per Viability Plan §2. Secrets move from `.env` to **AWS Secrets Manager**.
+Co-located with the Binance matching engine: WS RTT <10 ms vs ~150–300 ms from
+the laptop.
+
+### Trade-off
+
+AWS over GCP per Viability §4: cheaper at scale, stronger secrets/security
+primitives; GCP's marginally simpler ops doesn't outweigh that. This VM is the
+substrate for EN-W3 (provisioning) and EN-W4 (60-day Yield Harvester soak), and
+unblocks Viability Phase 1 (cloud baseline + local↔cloud PnL delta).
+
+### Approved by
+
+Architect (partner) — locked recommendation #1, NEXT-SESSION-PLAN-2026-06-10 §2.
+
+---
+
+## 2026-06-11 — Netting & margin: horizon partitioning, no cross-horizon netting, ISOLATED perp legs
+
+### Context
+
+Decision #5 in `NEXT-SESSION-PLAN-2026-06-10.md` §2, written down NOW because it
+is binding input to the Phase-A schema (migration 025 `accounts`,
+`position_groups`) — policy before schema (EN-W0 precedes EN-W3). The Yield
+Harvester introduces perp legs alongside spot positions with different holding
+horizons.
+
+### Decision
+
+- **Partition positions across horizons.** Each strategy horizon (e.g. scalp /
+  swing / funding-harvest) owns its positions and its risk budget.
+- **Never hard-veto across horizons.** A new signal in one horizon must not be
+  vetoed because an opposing position exists in another horizon; risk responds
+  through sizing and budget, not veto.
+- **Forbid cross-horizon netting.** Opposing positions in different horizons are
+  held simultaneously, never collapsed into one net position — preserves
+  per-strategy PnL truth (PR5 net-of-cost attribution) and each horizon's exit
+  semantics.
+- **Perp-leg margin = ISOLATED, never CROSS.** A perp leg's liquidation risk is
+  confined to its own margin. Yield Harvester delta-neutral pairs (spot long +
+  perp short) are *grouped* via `position_groups` (`leg_group_id`/`leg_index`),
+  not netted.
+
+### Trade-off
+
+ISOLATED forgoes cross-margin capital efficiency and needs explicit margin
+top-up management (an EN-W3 scheduler job), but caps blast radius per leg — the
+right call at the working capital scale (**$10k @ VIP0 — FLAGGED assumption #7,
+unconfirmed**). Holding opposing positions across horizons pays double
+fees/funding vs netting, but keeps strategy-level measurement honest — the
+north-star of this slice.
+
+### Schema implications (binding for migration 025)
+
+`accounts`/`positions` carry `market_type` + `margin_mode`; `position_groups`
+groups legs; positions carry a horizon partition key; all money columns
+`NUMERIC` — never `DOUBLE PRECISION`.
+
+### Approved by
+
+Architect (partner) — locked recommendation #5, NEXT-SESSION-PLAN-2026-06-10 §2.
