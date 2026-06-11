@@ -35,20 +35,23 @@ export function PageLoading() {
  */
 export function ShellSkeleton() {
   return (
-    <div
-      className="flex h-screen overflow-hidden bg-bg-canvas text-fg opacity-80 pointer-events-none select-none"
-      role="status"
-      aria-busy="true"
-      aria-label="Authenticating"
-    >
-      <LeftRail />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-11 px-3 md:px-4 shrink-0 border-b border-border-subtle bg-bg-panel flex items-center">
-          <div className="h-4 w-32 rounded bg-bg-raised animate-pulse-subtle" />
-        </header>
-        <main className="flex-1 overflow-hidden">
-          <PageLoading />
-        </main>
+    <div role="status" aria-busy="true" aria-label="Authenticating">
+      {/* `inert` (React 19 boolean prop) removes the real LeftRail links from
+          tab order, click AND the accessibility tree — pointer-events-none
+          alone left them keyboard-activatable mid-auth-resolution. */}
+      <div
+        inert
+        className="flex h-screen overflow-hidden bg-bg-canvas text-fg opacity-80 select-none"
+      >
+        <LeftRail />
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          <header className="h-11 px-3 md:px-4 shrink-0 border-b border-border-subtle bg-bg-panel flex items-center">
+            <div className="h-4 w-32 rounded bg-bg-raised animate-pulse-subtle" />
+          </header>
+          <main className="flex-1 overflow-hidden">
+            <PageLoading />
+          </main>
+        </div>
       </div>
     </div>
   );

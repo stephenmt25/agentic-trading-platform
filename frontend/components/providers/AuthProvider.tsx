@@ -2,6 +2,7 @@
 
 import { SessionProvider, useSession } from "next-auth/react";
 import { useEffect } from "react";
+import { clearSessionTokenCache } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/stores/authStore";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
 import { wsClient } from "@/lib/ws/client";
@@ -29,6 +30,7 @@ function SessionSync({ children }: { children: React.ReactNode }) {
 
     if (!accessToken) {
       logout();
+      clearSessionTokenCache();
       wsClient.disconnect();
       useConnectionStore.getState().stopHealthPolling();
       return;

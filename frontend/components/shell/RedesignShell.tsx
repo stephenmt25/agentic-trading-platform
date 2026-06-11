@@ -124,9 +124,12 @@ export function RedesignShell({ children }: { children: React.ReactNode }) {
         </AnimatePresence>
 
         <main className="flex-1 relative overflow-y-auto w-full h-full">
-          {/* Root streaming boundary (FE-W0): route content suspends here
-              (lazy chunks, future loading.tsx/server reads) while the chrome
-              above stays interactive. */}
+          {/* Root boundary (FE-W0). Today this is forward-scaffolding plus
+              the CSR-bailout boundary for useSearchParams; nothing in the
+              tree suspends into it yet (dynamic() imports supply their own
+              `loading:`), and per-route loading.tsx files (FE-W3) create
+              segment boundaries BELOW this one that absorb suspensions
+              before they reach this fallback. */}
           <Suspense fallback={<PageLoading />}>{children}</Suspense>
         </main>
       </div>

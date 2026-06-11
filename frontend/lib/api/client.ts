@@ -56,6 +56,16 @@ let fallbackToken: { value: string | null; fetchedAt: number } | null = null;
 let staleStoreJwt: string | null = null;
 let inflightSessionFetch: Promise<string | null> | null = null;
 
+/**
+ * Drop the module-level token caches. Called by SessionSync on logout so a
+ * signed-out tab can't serve a cached JWT from the cold-start fallback —
+ * defense-in-depth; protected pages unmount on logout anyway.
+ */
+export function clearSessionTokenCache(): void {
+  fallbackToken = null;
+  staleStoreJwt = null;
+}
+
 function fetchSessionToken(): Promise<string | null> {
   if (inflightSessionFetch) return inflightSessionFetch;
   inflightSessionFetch = (async () => {

@@ -45,9 +45,15 @@ export const queryKeys = {
   killSwitch: ["killSwitch"] as const,
   candles: (symbol: string, timeframe: string, limit = 500) =>
     ["candles", symbol, timeframe, limit] as const,
-  /** Umbrella key — invalidating ["risk"] hits every per-profile query too. */
+  /**
+   * Umbrella PREFIX for invalidation only — invalidateQueries({ queryKey:
+   * ["risk"] }) hits allRisk and every per-profile query by prefix. Never
+   * used as a live data key: a disabled useRisk(undefined) subscribing to
+   * ["risk"] would surface useAllRisk's array through a single-object type.
+   */
   risk: ["risk"] as const,
-  riskFor: (profileId: string) => ["risk", profileId] as const,
+  allRisk: ["risk", "all"] as const,
+  riskFor: (profileId: string) => ["risk", "profile", profileId] as const,
   closedTrades: (symbol?: string, limit = 500) =>
     ["closedTrades", symbol ?? "all", limit] as const,
 };
@@ -99,32 +105,37 @@ export function useCandles(
   timeframe = "1h",
   opts?: QueryOpts<Candle[]> & { limit?: number }
 ) {
-  const { limit = 500, ...rest } = opts ?? {};
+  const { limit = 500, enabled, ...rest } = opts ?? {};
   return useQuery({
     queryKey: queryKeys.candles(symbol, timeframe, limit),
     queryFn: () => api.marketData.candles(symbol, timeframe, limit),
-    enabled: !!symbol,
     ...rest,
+    enabled: !!symbol && (enabled ?? true),
   });
 }
 
-/** Per-profile risk snapshot (daily PnL, drawdown, allocation). */
+/**
+ * Per-profile risk snapshot (daily PnL, drawdown, allocation). The
+ * profileId guard is merged with (not overridable by) opts.enabled, so a
+ * caller can further restrict but never force a fetch of /agents/risk/undefined.
+ */
 export function useRisk(
   profileId: string | undefined,
   opts?: QueryOpts<ProfileRisk>
 ) {
+  const { enabled, ...rest } = opts ?? {};
   return useQuery({
-    queryKey: profileId ? queryKeys.riskFor(profileId) : queryKeys.risk,
+    queryKey: queryKeys.riskFor(profileId ?? "__pending__"),
     queryFn: () => api.agents.risk(profileId as string),
-    enabled: !!profileId,
-    ...opts,
+    ...rest,
+    enabled: !!profileId && (enabled ?? true),
   });
 }
 
 /** Risk snapshots for every profile (the /hot/profiles overview read). */
 export function useAllRisk(opts?: QueryOpts<ProfileRisk[]>) {
   return useQuery({
-    queryKey: queryKeys.risk,
+    queryKey: queryKeys.allRisk,
     queryFn: () => api.agents.allRisk(),
     ...opts,
   });
