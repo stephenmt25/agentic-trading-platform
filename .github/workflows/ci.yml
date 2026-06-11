@@ -148,8 +148,20 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
+      # tests/integration is currently EMPTY — pytest exits 5 ("no tests
+      # collected"), which is not a build failure. Tolerated with a warning
+      # until integration tests land (TECH-DEBT-REGISTRY 2026-06-11); any
+      # other non-zero exit still fails the job.
       - name: Run integration tests
-        run: poetry run pytest tests/integration -v --tb=short --junitxml=reports/integration-results.xml
+        run: |
+          set +e
+          poetry run pytest tests/integration -v --tb=short --junitxml=reports/integration-results.xml
+          code=$?
+          if [ "$code" = "5" ]; then
+            echo "::warning::tests/integration collected no tests — treating as pass until integration tests exist"
+            exit 0
+          fi
+          exit $code
         env:
           PRAXIS_REDIS_URL: redis://localhost:6380/1
           PRAXIS_DATABASE_URL: postgresql://postgres:postgres@localhost:5433/praxis_test
