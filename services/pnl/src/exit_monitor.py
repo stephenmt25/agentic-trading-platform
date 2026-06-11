@@ -3,17 +3,32 @@
 Supersedes the single-policy StopLossMonitor with a combined check that
 evaluates all three exit conditions on every price tick.
 
+The exit DECISION logic (threshold resolution + precedence/comparisons) lives
+in the shared ``libs/core/exit_policy.py`` so the live monitor and the
+backtest engines cannot drift (EN-W1 backtest truth-pass). This module owns
+what is live-only: the per-profile threshold cache, snapshot/tick plumbing,
+logging detail, and the close routing (reduce-only requester vs legacy
+DB-only closer).
+
 Thresholds are read from the profile's risk_limits JSONB, falling back to
 global defaults in settings.py.  All financial math uses Decimal.
 """
 
+import math
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
 from libs.config import settings
+from libs.core.exit_policy import (
+    EXIT_STOP_LOSS,
+    EXIT_TAKE_PROFIT,
+    EXIT_TIME,
+    ExitThresholds,
+    decide_exit,
+    thresholds_from_risk_limits,
+)
 from libs.core.models import Position
-from libs.core.schemas import RiskLimitsPayload
 from libs.observability import get_logger
 from libs.storage.repositories import ProfileRepository
 
@@ -21,24 +36,6 @@ from .calculator import PnLSnapshot
 from .closer import PositionCloser
 
 logger = get_logger("pnl.exit-monitor")
-
-_ZERO = Decimal("0")
-
-
-class _ProfileExitThresholds:
-    """Cached exit thresholds for a single profile."""
-
-    __slots__ = ("stop_loss_pct", "take_profit_pct", "max_holding_hours")
-
-    def __init__(
-        self,
-        stop_loss_pct: Decimal,
-        take_profit_pct: Decimal,
-        max_holding_hours: float,
-    ):
-        self.stop_loss_pct = stop_loss_pct
-        self.take_profit_pct = take_profit_pct
-        self.max_holding_hours = max_holding_hours
 
 
 class ExitMonitor:
@@ -62,51 +59,29 @@ class ExitMonitor:
         # execution OMS as a reduce-only order instead of the legacy DB-only
         # close. Optional so older call sites / tests keep working.
         self._close_requester = close_requester
-        self._cache: dict[str, _ProfileExitThresholds] = {}
+        self._cache: dict[str, ExitThresholds] = {}
 
     # ------------------------------------------------------------------
     # Threshold loading
     # ------------------------------------------------------------------
 
-    async def _get_thresholds(self, profile_id: str) -> _ProfileExitThresholds:
+    async def _get_thresholds(self, profile_id: str) -> ExitThresholds:
         if profile_id in self._cache:
             return self._cache[profile_id]
 
-        # Defaults from settings.py
-        stop_loss = Decimal(str(settings.DEFAULT_STOP_LOSS_PCT))
-        take_profit = Decimal(str(settings.DEFAULT_TAKE_PROFIT_PCT))
-        max_hours = settings.DEFAULT_MAX_HOLDING_HOURS
-
+        raw_limits = None
         try:
             profile = await self._profile_repo.get_profile(profile_id)
             if profile:
                 raw_limits = profile.get("risk_limits", "{}")
-                if isinstance(raw_limits, str):
-                    import json as _json
-
-                    raw_dict = _json.loads(raw_limits) if raw_limits else {}
-                    rl = RiskLimitsPayload.model_validate(raw_dict)
-                elif isinstance(raw_limits, dict):
-                    raw_dict = raw_limits
-                    rl = RiskLimitsPayload.model_validate(raw_limits)
-                else:
-                    raw_dict = {}
-                    rl = RiskLimitsPayload()
-
-                # Only override settings defaults for keys explicitly stored
-                # in the profile JSONB — Pydantic defaults must NOT override.
-                if "stop_loss_pct" in raw_dict and rl.stop_loss_pct is not None:
-                    stop_loss = Decimal(str(rl.stop_loss_pct))
-                if "take_profit_pct" in raw_dict and rl.take_profit_pct is not None:
-                    take_profit = Decimal(str(rl.take_profit_pct))
-                if "max_holding_hours" in raw_dict and rl.max_holding_hours is not None:
-                    max_hours = rl.max_holding_hours
         except Exception as e:
             logger.error(
                 "Failed to load exit thresholds", profile_id=profile_id, error=str(e)
             )
 
-        thresholds = _ProfileExitThresholds(stop_loss, take_profit, max_hours)
+        # Shared parsing/override semantics — see libs/core/exit_policy.py.
+        # Repo failure or malformed payload → settings defaults, as before.
+        thresholds = thresholds_from_risk_limits(raw_limits)
         self._cache[profile_id] = thresholds
         return thresholds
 
@@ -132,53 +107,40 @@ class ExitMonitor:
         """
         thresholds = await self._get_thresholds(str(position.profile_id))
 
-        # --- 1. Stop-loss (negative return exceeds threshold) ---
-        if snapshot.pct_return < _ZERO:
-            loss_pct = abs(snapshot.pct_return)
-            if loss_pct >= thresholds.stop_loss_pct:
-                return await self._close(
-                    position,
-                    current_price,
-                    taker_rate,
-                    reason="stop_loss",
-                    detail={
-                        "loss_pct": str(loss_pct),
-                        "threshold": str(thresholds.stop_loss_pct),
-                    },
-                )
+        # First pass: SL/TP only (age = -inf disables the time condition).
+        # The position age is computed lazily afterwards — preserves the live
+        # semantics where opened_at is only touched when SL/TP didn't fire.
+        age_hours = -math.inf
+        reason = decide_exit(snapshot.pct_return, age_hours, thresholds)
 
-        # --- 2. Take-profit (positive return exceeds threshold) ---
-        if snapshot.pct_return > _ZERO:
-            if snapshot.pct_return >= thresholds.take_profit_pct:
-                return await self._close(
-                    position,
-                    current_price,
-                    taker_rate,
-                    reason="take_profit",
-                    detail={
-                        "gain_pct": str(snapshot.pct_return),
-                        "threshold": str(thresholds.take_profit_pct),
-                    },
-                )
-
-        # --- 3. Time-based exit (position held too long) ---
-        if position.opened_at:
+        if reason is None and position.opened_at:
             age_hours = (
                 datetime.now(timezone.utc) - position.opened_at
             ).total_seconds() / 3600.0
-            if age_hours >= thresholds.max_holding_hours:
-                return await self._close(
-                    position,
-                    current_price,
-                    taker_rate,
-                    reason="time_exit",
-                    detail={
-                        "age_hours": f"{age_hours:.1f}",
-                        "threshold_hours": str(thresholds.max_holding_hours),
-                    },
-                )
+            reason = decide_exit(snapshot.pct_return, age_hours, thresholds)
 
-        return False, None
+        if reason is None:
+            return False, None
+
+        if reason == EXIT_STOP_LOSS:
+            detail = {
+                "loss_pct": str(abs(snapshot.pct_return)),
+                "threshold": str(thresholds.stop_loss_pct),
+            }
+        elif reason == EXIT_TAKE_PROFIT:
+            detail = {
+                "gain_pct": str(snapshot.pct_return),
+                "threshold": str(thresholds.take_profit_pct),
+            }
+        else:  # EXIT_TIME
+            detail = {
+                "age_hours": f"{age_hours:.1f}",
+                "threshold_hours": str(thresholds.max_holding_hours),
+            }
+
+        return await self._close(
+            position, current_price, taker_rate, reason=reason, detail=detail
+        )
 
     # ------------------------------------------------------------------
     # Internal close helper

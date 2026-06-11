@@ -12,8 +12,9 @@ from libs.core.schemas import (
     strategy_rules_to_canonical,
 )
 from libs.storage.repositories.backtest_repo import BacktestRepository
+from libs.storage.repositories.profile_repo import ProfileRepository
 
-from ..deps import get_backtest_repo, get_current_user, get_redis
+from ..deps import get_backtest_repo, get_current_user, get_profile_repo, get_redis
 
 router = APIRouter()
 
@@ -23,6 +24,7 @@ async def create_backtest(
     req: BacktestRequest,
     user_id: str = Depends(get_current_user),
     redis=Depends(get_redis),
+    profile_repo: ProfileRepository = Depends(get_profile_repo),
 ):
     """Submit a backtest job (authenticated, with queue depth limit)."""
     # Validate dates
@@ -33,6 +35,30 @@ async def create_backtest(
         raise HTTPException(
             status_code=400, detail="Invalid date format. Use ISO 8601."
         )
+
+    # EN-W1 exit fidelity: the sim applies the live SL/TP/time exit policy, so
+    # the job must carry the profile's risk_limits. Explicit risk_limits in
+    # the request win; otherwise resolve them from the profile.
+    #
+    # SECURITY: ownership is validated whenever profile_id is present —
+    # NOT only when risk_limits must be loaded. The result row is persisted
+    # under backtest_results.profile_id, and the decay tracker's
+    # latest_for_profile() baseline reads that column without created_by
+    # scoping; an unvalidated foreign profile_id would let one user poison
+    # another user's strategy-decay baseline (suppress/force AMBER alerts).
+    # The same check UUID-validates profile_id before it is stored as TEXT.
+    risk_limits = req.risk_limits
+    if req.profile_id:
+        try:
+            profile = await profile_repo.get_profile_for_user(req.profile_id, user_id)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid profile_id")
+        if not profile:
+            raise HTTPException(status_code=404, detail="Profile not found")
+        if risk_limits is None:
+            # JSONB may arrive as dict or JSON string — the worker's
+            # thresholds_from_risk_limits tolerates both; pass through as-is.
+            risk_limits = profile.get("risk_limits")
 
     # Backpressure: check queue depth before accepting
     queue_len = await redis.xlen("auto_backtest_queue")
@@ -54,6 +80,9 @@ async def create_backtest(
         # Stringify Decimal to preserve precision through JSON — the consumer
         # (services/backtesting/src/job_runner.py) parses it back via Decimal(str(...)).
         "slippage_pct": str(req.slippage_pct),
+        "profile_id": req.profile_id or "",
+        "risk_limits": risk_limits,
+        "walk_forward": req.walk_forward,
     }
 
     await redis.xadd("auto_backtest_queue", {"data": json.dumps(payload)})

@@ -348,6 +348,33 @@ class UserProfile(BaseModel):
 # API Gateway — Backtest Models
 # ---------------------------------------------------------------------------
 
+# Walk-forward compute budget — single source of truth, shared with the
+# worker-side parser (services/backtesting/src/walk_forward.py imports these).
+# Without an upper bound an authenticated user can request e.g. train_bars=1
+# over a year of 1m candles with a dense param_grid: ~n_bars windows x grid
+# combinations, each a full engine pass, on a SINGLE serial worker — queue
+# starvation. 500_000 bars ≈ one year of 1m candles.
+WALK_FORWARD_MAX_BARS = 500_000
+WALK_FORWARD_MAX_PARAM_COMBOS = 100
+
+
+def walk_forward_grid_combinations(param_grid: Optional[Dict[str, Any]]) -> int:
+    """Cartesian-product cardinality of a run_sweep-shaped param_grid.
+
+    Raises ValueError when a value is not a non-empty list — the same shape
+    run_sweep requires (itertools.product over the value lists).
+    """
+    if not param_grid:
+        return 1
+    combos = 1
+    for key, values in param_grid.items():
+        if not isinstance(values, list) or not values:
+            raise ValueError(
+                f"walk_forward param_grid['{key}'] must be a non-empty list"
+            )
+        combos *= len(values)
+    return combos
+
 
 class BacktestRequest(BaseModel):
     symbol: str = Field(..., example="BTC/USDT")
@@ -356,6 +383,54 @@ class BacktestRequest(BaseModel):
     end_date: str = Field(..., example="2025-06-01T00:00:00")
     timeframe: Literal["1m", "5m", "15m", "1h", "1d"] = Field(default="1m")
     slippage_pct: Percentage = Field(default=Decimal("0.001"), ge=0, le=Decimal("0.05"))
+    # EN-W1 exit fidelity: profile whose risk_limits drive the SL/TP/time-exit
+    # policy in the sim. When profile_id is set and risk_limits omitted, the
+    # gateway loads the profile's risk_limits before enqueueing.
+    profile_id: Optional[str] = Field(default=None)
+    # Explicit risk_limits override (RiskLimitsPayload shape: stop_loss_pct /
+    # take_profit_pct / max_holding_hours ...). None → exit-policy defaults.
+    risk_limits: Optional[Dict[str, Any]] = Field(default=None)
+    # EN-W1 walk-forward config: {train_bars, test_bars, step_bars?, param_grid?}.
+    walk_forward: Optional[Dict[str, Any]] = Field(default=None)
+
+    @model_validator(mode="after")
+    def _validate_optional_payloads(self):
+        if self.risk_limits is not None:
+            # Raises pydantic.ValidationError (→ 422) on garbage shapes;
+            # RiskLimitsPayload is defined later in this module, resolved at
+            # call time.
+            RiskLimitsPayload.model_validate(self.risk_limits)
+        if self.walk_forward is not None:
+            for key in ("train_bars", "test_bars"):
+                if not isinstance(self.walk_forward.get(key), int) or (
+                    self.walk_forward[key] <= 0
+                ):
+                    raise ValueError(
+                        f"walk_forward.{key} must be a positive integer"
+                    )
+            # Compute budget (DoS guard): reject unbounded window/sweep
+            # requests at the API edge (422); the worker-side parser
+            # re-enforces the same caps as defence in depth.
+            step = self.walk_forward.get("step_bars")
+            if step is not None and (not isinstance(step, int) or step <= 0):
+                raise ValueError("walk_forward.step_bars must be a positive integer")
+            for key in ("train_bars", "test_bars", "step_bars"):
+                val = self.walk_forward.get(key)
+                if isinstance(val, int) and val > WALK_FORWARD_MAX_BARS:
+                    raise ValueError(
+                        f"walk_forward.{key} exceeds the maximum of "
+                        f"{WALK_FORWARD_MAX_BARS} bars"
+                    )
+            grid = self.walk_forward.get("param_grid")
+            if grid is not None and not isinstance(grid, dict):
+                raise ValueError("walk_forward.param_grid must be a dict")
+            combos = walk_forward_grid_combinations(grid)
+            if combos > WALK_FORWARD_MAX_PARAM_COMBOS:
+                raise ValueError(
+                    f"walk_forward.param_grid expands to {combos} combinations; "
+                    f"maximum is {WALK_FORWARD_MAX_PARAM_COMBOS}"
+                )
+        return self
 
 
 class BacktestResponse(BaseModel):
@@ -775,13 +850,38 @@ class QuotaConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+class KillSwitchLogEntry(BaseModel):
+    """One entry of the kill-switch activity log (praxis:kill_switch:log).
+
+    Writers vary by era: KillSwitch.set_level writes `actor`, the legacy
+    activate/deactivate paths wrote `activated_by`/`deactivated_by` — all
+    three are declared explicitly so the response stays a WHITELIST.
+    Deliberately NO extra="allow": the threat model assumes Redis content can
+    be malformed/tampered, so unknown fields in the list entries must never
+    pass through to clients (CWE-200). `timestamp` is epoch seconds
+    (time.time()).
+    """
+
+    action: str = ""
+    reason: Optional[str] = None
+    actor: Optional[str] = None
+    activated_by: Optional[str] = None
+    deactivated_by: Optional[str] = None
+    timestamp: Optional[float] = None
+
+
 class KillSwitchStatusResponse(BaseModel):
     active: bool
     reason: Optional[str] = None
     activated_at: Optional[str] = None
     # PR3 tiered halt: NONE/STOP_OPENING/DE_RISK/NEUTRALIZE/FLATTEN. `active` stays
-    # True for STOP_OPENING and above for backward compatibility.
-    level: Optional[str] = None
+    # True for STOP_OPENING and above for backward compatibility. Defaulted (not
+    # Optional) — FastAPI response_model filtering must never strip the tier
+    # the FE-W1 graduated control reads (KillSwitch.status always returns it).
+    level: str = "NONE"
+    # Recent activity log (up to 10 entries) — KillSwitch.status returns it and
+    # the FE renders it; without this field response_model filtering dropped it.
+    recent_log: List[KillSwitchLogEntry] = Field(default_factory=list)
 
 
 class KillSwitchToggleResponse(BaseModel):

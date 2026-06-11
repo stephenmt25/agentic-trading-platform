@@ -5,9 +5,11 @@ simulator on basic cases, and parameter sweep works correctly.
 """
 
 import math
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from services.backtesting.src.simulator import (
+    CLOSE_END_OF_DATA,
     BacktestJob,
     BacktestResult,
     TradingSimulator,
@@ -397,3 +399,162 @@ class TestParameterSweep:
 
         # 3 x 2 = 6 combinations
         assert len(result.param_results) == 6
+
+
+# ---------------------------------------------------------------------------
+# EN-W1 — exit fidelity on the vectorized engine
+# ---------------------------------------------------------------------------
+
+_WIDE_LIMITS = {
+    "stop_loss_pct": 0.99,
+    "take_profit_pct": 99.0,
+    "max_holding_hours": 1e9,
+}
+
+_LIVE_LIKE_LIMITS = {
+    "stop_loss_pct": 0.02,
+    "take_profit_pct": 0.015,
+    "max_holding_hours": 10000,
+}
+
+
+def _oscillating_candles(n=300):
+    """Sine-driven closes that repeatedly push RSI below 35 (many signals)."""
+    candles = []
+    start = datetime(2025, 1, 1)
+    for i in range(n):
+        price = 100 + 10 * math.sin(i * 0.15)
+        candles.append(
+            {
+                "time": (start + timedelta(hours=i)).isoformat(),
+                "open": price - 0.3,
+                "high": price + 1.0,
+                "low": price - 1.0,
+                "close": price,
+                "volume": 1000.0,
+            }
+        )
+    return candles
+
+
+def _rsi_job(value=35, risk_limits=None, job_id="en-w1-vbt"):
+    return BacktestJob(
+        job_id=job_id,
+        symbol="BTC/USDT",
+        strategy_rules={
+            "conditions": [{"indicator": "rsi", "operator": "LT", "value": value}],
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
+        },
+        slippage_pct=Decimal("0.001"),
+        risk_limits=risk_limits,
+    )
+
+
+def _trade_sig(t):
+    return (
+        t.entry_time,
+        t.exit_time,
+        t.direction,
+        str(t.entry_price),
+        str(t.exit_price),
+        str(t.pnl_pct),
+        t.close_reason,
+    )
+
+
+class TestOpposingSignalCloseRemovedVectorbt:
+    def test_vectorbt_engine_ignores_in_position_signals(self):
+        """Repeat signals while in position must NOT close (the old engine
+        closed + re-opened); with unreachable thresholds exactly one trade
+        survives to the forced end-of-data close."""
+        candles = _oscillating_candles(300)
+        result = VectorBTRunner.run(_rsi_job(35, _WIDE_LIMITS), candles)
+        assert result.total_trades == 1
+        assert result.trades[0].close_reason == CLOSE_END_OF_DATA
+
+    def test_signal_rich_data_sanity(self):
+        candles = _oscillating_candles(300)
+        result = VectorBTRunner.run(_rsi_job(35, _LIVE_LIKE_LIMITS), candles)
+        assert result.total_trades > 1
+
+
+class TestLookAheadPrefixInvarianceVectorbt:
+    """B6 prefix invariance for the vectorized engine."""
+
+    PREFIX = 300
+
+    def _run(self, candles):
+        return VectorBTRunner.run(_rsi_job(35, _LIVE_LIKE_LIMITS), candles)
+
+    def test_vectorbt_engine_prefix_invariant(self):
+        candles = _oscillating_candles(450)
+        full = self._run(candles)
+        trunc = self._run(candles[: self.PREFIX])
+
+        prefix_times = {c["time"] for c in candles[: self.PREFIX]}
+        trunc_core = [t for t in trunc.trades if t.close_reason != CLOSE_END_OF_DATA]
+        full_core = [
+            t
+            for t in full.trades
+            if t.close_reason != CLOSE_END_OF_DATA and t.exit_time in prefix_times
+        ]
+        assert len(trunc_core) > 0, "test needs closed trades inside the prefix"
+        assert [_trade_sig(t) for t in trunc_core] == [
+            _trade_sig(t) for t in full_core
+        ]
+
+        eod = [t for t in trunc.trades if t.close_reason == CLOSE_END_OF_DATA]
+        if eod:
+            assert eod[0].entry_time in {t.entry_time for t in full.trades}
+
+
+class TestCrossEngineExitConsistency:
+    """B10 #9: same data + same risk_limits → both engines close at the same
+    bars with the same reasons and Decimal-identical prices."""
+
+    def _dip_recover_candles(self):
+        """Rising warm-up (no signal until both engines are past indicator
+        priming), then two dip/recover cycles → two deterministic entries."""
+        closes = [100.0 + 0.1 * i for i in range(50)]
+        p = closes[-1]
+        for _ in range(2):
+            for _ in range(6):
+                p *= 0.99
+                closes.append(p)
+            for _ in range(50):
+                p *= 1.005
+                closes.append(p)
+        start = datetime(2025, 3, 1)
+        return [
+            {
+                "time": (start + timedelta(hours=i)).isoformat(),
+                "open": c,
+                "high": c * 1.001,
+                "low": c * 0.999,
+                "close": c,
+                "volume": 500.0,
+            }
+            for i, c in enumerate(closes)
+        ]
+
+    def test_same_close_reasons_at_same_bars(self):
+        candles = self._dip_recover_candles()
+        job = _rsi_job(35, _LIVE_LIKE_LIMITS, job_id="xengine")
+
+        seq = TradingSimulator.run(job, candles)
+        vec = VectorBTRunner.run(job, candles)
+
+        assert seq.total_trades > 0
+        assert [_trade_sig(t) for t in seq.trades] == [
+            _trade_sig(t) for t in vec.trades
+        ]
+        # Both engines surface a real exit-policy reason (not signal-close).
+        for t in seq.trades:
+            assert t.close_reason in (
+                "stop_loss",
+                "take_profit",
+                "time_exit",
+                CLOSE_END_OF_DATA,
+            )

@@ -8,9 +8,11 @@ Same BacktestJob input / BacktestResult output interface.
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import numpy as np
+
+from libs.core.exit_policy import decide_exit, thresholds_from_risk_limits
 
 from libs.indicators import (
     ADXCalculator,
@@ -30,13 +32,19 @@ from libs.indicators import (
 from services.strategy.src.compiler import RuleCompiler
 
 from .simulator import (
+    CLOSE_END_OF_DATA,
     BacktestJob,
     BacktestResult,
     SimulatedTrade,
+    bar_age_hours,
+    compute_trade_metrics,
+    parse_bar_time,
     parse_preferred_regimes,
 )
 
 _D = Decimal
+_ZERO = _D("0")
+_ONE = _D("1")
 
 
 def _compute_indicators(
@@ -217,11 +225,11 @@ class VectorBTRunner:
             return BacktestResult(
                 job_id=job.job_id,
                 total_trades=0,
-                win_rate=0.0,
-                avg_return=0.0,
-                max_drawdown=0.0,
-                sharpe=0.0,
-                profit_factor=0.0,
+                win_rate=_ZERO,
+                avg_return=_ZERO,
+                max_drawdown=_ZERO,
+                sharpe=_ZERO,
+                profit_factor=_ZERO,
             )
 
         # Extract OHLCV arrays
@@ -230,8 +238,8 @@ class VectorBTRunner:
         highs = np.array([float(c["high"]) for c in data])  # float-ok: numpy interop
         lows = np.array([float(c["low"]) for c in data])  # float-ok: numpy interop
         volumes = np.array(
-            [float(c.get("volume", 0)) for c in data]
-        )  # float-ok: numpy interop
+            [float(c.get("volume", 0)) for c in data]  # float-ok: numpy interop
+        )
         times = [str(c.get("time", "")) for c in data]
 
         # Compute indicators
@@ -260,67 +268,100 @@ class VectorBTRunner:
                 a = atr_arr[i]
                 if math.isnan(a):
                     continue
-                reg = regime_clf.update(float(closes[i]), float(a))
+                reg = regime_clf.update(float(closes[i]), float(a))  # float-ok: indicator library requires float
                 if reg is not None and reg not in preferred_regimes:
                     signals[i] = False
 
         direction = compiled.direction.value  # "BUY" or "SELL"
-        slippage_f = float(
-            job.slippage_pct
-        )  # float-ok: numpy vectorized engine requires float
 
-        # Simulate trades from signal array
+        # EN-W1 exit fidelity: identical shared exit policy as the live
+        # ExitMonitor and the sequential simulator. Thresholds resolved once
+        # per run from the job's risk_limits (None → settings defaults).
+        thresholds = thresholds_from_risk_limits(job.risk_limits)
+        bar_dts = [parse_bar_time(c.get("time")) for c in data]
+
+        # Simulate trades from the signal array. Trade mechanics (prices,
+        # slippage, PnL, equity) are Decimal-exact — same as the sequential
+        # engine; numpy/float stays confined to indicators and signals.
         trades: List[SimulatedTrade] = []
-        equity = 1.0
-        equity_curve = []
-        peak_equity = 1.0
-        max_drawdown = 0.0
+        equity = _ONE
+        equity_curve: List[Decimal] = []
+        peak_equity = _ONE
+        max_drawdown = _ZERO
         in_position = False
         entry_idx = 0
+        entry_price: Optional[Decimal] = None
+        entry_slip = _ZERO
 
         for i in range(n):
-            if signals[i] and not in_position:
-                # Open position
-                entry_idx = i
-                in_position = True
-            elif signals[i] and in_position:
-                # Close + re-open on signal while in position
-                slip = closes[i] * slippage_f
-                entry_price = closes[entry_idx] + (
-                    slip if direction == "BUY" else -slip
-                )
-                exit_price = closes[i] - (slip if direction == "BUY" else -slip)
+            close_d = _D(str(closes[i]))
 
+            # ------------------------------------------------------------
+            # Exit check while in position — BEFORE any entry evaluation.
+            # Same close-only price basis as the sequential engine: the bar
+            # close is the honest bar-granularity analog of live's
+            # last-trade-price tick basis. High/low are deliberately NOT
+            # used for SL/TP fills (intrabar ordering of SL vs TP is
+            # unknowable from OHLC). Signals while in position are IGNORED
+            # — the live engine never closes a position on a signal.
+            # ------------------------------------------------------------
+            if in_position:
                 if direction == "BUY":
-                    pnl_pct = (exit_price - entry_price) / entry_price
+                    pct_return = (close_d - entry_price) / entry_price
                 else:
-                    pnl_pct = (entry_price - exit_price) / entry_price
-
-                trades.append(
-                    SimulatedTrade(
-                        entry_time=times[entry_idx],
-                        exit_time=times[i],
-                        direction=direction,
-                        entry_price=entry_price,
-                        exit_price=exit_price,
-                        slippage_cost=slip * 2,
-                        pnl_pct=pnl_pct,
+                    pct_return = (entry_price - close_d) / entry_price
+                age_hours = bar_age_hours(bar_dts[entry_idx], bar_dts[i])
+                reason = decide_exit(pct_return, age_hours, thresholds)
+                if reason is not None:
+                    slip = close_d * job.slippage_pct
+                    exit_price = (
+                        close_d - slip if direction == "BUY" else close_d + slip
                     )
+                    if direction == "BUY":
+                        pnl_pct = (exit_price - entry_price) / entry_price
+                    else:
+                        pnl_pct = (entry_price - exit_price) / entry_price
+                    trades.append(
+                        SimulatedTrade(
+                            entry_time=times[entry_idx],
+                            exit_time=times[i],
+                            direction=direction,
+                            entry_price=entry_price,
+                            exit_price=exit_price,
+                            # Entry-side slippage in quote terms — matches the
+                            # sequential engine; exit slippage is embedded in
+                            # exit_price (the old slip*2 double-count belonged
+                            # to the removed close+re-open semantics).
+                            slippage_cost=entry_slip,
+                            pnl_pct=pnl_pct,
+                            close_reason=reason,
+                        )
+                    )
+                    equity *= _ONE + pnl_pct
+                    in_position = False
+                    entry_price = None
+
+            # Open on signal — only when flat (same-bar re-entry after an
+            # exit is allowed, mirroring the sequential engine).
+            if signals[i] and not in_position:
+                entry_idx = i
+                entry_slip = close_d * job.slippage_pct
+                entry_price = (
+                    close_d + entry_slip if direction == "BUY" else close_d - entry_slip
                 )
-                equity *= 1 + pnl_pct
-                entry_idx = i  # Re-open
+                in_position = True
 
             equity_curve.append(equity)
             peak_equity = max(peak_equity, equity)
-            dd = (peak_equity - equity) / peak_equity if peak_equity > 0 else 0.0
+            dd = (peak_equity - equity) / peak_equity if peak_equity > 0 else _ZERO
             max_drawdown = max(max_drawdown, dd)
 
-        # Close remaining position
+        # Close remaining position (sim artefact — tagged distinctly).
         if in_position:
             i = n - 1
-            slip = closes[i] * slippage_f
-            entry_price = closes[entry_idx] + (slip if direction == "BUY" else -slip)
-            exit_price = closes[i] - (slip if direction == "BUY" else -slip)
+            close_d = _D(str(closes[i]))
+            slip = close_d * job.slippage_pct
+            exit_price = close_d - slip if direction == "BUY" else close_d + slip
 
             if direction == "BUY":
                 pnl_pct = (exit_price - entry_price) / entry_price
@@ -334,67 +375,31 @@ class VectorBTRunner:
                     direction=direction,
                     entry_price=entry_price,
                     exit_price=exit_price,
-                    slippage_cost=slip * 2,
+                    slippage_cost=entry_slip,
                     pnl_pct=pnl_pct,
+                    close_reason=CLOSE_END_OF_DATA,
                 )
             )
-            equity *= 1 + pnl_pct
+            equity *= _ONE + pnl_pct
             equity_curve.append(equity)
+            peak_equity = max(peak_equity, equity)
+            dd = (peak_equity - equity) / peak_equity if peak_equity > 0 else _ZERO
+            max_drawdown = max(max_drawdown, dd)
 
-        # Aggregate metrics — compute in float (numpy context), convert to Decimal at output
-        total_trades = len(trades)
-        wins = [t for t in trades if t.pnl_pct > 0]
-        losses = [t for t in trades if t.pnl_pct <= 0]
-        win_rate = len(wins) / total_trades if total_trades > 0 else 0.0
-        avg_return = (
-            sum(t.pnl_pct for t in trades) / total_trades if total_trades > 0 else 0.0
-        )
-
-        returns = [t.pnl_pct for t in trades]
-        if len(returns) >= 2:
-            mean_r = sum(returns) / len(returns)
-            std_r = math.sqrt(
-                sum((r - mean_r) ** 2 for r in returns) / (len(returns) - 1)
-            )
-            sharpe = (mean_r / std_r) * math.sqrt(252) if std_r > 0 else 0.0
-        else:
-            sharpe = 0.0
-
-        gross_profit = sum(t.pnl_pct for t in wins)
-        gross_loss = abs(sum(t.pnl_pct for t in losses))
-        profit_factor = (
-            gross_profit / gross_loss
-            if gross_loss > 0
-            else float("inf") if gross_profit > 0 else 0.0
-        )
+        # Aggregate metrics — shared Decimal helper (same formulas as the
+        # sequential engine; do not duplicate).
+        metrics = compute_trade_metrics(trades)
 
         return BacktestResult(
             job_id=job.job_id,
-            total_trades=total_trades,
-            win_rate=_D(str(win_rate)),
-            avg_return=_D(str(avg_return)),
-            max_drawdown=_D(str(max_drawdown)),
-            sharpe=_D(str(sharpe)),
-            profit_factor=(
-                _D(str(profit_factor))
-                if math.isfinite(profit_factor)
-                else _D("Infinity")
-            ),
-            equity_curve=[_D(str(e)) for e in equity_curve],
-            trades=[
-                SimulatedTrade(
-                    entry_time=t.entry_time,
-                    exit_time=t.exit_time,
-                    direction=t.direction,
-                    entry_price=_D(str(t.entry_price)),
-                    exit_price=(
-                        _D(str(t.exit_price)) if t.exit_price is not None else None
-                    ),
-                    slippage_cost=_D(str(t.slippage_cost)),
-                    pnl_pct=_D(str(t.pnl_pct)),
-                )
-                for t in trades
-            ],
+            total_trades=len(trades),
+            win_rate=metrics["win_rate"],
+            avg_return=metrics["avg_return"],
+            max_drawdown=max_drawdown,
+            sharpe=metrics["sharpe"],
+            profit_factor=metrics["profit_factor"],
+            equity_curve=equity_curve,
+            trades=trades,
         )
 
 
@@ -413,11 +418,14 @@ def run_sweep(
     param_grid: Dict[str, List[Any]],
     data: List[Dict[str, Any]],
     slippage_pct: Decimal = Decimal("0.001"),
+    risk_limits: Optional[Dict[str, Any]] = None,
 ) -> SweepResult:
     """Run a parameter grid sweep using the vectorized engine.
 
     param_grid maps condition index + field to values, e.g.:
     {"0.value": [25, 30, 35]} sweeps the first condition's threshold.
+    risk_limits (profile JSONB shape) applies the same exit policy to every
+    combination — None → settings defaults.
     """
     import itertools
     import uuid
@@ -440,6 +448,7 @@ def run_sweep(
             symbol=symbol,
             strategy_rules=rules,
             slippage_pct=slippage_pct,
+            risk_limits=risk_limits,
         )
         result = VectorBTRunner.run(job, data)
         results.append(

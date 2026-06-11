@@ -39,6 +39,11 @@ FLOAT_GUARD_DIRS = (
     "services/pnl/",
     "services/risk/",
     "services/strategy/",
+    # EN-W1: the shared exit policy is live financial decision logic; the
+    # backtest engines must stay Decimal-exact on trade mechanics too (their
+    # indicator/numpy float use carries explicit '# float-ok' markers).
+    "libs/core/exit_policy.py",
+    "services/backtesting/",
 )
 FLOAT_OK_MARKER = "# float-ok"
 CHANNEL_TOKEN_RE = re.compile(r"(?:stream:|pubsub:)[a-z_]+")
