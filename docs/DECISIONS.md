@@ -392,3 +392,94 @@ groups legs; positions carry a horizon partition key; all money columns
 ### Approved by
 
 Architect (partner) — locked recommendation #5, NEXT-SESSION-PLAN-2026-06-10 §2.
+
+## 2026-06-11 — EN-W1 backtest exit semantics: shared exit policy, bar-close-only fills, walk-forward OOS baseline
+
+### Context
+
+Registry row 43 + locked decision #4 (backtest truth-pass, mandatory Phase-6
+blocker): the backtester closed only on opposing signals while live closes only
+on SL/TP/time. EN-W1 makes the sim honest; the *how* involves judgment calls
+recorded here.
+
+### Decision
+
+- **Single source of truth**: exit decision logic lives in
+  `libs/core/exit_policy.py`, consumed by BOTH the live `ExitMonitor` and both
+  backtest engines. Copying it anywhere else is a defect.
+- **Bar-close-only fills, no intrabar SL/TP**: sim exits evaluate the shared
+  policy at the bar close only; high/low are NOT used for SL/TP fills because
+  the intrabar ordering of SL vs TP inside one OHLC bar is unknowable — any
+  intrabar model would fabricate fills. Consequence: sim SL/TP fire up to one
+  bar later than a tick-level live fill — conservative, no look-ahead
+  (prefix-invariance tested).
+- **Basis difference (documented, deliberate)**: live `pct_return` is
+  net-post-tax (PnLCalculator); sim `pct_return` is the directional move off
+  the slipped entry price, gross of exit costs. The decision *logic* is shared;
+  the basis difference is documented in the lib docstring.
+- **Opposing-signal closes removed** from both engines; entries only open when
+  flat.
+- **Walk-forward baseline**: a walk-forward run persists its OOS aggregate
+  (trades entered in test segments only) as the parent `backtest_results` row —
+  the DecayTracker baseline becomes out-of-sample by construction. Per-window
+  detail lives on the Redis status payload. **Convergence checks (PR7) must
+  filter `close_reason="end_of_data"`** — each window contributes one synthetic
+  boundary close that cannot occur live.
+- **Compute budget**: walk-forward bars/param-grid capped at the API edge and
+  the worker (max 200 windows / 1,000 engine runs / 600s per job) — a single
+  authenticated job must not starve the serial backtest worker.
+
+### Trade-off
+
+Bar-close fills understate intrabar SL hits (a position that breached SL
+intrabar but recovered by the close survives in sim). The alternative —
+modeling intrabar fills off high/low — fabricates an ordering the data cannot
+support, which is worse for a truth-pass. Accepted; tick-level sim is future
+work if decay tracking shows material divergence.
+
+### Approved by
+
+Executes locked decision #4 (architect-approved 2026-06-10); implementation
+judgment calls by Claude Code, flagged here for architect review.
+
+## 2026-06-11 — Kill-switch operator authorization + FE tier severity mapping
+
+### Context
+
+FE-W1 exposed all four halt verbs in the UI (locked decision #6). The security
+review found POST /commands/kill-switch had authentication but no
+*authorization*: any authenticated account could FLATTEN all positions
+(cross-user destructive) or silently resume a halt someone else set.
+
+### Decision
+
+- **Operator allowlist**: `PRAXIS_KILL_SWITCH_OPERATORS` (comma-separated
+  user_ids). NEUTRALIZE / FLATTEN (position-destructive) and clearing a halt
+  (NONE, incl. legacy `active=false`) require operator membership → 403
+  otherwise. STOP_OPENING / DE_RISK stay open to any authenticated user —
+  anyone may pull the brake; only operators may floor or release it.
+- **Unconfigured = single-operator mode**: with no allowlist set, all
+  authenticated users are operators. Rationale: an un-clearable halt control on
+  the current single-user deployment is worse than a tierless one. MUST be
+  configured before any multi-user deployment.
+- **Operator-only detail**: the kill-switch activity log (actor user_ids +
+  free-text reasons) and the /risk/portfolio per-symbol/per-cluster breakdown
+  are operator-only when an allowlist is configured (`detail_restricted` flag);
+  aggregate exposure stays visible to all.
+- **FE severity mapping**: body danger overlay (`data-kill-switch="hard"`) and
+  danger pill tone fire at NEUTRALIZE+ — matching the backend CRITICAL-log
+  threshold in `KillSwitch.set_level`; STOP_OPENING/DE_RISK are warn-tier. The
+  FLATTEN UI gate states the locked auto-FLATTEN policy verbatim and requires
+  typed confirmation; manual FLATTEN via UI = explicit human authorization per
+  decision #2.
+
+### Trade-off
+
+The allowlist is deployment config, not a real role system — fine at current
+scale, revisit with multi-user auth (CODEOWNERS/branch-protection partner input
+already covers the org side).
+
+### Approved by
+
+Claude Code (handler), executing decisions #2/#6; security posture flagged for
+architect sign-off with this session's brief.
