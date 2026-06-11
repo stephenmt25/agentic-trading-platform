@@ -7,6 +7,7 @@ import { AuthProvider } from "@/components/providers/AuthProvider";
 import { AppShell } from "@/components/providers/AppShell";
 import { ErrorBoundary } from "@/components/providers/ErrorBoundary";
 import { ModeProvider } from "@/components/providers/ModeProvider";
+import { QueryProvider } from "@/components/providers/QueryProvider";
 
 const ibmPlexSans = IBM_Plex_Sans({ weight: ["400", "500", "600", "700"], subsets: ['latin'], variable: '--font-sans' });
 const ibmPlexMono = IBM_Plex_Mono({ weight: ["400", "500", "600"], subsets: ['latin'], variable: '--font-mono' });
@@ -31,13 +32,15 @@ export default function RootLayout({
     <html lang="en" data-mode="hot" className={cn("dark", ibmPlexSans.variable, ibmPlexMono.variable)}>
       <body className={`${ibmPlexSans.className} bg-background text-foreground min-h-screen selection:bg-primary/20`}>
         <ErrorBoundary>
-          <AuthProvider>
-            <AppShell>
-              <ModeProvider>
-                {children}
-              </ModeProvider>
-            </AppShell>
-          </AuthProvider>
+          <QueryProvider>
+            <AuthProvider>
+              <AppShell>
+                <ModeProvider>
+                  {children}
+                </ModeProvider>
+              </AppShell>
+            </AuthProvider>
+          </QueryProvider>
         </ErrorBoundary>
         <Toaster />
       </body>

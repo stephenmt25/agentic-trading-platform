@@ -1,11 +1,14 @@
 /**
  * Typed API client for the Agentic Trading Platform backend.
  *
- * Auto-attaches the NextAuth.js session JWT as an Authorization header.
- * Redirects to /login on 401 responses.
+ * Auto-attaches the backend JWT as an Authorization header — read
+ * synchronously from authStore, with a memoized /api/auth/session fallback
+ * for cold start and 401 recovery. Never redirects on 401 (AppShell owns
+ * session-based redirects).
  */
 
 import { z } from "zod";
+import { useAuthStore } from "../stores/authStore";
 import { useConnectionStore } from "../stores/connectionStore";
 
 // REST calls: on Vercel, use the same-origin rewrite proxy (/api/backend) to
@@ -30,16 +33,61 @@ interface ApiClientOptions extends Omit<RequestInit, "body"> {
   body?: unknown;
 }
 
+// ---- Session token (FE-W0 token cache) ----
+//
+// Hot path: read the backend JWT synchronously from authStore (written by
+// AuthProvider's SessionSync — the same store the WS client reads at
+// ws/client.ts). The fetch('/api/auth/session') survives in two roles only:
+//
+//   1. Cold-start fallback — on the first authenticated commit, page
+//      effects run BEFORE SessionSync's effect (child effects run before
+//      ancestor effects), so the store can still be empty. Memoized for 30s
+//      so a burst of first-paint requests costs at most one fetch.
+//   2. 401 recovery — backend tokens live ~1h and NextAuth re-mints them
+//      server-side inside the session endpoint's jwt callback. The old
+//      per-request fetch serviced rotation implicitly; with the cache, a
+//      stale JWT is recovered by forcing one refetch and retrying once.
+
+const FALLBACK_TOKEN_TTL_MS = 30_000;
+let fallbackToken: { value: string | null; fetchedAt: number } | null = null;
+// A store JWT the backend has rejected (set by the 401 recovery path).
+// Skipped until SessionSync writes a different value, so we don't pay a
+// 401 round-trip on every request of a long-idle tab.
+let staleStoreJwt: string | null = null;
+let inflightSessionFetch: Promise<string | null> | null = null;
+
+function fetchSessionToken(): Promise<string | null> {
+  if (inflightSessionFetch) return inflightSessionFetch;
+  inflightSessionFetch = (async () => {
+    try {
+      const res = await fetch("/api/auth/session");
+      const session = await res.json();
+      const token: string | null = session?.accessToken || null;
+      fallbackToken = { value: token, fetchedAt: Date.now() };
+      return token;
+    } catch {
+      return null;
+    } finally {
+      inflightSessionFetch = null;
+    }
+  })();
+  return inflightSessionFetch;
+}
+
 async function getSessionToken(): Promise<string | null> {
   if (typeof window === "undefined") return null;
 
-  try {
-    const res = await fetch("/api/auth/session");
-    const session = await res.json();
-    return session?.accessToken || null;
-  } catch {
-    return null;
+  // Fast path: JWT already in memory — zero network.
+  const jwt = useAuthStore.getState().jwt;
+  if (jwt && jwt !== staleStoreJwt) return jwt;
+
+  if (
+    fallbackToken &&
+    Date.now() - fallbackToken.fetchedAt < FALLBACK_TOKEN_TTL_MS
+  ) {
+    return fallbackToken.value;
   }
+  return fetchSessionToken();
 }
 
 async function apiRequest<T>(
@@ -48,34 +96,48 @@ async function apiRequest<T>(
 ): Promise<T> {
   const { body, headers: customHeaders, ...rest } = options;
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(customHeaders as Record<string, string>),
-  };
-
-  const token = await getSessionToken();
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
-  const config: RequestInit = {
-    ...rest,
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-  };
-
   // FastAPI expects trailing slashes — without them it returns a 307 redirect
   // whose response lacks CORS headers, causing browser fetch to fail.
   const normalizedEndpoint =
     endpoint.endsWith("/") || endpoint.includes("?") ? endpoint : `${endpoint}/`;
 
-  let response: Response;
-  try {
-    response = await fetch(`${API_BASE_URL}${normalizedEndpoint}`, config);
-  } catch {
-    // Network error — backend unreachable (no response at all)
-    useConnectionStore.getState().recordFailure();
-    throw new BackendUnreachableError();
+  const doFetch = async (token: string | null): Promise<Response> => {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      ...(customHeaders as Record<string, string>),
+    };
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+    try {
+      return await fetch(`${API_BASE_URL}${normalizedEndpoint}`, {
+        ...rest,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch {
+      // Network error — backend unreachable (no response at all)
+      useConnectionStore.getState().recordFailure();
+      throw new BackendUnreachableError();
+    }
+  };
+
+  const token = await getSessionToken();
+  let response = await doFetch(token);
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    // The cached JWT may have expired. Refetching the NextAuth session
+    // re-mints the backend token server-side; retry exactly once with the
+    // fresh value. authStore stays single-writer (SessionSync) — the stale
+    // value is only blacklisted locally.
+    fallbackToken = null;
+    const fresh = await fetchSessionToken();
+    if (fresh && fresh !== token) {
+      if (token && token === useAuthStore.getState().jwt) {
+        staleStoreJwt = token;
+      }
+      response = await doFetch(fresh);
+    }
   }
 
   // Got a response — backend is reachable

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { WifiOff, FlaskConical, X } from "lucide-react";
 import { LeftRail } from "./LeftRail";
 import { ChromeBar } from "./ChromeBar";
 import { CommandPalette } from "./CommandPalette";
 import { KillSwitchModal } from "./KillSwitchModal";
+import { PageLoading } from "./PageLoading";
 import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
 
@@ -123,7 +124,10 @@ export function RedesignShell({ children }: { children: React.ReactNode }) {
         </AnimatePresence>
 
         <main className="flex-1 relative overflow-y-auto w-full h-full">
-          {children}
+          {/* Root streaming boundary (FE-W0): route content suspends here
+              (lazy chunks, future loading.tsx/server reads) while the chrome
+              above stays interactive. */}
+          <Suspense fallback={<PageLoading />}>{children}</Suspense>
         </main>
       </div>
 

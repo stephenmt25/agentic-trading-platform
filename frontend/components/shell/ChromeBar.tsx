@@ -147,6 +147,7 @@ export function ChromeBar() {
               <div className="py-1">
                 <Link
                   href="/settings"
+                  prefetch={true}
                   onClick={() => setShowUserMenu(false)}
                   role="menuitem"
                   className="flex items-center gap-2.5 px-3 py-2 text-sm text-fg-secondary hover:bg-bg-raised hover:text-fg"

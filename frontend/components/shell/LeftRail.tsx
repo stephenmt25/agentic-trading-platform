@@ -64,6 +64,7 @@ export function LeftRail() {
             <Link
               key={href}
               href={href}
+              prefetch={true}
               aria-label={label}
               aria-current={active ? "page" : undefined}
               title={label}

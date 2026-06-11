@@ -20,7 +20,21 @@ class WebSocketClient {
     private pingInterval: ReturnType<typeof setInterval> | null = null;
 
     connect() {
-        if (this.socket?.readyState === WebSocket.OPEN) return;
+        // Guard CONNECTING too — a second connect() during the handshake
+        // would orphan the first socket, whose onclose then schedules a
+        // reconnect and leaves two live sockets.
+        if (
+            this.socket &&
+            (this.socket.readyState === WebSocket.OPEN ||
+                this.socket.readyState === WebSocket.CONNECTING)
+        ) {
+            return;
+        }
+        // A deliberate connect supersedes any pending backoff reconnect.
+        if (this.reconnectTimer) {
+            clearTimeout(this.reconnectTimer);
+            this.reconnectTimer = null;
+        }
 
         const token = useAuthStore.getState().jwt;
         if (!token) return;
