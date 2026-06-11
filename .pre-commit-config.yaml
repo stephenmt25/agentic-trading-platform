@@ -1,5 +1,5 @@
-# Pre-commit hooks — mirror the CI lint gates (.github/workflows/ci.yml `lint` job)
-# so style/type failures are caught locally before commit, not in CI.
+# Pre-commit hooks — mirror the CI blocking gates (.github/workflows/ci.yml
+# `lint` + `guards` jobs) so failures are caught locally before commit, not in CI.
 #
 #   Install once:   pip install pre-commit && pre-commit install
 #   Run on all:     pre-commit run --all-files
@@ -39,6 +39,19 @@ repos:
     rev: v0.2.2
     hooks:
       - id: ruff
+
+  # --- domain guards (mirrors the CI `guards` job exactly) ---
+  # Float gate (no float( in services/{execution,pnl,risk,strategy} without
+  # '# float-ok') + Redis channel contract (stream:/pubsub: literals must be
+  # declared in libs/messaging/channels.py). AST-based, stdlib only, fast.
+  - repo: local
+    hooks:
+      - id: praxis-guards
+        name: float() / Redis-channel guards (mirrors CI guards job)
+        entry: python scripts/ci/guards.py
+        language: system
+        pass_filenames: false
+        always_run: true
 
   # NOTE: mypy is intentionally NOT a pre-commit hook. It is ADVISORY (non-blocking)
   # in CI during the typing-cleanup transition (see .github/workflows/ci.yml and

@@ -139,7 +139,7 @@ class CompiledRuleSet:
                     ConditionTrace(
                         indicator=cond["indicator"],
                         operator=cond["operator"],
-                        threshold=float(cond["value"]),
+                        threshold=float(cond["value"]),  # float-ok: trace diagnostic
                         actual_value=0.0,
                         passed=False,
                     )
@@ -164,8 +164,8 @@ class CompiledRuleSet:
                 ConditionTrace(
                     indicator=cond["indicator"],
                     operator=op,
-                    threshold=float(val),
-                    actual_value=float(ind_val),
+                    threshold=float(val),  # float-ok: trace diagnostic
+                    actual_value=float(ind_val),  # float-ok: trace diagnostic
                     passed=res,
                 )
             )
@@ -307,7 +307,9 @@ class RuleCompiler:
             return CompiledRuleSet(
                 logic=rules_json["logic"],
                 direction=SignalDirection(rules_json["direction"]),
-                base_confidence=float(rules_json["base_confidence"]),
+                base_confidence=float(
+                    rules_json["base_confidence"]
+                ),  # float-ok: dimensionless confidence score
                 conditions=rules_json["conditions"],
                 long_leg=long_leg if long_leg is not None else None,
                 short_leg=short_leg if short_leg is not None else None,
