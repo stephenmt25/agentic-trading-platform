@@ -15,7 +15,9 @@ _SNAPSHOT_THRESHOLD = Decimal("0.005")
 class _DecimalEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, Decimal):
-            return float(o)
+            return float(
+                o
+            )  # float-ok: JSON wire for dashboard display; ledger stays Decimal (TECH-DEBT 2026-06-11)
         if hasattr(o, "hex"):  # UUID
             return str(o)
         return super().default(o)

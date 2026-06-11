@@ -169,7 +169,7 @@ class BalanceReconciler:
                             datetime.now(timezone.utc).timestamp() * 1_000_000
                         ),
                         source_service="reconciler",
-                        message=f"Reconciliation drift {float(max_drift)*100:.2f}% for {profile_id}",
+                        message=f"Reconciliation drift {float(max_drift)*100:.2f}% for {profile_id}",  # float-ok: alert display only
                         level="RED",
                         profile_id=profile_id,
                     )
@@ -178,7 +178,7 @@ class BalanceReconciler:
                 logger.info(
                     "Reconciliation passed",
                     profile_id=profile_id,
-                    max_drift=float(max_drift),
+                    max_drift=float(max_drift),  # float-ok: log field display
                 )
         finally:
             await adapter.close()

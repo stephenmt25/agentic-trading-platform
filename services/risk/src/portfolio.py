@@ -55,7 +55,9 @@ class PortfolioRiskAggregator:
             return PortfolioExposure.from_json(None)
 
     async def run_loop(self, interval: float = None):
-        interval = interval or float(settings.PORTFOLIO_AGGREGATOR_INTERVAL_S)
+        interval = interval or float(
+            settings.PORTFOLIO_AGGREGATOR_INTERVAL_S
+        )  # float-ok: time interval
         logger.info("PortfolioRiskAggregator loop starting", interval_s=interval)
         while True:
             try:

@@ -47,6 +47,26 @@ jobs:
         continue-on-error: true
 
   # ------------------------------------------------------------------
+  # Domain guards: financial-precision float gate + Redis channel contract.
+  # Repo-wide blocking mirror of .claude/hooks/edit-validator.sh — a PR that
+  # adds float( in services/{execution,pnl,risk,strategy} without a
+  # '# float-ok: <reason>' marker, or invents a stream:/pubsub: channel not
+  # declared in libs/messaging/channels.py, fails here. Stdlib only.
+  # ------------------------------------------------------------------
+  guards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Run float + channel guards
+        run: python scripts/ci/guards.py
+
+  # ------------------------------------------------------------------
   # Unit tests
   # ------------------------------------------------------------------
   test-unit:

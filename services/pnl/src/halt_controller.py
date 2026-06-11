@@ -57,7 +57,9 @@ class HaltController:
         self._profile_repo = profile_repo
         self._pubsub = pubsub
         self._authority = authority or FlattenAuthority(
-            dwell_seconds=float(settings.AUTO_FLATTEN_DWELL_S)
+            dwell_seconds=float(
+                settings.AUTO_FLATTEN_DWELL_S
+            )  # float-ok: time interval, not money
         )
 
     async def run(self):
@@ -71,7 +73,9 @@ class HaltController:
                 raise
             except Exception:
                 logger.exception("halt_controller tick failed")
-            await asyncio.sleep(float(settings.HALT_CONTROLLER_INTERVAL_S))
+            await asyncio.sleep(
+                float(settings.HALT_CONTROLLER_INTERVAL_S)  # float-ok: time interval
+            )
 
     async def tick(self, now: float):
         """One control cycle. `now` is a monotonic seconds timestamp (for the

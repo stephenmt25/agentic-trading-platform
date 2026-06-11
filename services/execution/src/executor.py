@@ -165,22 +165,22 @@ class OrderExecutor:
                 data = AgentScorePayload.model_validate_json(ta_raw)
                 agents["ta"] = {
                     "direction": direction,
-                    "score": float(data.score),
-                }  # float-ok: ML score
+                    "score": float(data.score),  # float-ok: ML score
+                }
             if sent_raw:
                 data = AgentScorePayload.model_validate_json(sent_raw)
                 if data.source not in _DEGRADED_SOURCES:
                     agents["sentiment"] = {
                         "direction": direction,
-                        "score": float(data.score),
-                    }  # float-ok: ML score
+                        "score": float(data.score),  # float-ok: ML score
+                    }
             if debate_raw:
                 data = AgentScorePayload.model_validate_json(debate_raw)
                 if data.source not in _DEGRADED_SOURCES:
                     agents["debate"] = {
                         "direction": direction,
-                        "score": float(data.score),
-                    }  # float-ok: ML score
+                        "score": float(data.score),  # float-ok: ML score
+                    }
 
             regime = None
             if regime_raw:

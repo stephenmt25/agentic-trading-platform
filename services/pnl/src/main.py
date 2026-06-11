@@ -216,8 +216,8 @@ async def lifespan(app: FastAPI):
     # Loop
     logger.info(
         "Starting PNL PubSub listener loop (exit policies: stop-loss=%.1f%%, take-profit=%.1f%%, max-hold=%dh)",
-        float(settings.DEFAULT_STOP_LOSS_PCT) * 100,
-        float(settings.DEFAULT_TAKE_PROFIT_PCT) * 100,
+        float(settings.DEFAULT_STOP_LOSS_PCT) * 100,  # float-ok: log display
+        float(settings.DEFAULT_TAKE_PROFIT_PCT) * 100,  # float-ok: log display
         int(settings.DEFAULT_MAX_HOLDING_HOURS),
     )
     listener_task = supervised_task(
