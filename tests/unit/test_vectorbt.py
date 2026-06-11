@@ -501,9 +501,7 @@ class TestLookAheadPrefixInvarianceVectorbt:
             if t.close_reason != CLOSE_END_OF_DATA and t.exit_time in prefix_times
         ]
         assert len(trunc_core) > 0, "test needs closed trades inside the prefix"
-        assert [_trade_sig(t) for t in trunc_core] == [
-            _trade_sig(t) for t in full_core
-        ]
+        assert [_trade_sig(t) for t in trunc_core] == [_trade_sig(t) for t in full_core]
 
         eod = [t for t in trunc.trades if t.close_reason == CLOSE_END_OF_DATA]
         if eod:

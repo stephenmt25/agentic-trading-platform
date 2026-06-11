@@ -405,9 +405,7 @@ class BacktestRequest(BaseModel):
                 if not isinstance(self.walk_forward.get(key), int) or (
                     self.walk_forward[key] <= 0
                 ):
-                    raise ValueError(
-                        f"walk_forward.{key} must be a positive integer"
-                    )
+                    raise ValueError(f"walk_forward.{key} must be a positive integer")
             # Compute budget (DoS guard): reject unbounded window/sweep
             # requests at the API edge (422); the worker-side parser
             # re-enforces the same caps as defence in depth.

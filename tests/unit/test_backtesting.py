@@ -358,9 +358,7 @@ class TestLookAheadPrefixInvariance:
             if t.close_reason != CLOSE_END_OF_DATA and t.exit_time in prefix_times
         ]
         assert len(trunc_core) > 0, "test needs closed trades inside the prefix"
-        assert [_trade_sig(t) for t in trunc_core] == [
-            _trade_sig(t) for t in full_core
-        ]
+        assert [_trade_sig(t) for t in trunc_core] == [_trade_sig(t) for t in full_core]
 
         # The truncated run's forced close (if any) corresponds to a trade
         # the full run also entered at the same bar.
@@ -454,9 +452,7 @@ class TestProfitFactorIsAlwaysFinite:
         metrics = compute_trade_metrics([_winning_trade()])
         # allow_nan=False mirrors FastAPI's JSONResponse renderer — the exact
         # boundary that raised ValueError on Infinity before the clamp.
-        encoded = json.dumps(
-            {k: float(v) for k, v in metrics.items()}, allow_nan=False
-        )
+        encoded = json.dumps({k: float(v) for k, v in metrics.items()}, allow_nan=False)
         assert json.loads(encoded)["profit_factor"] == float(PROFIT_FACTOR_CAP)
 
     def test_huge_finite_ratio_also_capped(self):

@@ -11,10 +11,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from libs.core.schemas import (
-    WALK_FORWARD_MAX_BARS,
-    BacktestRequest,
-)
+from libs.core.schemas import WALK_FORWARD_MAX_BARS, BacktestRequest
 from services.backtesting.src.simulator import (
     PROFIT_FACTOR_CAP,
     BacktestJob,
@@ -259,9 +256,7 @@ class TestWalkForwardStatic:
         # whose train segments overlap earlier windows' test segments.
         offset = 0
         for w_res, (_, test_start, test_end) in zip(result.windows, windows):
-            window_trades = result.oos_trades[
-                offset : offset + w_res.oos_trade_count
-            ]
+            window_trades = result.oos_trades[offset : offset + w_res.oos_trade_count]
             offset += w_res.oos_trade_count
             for t in window_trades:
                 idx = time_to_idx[t.entry_time]
@@ -273,9 +268,7 @@ class TestWalkForwardStatic:
 
     def test_window_oos_counts_sum_to_aggregate(self):
         result = self._result()
-        assert sum(w.oos_trade_count for w in result.windows) == len(
-            result.oos_trades
-        )
+        assert sum(w.oos_trade_count for w in result.windows) == len(result.oos_trades)
 
     def test_aggregate_metrics_are_decimal(self):
         result = self._result()
@@ -400,9 +393,7 @@ class TestAllWinningWindowReportIsJsonCompliant:
         # allow_nan=False mirrors FastAPI's JSONResponse renderer.
         decoded = json.loads(json.dumps(report, allow_nan=False))
         assert decoded["oos_profit_factor"] == float(PROFIT_FACTOR_CAP)
-        assert decoded["windows"][0]["oos_profit_factor"] == float(
-            PROFIT_FACTOR_CAP
-        )
+        assert decoded["windows"][0]["oos_profit_factor"] == float(PROFIT_FACTOR_CAP)
 
     def test_parent_row_profit_factor_finite(self):
         parent = self._all_win_result().to_backtest_result()

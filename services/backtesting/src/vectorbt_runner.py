@@ -13,7 +13,6 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from libs.core.exit_policy import decide_exit, thresholds_from_risk_limits
-
 from libs.indicators import (
     ADXCalculator,
     ATRCalculator,
@@ -268,7 +267,9 @@ class VectorBTRunner:
                 a = atr_arr[i]
                 if math.isnan(a):
                     continue
-                reg = regime_clf.update(float(closes[i]), float(a))  # float-ok: indicator library requires float
+                c_f = float(closes[i])  # float-ok: indicator library input
+                a_f = float(a)  # float-ok: indicator library input
+                reg = regime_clf.update(c_f, a_f)
                 if reg is not None and reg not in preferred_regimes:
                     signals[i] = False
 

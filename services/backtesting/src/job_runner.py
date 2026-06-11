@@ -48,9 +48,7 @@ def compute_coverage(
     first = parse_bar_time(data[0].get("time")) if data else None
     last = parse_bar_time(data[-1].get("time")) if data else None
 
-    requested_s = (
-        _as_utc(requested_end) - _as_utc(requested_start)
-    ).total_seconds()
+    requested_s = (_as_utc(requested_end) - _as_utc(requested_start)).total_seconds()
     if first is None or last is None or requested_s <= 0:
         coverage = 0.0
     else:
@@ -244,9 +242,7 @@ class JobRunner:
         if wf_raw:
             wf_config = parse_walk_forward_config(wf_raw)
             print(f"Running walk-forward for {job.job_id} ({wf_config})...")
-            wf_result = await asyncio.to_thread(
-                run_walk_forward, job, data, wf_config
-            )
+            wf_result = await asyncio.to_thread(run_walk_forward, job, data, wf_config)
             # Parent row carries the OOS aggregates + OOS trades — the honest
             # decay-tracker baseline. Window detail is Redis/API-only (no
             # schema migration; 025 is reserved for netting/margin).
@@ -261,8 +257,11 @@ class JobRunner:
                 result = await asyncio.to_thread(TradingSimulator.run, job, data)
 
         def _dec(v):
-            """Convert Decimal to float for JSON serialization."""
-            return float(v) if isinstance(v, Decimal) else v  # float-ok: JSON boundary (Redis status/JSONB), DB columns are DECIMAL
+            """Convert Decimal to float for JSON serialization (Redis status /
+            trades JSONB); the DB metric columns stay DECIMAL."""
+            if not isinstance(v, Decimal):
+                return v
+            return float(v)  # float-ok: JSON boundary
 
         res_payload = {
             "job_id": result.job_id,

@@ -87,9 +87,7 @@ def parse_walk_forward_config(raw: Dict[str, Any]) -> WalkForwardConfig:
     if train_bars <= 0 or test_bars <= 0 or step_bars <= 0:
         raise ValueError("walk_forward bars must all be positive")
     if max(train_bars, test_bars, step_bars) > WALK_FORWARD_MAX_BARS:
-        raise ValueError(
-            f"walk_forward bars must not exceed {WALK_FORWARD_MAX_BARS}"
-        )
+        raise ValueError(f"walk_forward bars must not exceed {WALK_FORWARD_MAX_BARS}")
     param_grid = raw.get("param_grid") or None
     if param_grid is not None and not isinstance(param_grid, dict):
         raise ValueError("walk_forward param_grid must be a dict")

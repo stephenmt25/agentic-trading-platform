@@ -23,7 +23,6 @@ from libs.config import settings
 from libs.core.exit_policy import (
     EXIT_STOP_LOSS,
     EXIT_TAKE_PROFIT,
-    EXIT_TIME,
     ExitThresholds,
     decide_exit,
     thresholds_from_risk_limits,

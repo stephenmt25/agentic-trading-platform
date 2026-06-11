@@ -330,9 +330,7 @@ class TestLiveSimExitParity:
             close = _D(str(candles[i]["close"]))
             pct = (close - trade.entry_price) / trade.entry_price
             snapshot = SimpleNamespace(pct_return=pct)
-            closed, reason = await monitor.check(
-                position, snapshot, close, _D("0.001")
-            )
+            closed, reason = await monitor.check(position, snapshot, close, _D("0.001"))
             if i < exit_idx:
                 assert (closed, reason) == (False, None)
             else:

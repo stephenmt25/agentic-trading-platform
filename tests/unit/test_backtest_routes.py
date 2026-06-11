@@ -18,11 +18,7 @@ from unittest.mock import AsyncMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from services.api_gateway.src.deps import (
-    get_current_user,
-    get_profile_repo,
-    get_redis,
-)
+from services.api_gateway.src.deps import get_current_user, get_profile_repo, get_redis
 from services.api_gateway.src.routes.backtest import router as backtest_router
 
 USER_ID = str(uuid.uuid4())
@@ -89,9 +85,7 @@ class TestCreateBacktestProfileOwnership:
         )
 
         assert resp.status_code == 404
-        profile_repo.get_profile_for_user.assert_awaited_once_with(
-            PROFILE_ID, USER_ID
-        )
+        profile_repo.get_profile_for_user.assert_awaited_once_with(PROFILE_ID, USER_ID)
         redis.xadd.assert_not_awaited()
 
     def test_non_uuid_profile_id_with_explicit_risk_limits_is_rejected(self):
@@ -131,9 +125,7 @@ class TestCreateBacktestProfileOwnership:
         )
 
         assert resp.status_code == 200
-        profile_repo.get_profile_for_user.assert_awaited_once_with(
-            PROFILE_ID, USER_ID
-        )
+        profile_repo.get_profile_for_user.assert_awaited_once_with(PROFILE_ID, USER_ID)
         payload = _enqueued_payload(redis)
         assert payload["profile_id"] == PROFILE_ID
         assert payload["risk_limits"] == EXPLICIT_LIMITS

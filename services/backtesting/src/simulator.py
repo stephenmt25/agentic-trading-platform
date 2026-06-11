@@ -4,10 +4,7 @@ from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from libs.core.enums import Regime
-from libs.core.exit_policy import (
-    decide_exit,
-    thresholds_from_risk_limits,
-)
+from libs.core.exit_policy import decide_exit, thresholds_from_risk_limits
 from libs.indicators import create_indicator_set
 from services.strategy.src.compiler import RuleCompiler
 
