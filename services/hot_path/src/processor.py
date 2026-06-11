@@ -9,11 +9,8 @@ from libs.config import settings
 from libs.core.constants import THRESHOLD_PROXIMITY_BAND_PCT
 from libs.core.enums import SignalDirection, ValidationCheck, ValidationVerdict
 from libs.core.models import NormalisedTick
-from libs.core.portfolio import (
-    SNAPSHOT_KEY as PORTFOLIO_SNAPSHOT_KEY,
-    PortfolioExposure,
-    check_order_against_budget,
-)
+from libs.core.portfolio import SNAPSHOT_KEY as PORTFOLIO_SNAPSHOT_KEY
+from libs.core.portfolio import PortfolioExposure, check_order_against_budget
 from libs.core.schemas import (
     MarketTickEvent,
     OrderApprovedEvent,
