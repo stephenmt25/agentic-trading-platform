@@ -25,6 +25,7 @@ LONG_TERM_RATES = {
 DEFAULT_CONSERVATIVE_SHORT_TERM = Decimal("0.37")
 DEFAULT_CONSERVATIVE_LONG_TERM = Decimal("0.20")
 
+
 def get_rate(is_short_term: bool, bracket: Optional[str]) -> Decimal:
     if is_short_term:
         if bracket in SHORT_TERM_RATES:

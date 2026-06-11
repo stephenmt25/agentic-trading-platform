@@ -2,6 +2,7 @@
 
 Usage: poetry run python scripts/seed_profile.py
 """
+
 import asyncio
 import json
 import os
@@ -41,7 +42,10 @@ async def seed():
             """INSERT INTO users (user_id, email, display_name, provider)
                VALUES ($1, $2, $3, $4)
                ON CONFLICT DO NOTHING""",
-            uuid.UUID(user_id), "test@praxis.dev", "Test Operator", "google"
+            uuid.UUID(user_id),
+            "test@praxis.dev",
+            "Test Operator",
+            "google",
         )
         print(f"Created test user: {user_id}")
     except Exception as e:
@@ -62,14 +66,14 @@ async def seed():
         "logic": "AND",
         "conditions": [
             {"indicator": "rsi", "operator": "LT", "value": 35},
-        ]
+        ],
     }
 
     risk_limits = {
         "max_allocation_pct": 0.5,
         "max_drawdown_pct": 0.10,
         "stop_loss_pct": 0.05,
-        "circuit_breaker_daily_loss_pct": 0.02
+        "circuit_breaker_daily_loss_pct": 0.02,
     }
 
     profile = await repo.create_profile(
@@ -78,11 +82,11 @@ async def seed():
         strategy_rules=strategy_rules,
         risk_limits=risk_limits,
         allocation_pct=1.0,
-        exchange_key_ref="paper"
+        exchange_key_ref="paper",
     )
 
     print(f"Created profile: {profile.get('name')} (id={profile.get('profile_id')})")
-    print(f"Strategy: RSI < 35 -> BUY")
+    print("Strategy: RSI < 35 -> BUY")
     print(f"Risk limits: {json.dumps(risk_limits, indent=2)}")
 
     await client.close()

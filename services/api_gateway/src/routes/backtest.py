@@ -2,13 +2,18 @@ import json
 import uuid
 from datetime import datetime
 from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from libs.core.schemas import BacktestRequest, BacktestResponse, strategy_rules_to_canonical
 from libs.config import settings
-from libs.storage import RedisClient
+from libs.core.schemas import (
+    BacktestRequest,
+    BacktestResponse,
+    strategy_rules_to_canonical,
+)
 from libs.storage.repositories.backtest_repo import BacktestRepository
-from ..deps import get_redis, get_current_user, get_backtest_repo
+
+from ..deps import get_backtest_repo, get_current_user, get_redis
 
 router = APIRouter()
 
@@ -25,14 +30,15 @@ async def create_backtest(
         datetime.fromisoformat(req.start_date)
         datetime.fromisoformat(req.end_date)
     except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid date format. Use ISO 8601.")
+        raise HTTPException(
+            status_code=400, detail="Invalid date format. Use ISO 8601."
+        )
 
     # Backpressure: check queue depth before accepting
     queue_len = await redis.xlen("auto_backtest_queue")
     if queue_len >= settings.BACKTEST_MAX_QUEUE_DEPTH:
         raise HTTPException(
-            status_code=429,
-            detail="Backtest queue is full. Please try again later."
+            status_code=429, detail="Backtest queue is full. Please try again later."
         )
 
     job_id = str(uuid.uuid4())
@@ -76,7 +82,10 @@ async def get_backtest_history(
     created_by and are intentionally hidden from this user-scoped view.
     """
     rows = await repo.get_history(
-        user_id=user_id, profile_id=profile_id, symbol=symbol, limit=limit,
+        user_id=user_id,
+        profile_id=profile_id,
+        symbol=symbol,
+        limit=limit,
     )
     # Decimal/datetime → JSON-friendly. asyncpg returns Decimal for the
     # NUMERIC columns; FastAPI's default encoder serializes Decimal as

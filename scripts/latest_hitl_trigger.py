@@ -1,8 +1,10 @@
 """Pull the trigger_reason from the most recent BLOCKED_HITL decision so we
 can confirm the new size_pct math is showing up live."""
+
 import asyncio
 import json
 from pathlib import Path
+
 import asyncpg
 
 PROFILE_ID = "c557fcdc-2bc2-4ef3-8004-102cd71859c0"
@@ -11,8 +13,12 @@ PROFILE_ID = "c557fcdc-2bc2-4ef3-8004-102cd71859c0"
 def url() -> str:
     for line in Path(".env").read_text().splitlines():
         if line.startswith("PRAXIS_DATABASE_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'").replace(
-                "postgresql+asyncpg://", "postgresql://"
+            return (
+                line.split("=", 1)[1]
+                .strip()
+                .strip('"')
+                .strip("'")
+                .replace("postgresql+asyncpg://", "postgresql://")
             )
 
 
@@ -43,7 +49,9 @@ async def main() -> None:
             if reason:
                 print(f"  hitl reason: {reason}")
             else:
-                print(f"  gates payload (raw): {r['gates_text'][:400] if r['gates_text'] else '(empty)'}")
+                print(
+                    f"  gates payload (raw): {r['gates_text'][:400] if r['gates_text'] else '(empty)'}"
+                )
             print()
     finally:
         await c.close()

@@ -13,23 +13,35 @@ Session model (added 2026-05-12, migration 022_user_sessions.sql):
     that jti will fail and the user is forced back to /login.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
-from datetime import timedelta
 import uuid
+from datetime import timedelta
 
 import jwt as pyjwt
+from fastapi import APIRouter, Depends, HTTPException, Request
 
-from libs.core.schemas import OAuthCallbackRequest, AuthResponse, RefreshRequest, UserProfile
 from libs.config import settings
+from libs.core.schemas import (
+    AuthResponse,
+    OAuthCallbackRequest,
+    RefreshRequest,
+    UserProfile,
+)
 from libs.observability import get_logger
 from libs.storage.repositories.user_session_repo import UserSessionRepository
-from ..middleware.auth import create_access_token, create_refresh_token, verify_refresh_token, revoke_refresh_token, is_refresh_token_revoked
+
 from ..deps import (
     get_current_session_id,
     get_current_user,
     get_redis,
     get_timescale,
     get_user_session_repo,
+)
+from ..middleware.auth import (
+    create_access_token,
+    create_refresh_token,
+    is_refresh_token_revoked,
+    revoke_refresh_token,
+    verify_refresh_token,
 )
 
 logger = get_logger("auth-routes")
@@ -60,8 +72,7 @@ async def oauth_callback(req: OAuthCallbackRequest, request: Request):
     # Verify the NextAuth.js session token using the shared NEXTAUTH_SECRET
     if not settings.NEXTAUTH_SECRET:
         raise HTTPException(
-            status_code=500,
-            detail="Server authentication not configured"
+            status_code=500, detail="Server authentication not configured"
         )
     try:
         pyjwt.decode(
@@ -71,13 +82,12 @@ async def oauth_callback(req: OAuthCallbackRequest, request: Request):
             options={"verify_exp": True},
         )
     except pyjwt.PyJWTError:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid or expired session token"
-        )
+        raise HTTPException(status_code=401, detail="Invalid or expired session token")
 
     # Generate deterministic user_id from provider info
-    user_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{req.provider}:{req.provider_account_id}"))
+    user_id = str(
+        uuid.uuid5(uuid.NAMESPACE_URL, f"{req.provider}:{req.provider_account_id}")
+    )
 
     # Upsert user into the database — block login on failure to prevent orphaned tokens
     db = await get_timescale(request)
@@ -97,14 +107,14 @@ async def oauth_callback(req: OAuthCallbackRequest, request: Request):
             req.name,
             req.provider,
             req.provider_account_id,
-            "oauth_no_password",   # OAuth users don't have passwords
-            "global",              # Default jurisdiction
+            "oauth_no_password",  # OAuth users don't have passwords
+            "global",  # Default jurisdiction
         )
     except Exception as e:
         logger.error("Failed to upsert user", error=str(e), user_id=user_id)
         raise HTTPException(
             status_code=503,
-            detail="Unable to complete authentication. Please try again."
+            detail="Unable to complete authentication. Please try again.",
         )
 
     logger.info(
@@ -174,7 +184,9 @@ async def refresh_tokens(req: RefreshRequest, request: Request):
 
     # Verify user still exists in DB
     db = await get_timescale(request)
-    user = await db.fetchrow("SELECT user_id, display_name FROM users WHERE user_id = $1", uuid.UUID(user_id))
+    user = await db.fetchrow(
+        "SELECT user_id, display_name FROM users WHERE user_id = $1", uuid.UUID(user_id)
+    )
     if not user:
         raise HTTPException(status_code=401, detail="User no longer exists")
 
@@ -282,8 +294,12 @@ async def revoke_session(
         uuid.UUID(target_session_id)
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid session_id")
-    row = await repo.revoke(session_id=target_session_id, user_id=user_id, reason="user")
+    row = await repo.revoke(
+        session_id=target_session_id, user_id=user_id, reason="user"
+    )
     if row is None:
-        raise HTTPException(status_code=404, detail="Session not found or already revoked")
+        raise HTTPException(
+            status_code=404, detail="Session not found or already revoked"
+        )
     logger.info("Session revoked", user_id=user_id, session_id=target_session_id)
     return {"session_id": target_session_id, "revoked": True}

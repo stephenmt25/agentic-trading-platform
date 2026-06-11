@@ -1,8 +1,10 @@
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Optional
+
 from libs.core.enums import Regime
 from libs.core.models import NormalisedTick
+
 from .state import ProfileState
 from .strategy_eval import SignalResult
 
@@ -19,7 +21,9 @@ class RiskGateResult:
 
 class RiskGate:
     @staticmethod
-    def check(state: ProfileState, signal: SignalResult, tick: NormalisedTick) -> RiskGateResult:
+    def check(
+        state: ProfileState, signal: SignalResult, tick: NormalisedTick
+    ) -> RiskGateResult:
         """Block if the profile is out of risk room or free capital; otherwise
         return a dollar-bounded suggested quantity in asset units.
 
@@ -40,16 +44,22 @@ class RiskGate:
 
         # 1. Drawdown gate
         if state.current_drawdown_pct > max_dd:
-            return RiskGateResult(blocked=True, suggested_quantity=_ZERO, reason="drawdown_limit_exceeded")
+            return RiskGateResult(
+                blocked=True, suggested_quantity=_ZERO, reason="drawdown_limit_exceeded"
+            )
 
         # 2. Aggregate exposure cap — open positions already use the profile's
         # full notional, no room to add more.
         if free_capital <= _ZERO:
-            return RiskGateResult(blocked=True, suggested_quantity=_ZERO, reason="exposure_at_notional")
+            return RiskGateResult(
+                blocked=True, suggested_quantity=_ZERO, reason="exposure_at_notional"
+            )
 
         # 3. Sane price required to size in asset units
         if price <= _ZERO:
-            return RiskGateResult(blocked=True, suggested_quantity=_ZERO, reason="invalid_price")
+            return RiskGateResult(
+                blocked=True, suggested_quantity=_ZERO, reason="invalid_price"
+            )
 
         confidence = Decimal(str(signal.confidence))
         trade_dollars = free_capital * max_alloc * confidence
@@ -64,7 +74,9 @@ class RiskGate:
 
         # 4. Skip dust trades — exchange minimums make sub-$10 fills impossible
         if trade_dollars < _MIN_TRADE_DOLLARS:
-            return RiskGateResult(blocked=True, suggested_quantity=_ZERO, reason="trade_below_minimum")
+            return RiskGateResult(
+                blocked=True, suggested_quantity=_ZERO, reason="trade_below_minimum"
+            )
 
         qty = trade_dollars / price
         return RiskGateResult(blocked=False, suggested_quantity=qty)

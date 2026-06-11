@@ -1,49 +1,38 @@
 import asyncio
-from decimal import Decimal
-from fastapi import FastAPI
-import uvicorn
-import httpx
-from datetime import datetime, timezone
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from decimal import Decimal
+
+import uvicorn
+from fastapi import FastAPI
 
 from libs.config import settings
-from libs.storage import RedisClient, TimescaleClient, PositionRepository, PnlRepository
-from libs.storage.repositories import ClosedTradeRepository, ProfileRepository
-from libs.messaging import PubSubBroadcaster
+from libs.core.enums import OrderSide
+from libs.core.models import Position
+from libs.messaging import PubSubBroadcaster, StreamConsumer, StreamPublisher
 from libs.messaging._pubsub import PubSubSubscriber
 from libs.messaging.channels import PUBSUB_PRICE_TICKS
 from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
+from libs.storage import PnlRepository, PositionRepository, RedisClient, TimescaleClient
+from libs.storage.repositories import ClosedTradeRepository, ProfileRepository
+from services.tax.src.us_tax import USTaxCalculator
 
+from ._positions import record_to_position
 from .calculator import PnLCalculator
-from .publisher import PnLPublisher
+from .close_requester import PositionCloseRequester
 from .closer import PositionCloser
+from .executed_consumer import ExecutedEventConsumer
 from .exit_monitor import ExitMonitor
-from services.tax.src.us_tax import TaxEstimate, USTaxCalculator
-from libs.core.models import Position
-from libs.core.enums import OrderSide, PositionStatus
+from .halt_controller import HaltController
+from .publisher import PnLPublisher
 
 logger = get_logger("pnl")
 
 # Cached map in memory for active positions to avoid constant db roundtrips
-# Mapping {symbol: [Positions]}
+# Mapping {symbol: [Positions]}. Only OPEN positions are cached; a position in
+# PENDING_CLOSE (close order in flight) is excluded so it is not re-closed.
 active_positions_cache = {}
-
-def _record_to_position(rec) -> Position:
-    """Convert an asyncpg Record to a Position dataclass."""
-    return Position(
-        position_id=rec["position_id"],
-        profile_id=str(rec["profile_id"]),
-        symbol=rec["symbol"],
-        side=OrderSide(rec["side"]),
-        entry_price=Decimal(str(rec["entry_price"])),
-        quantity=Decimal(str(rec["quantity"])),
-        entry_fee=Decimal(str(rec["entry_fee"])),
-        opened_at=rec["opened_at"],
-        status=PositionStatus(rec["status"]) if rec.get("status") else PositionStatus.OPEN,
-        closed_at=rec.get("closed_at"),
-        exit_price=Decimal(str(rec["exit_price"])) if rec.get("exit_price") else None,
-    )
 
 
 async def hydrate_positions(position_repo: PositionRepository):
@@ -52,7 +41,7 @@ async def hydrate_positions(position_repo: PositionRepository):
     all_open = await position_repo.get_open_positions()
     new_cache: dict[str, list[Position]] = {}
     for rec in all_open:
-        pos = _record_to_position(rec)
+        pos = record_to_position(rec)
         new_cache.setdefault(pos.symbol, []).append(pos)
     active_positions_cache.clear()
     active_positions_cache.update(new_cache)
@@ -77,6 +66,7 @@ async def rehydrate_loop(position_repo: PositionRepository, interval_s: float = 
         except Exception:
             logger.exception("position_cache_rehydrate_failed")
 
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Connections
@@ -87,6 +77,8 @@ async def lifespan(app: FastAPI):
     # Dependencies
     pubsub = PubSubBroadcaster(redis_instance)
     subscriber = PubSubSubscriber(redis_instance)
+    stream_publisher = StreamPublisher(redis_instance)
+    stream_consumer = StreamConsumer(redis_instance)
     position_repo = PositionRepository(timescale_client)
     pnl_repo = PnlRepository(timescale_client)
     profile_repo = ProfileRepository(timescale_client)
@@ -98,7 +90,23 @@ async def lifespan(app: FastAPI):
         closed_trade_repo=closed_trade_repo,
         profile_repo=profile_repo,
     )
-    exit_monitor = ExitMonitor(closer, profile_repo)
+    # Real exchange close (PR1): exits publish a reduce-only order to the OMS;
+    # the close consumer finalises the DB close on fill confirmation.
+    close_requester = PositionCloseRequester(position_repo, stream_publisher)
+    exit_monitor = ExitMonitor(closer, profile_repo, close_requester=close_requester)
+    close_consumer = ExecutedEventConsumer(
+        stream_consumer, position_repo, closer, pubsub=pubsub
+    )
+    # Tiered kill-switch / flatten authority (PR3): executes a FLATTEN level by
+    # closing all open positions via the same reduce-only path, and runs the
+    # auto-escalation gate (severe triggers -> DE_RISK/FLATTEN).
+    halt_controller = HaltController(
+        redis_instance,
+        position_repo,
+        close_requester,
+        profile_repo=profile_repo,
+        pubsub=pubsub,
+    )
 
     telemetry = TelemetryPublisher(redis_instance, "pnl", "portfolio")
     await telemetry.start_health_loop()
@@ -114,6 +122,7 @@ async def lifespan(app: FastAPI):
     async def handle_tick(raw_message):
         """Callback for PubSubSubscriber — processes a single price tick."""
         import msgpack
+
         try:
             if isinstance(raw_message, bytes):
                 tick_data = msgpack.unpackb(raw_message, raw=False)
@@ -123,7 +132,12 @@ async def lifespan(app: FastAPI):
             logger.warning("Failed to decode tick message, skipping")
             return
 
-        logger.info("tick_received", symbol=tick_data.get("symbol"), price=str(tick_data.get("price", "?")), positions_cached=len(active_positions_cache))
+        logger.info(
+            "tick_received",
+            symbol=tick_data.get("symbol"),
+            price=str(tick_data.get("price", "?")),
+            positions_cached=len(active_positions_cache),
+        )
 
         try:
             await _process_tick(tick_data)
@@ -134,13 +148,21 @@ async def lifespan(app: FastAPI):
         sym = tick_data.get("symbol")
         cp = Decimal(str(tick_data.get("price", "0")))
 
-        await telemetry.emit("input_received", {"symbol": sym, "price": str(cp), "message_type": "price_tick"}, source_agent="ingestion")
+        await telemetry.emit(
+            "input_received",
+            {"symbol": sym, "price": str(cp), "message_type": "price_tick"},
+            source_agent="ingestion",
+        )
 
         positions = active_positions_cache.get(sym, [])
         positions_to_remove = []
 
         for pos in positions:
-            diff_days = (datetime.now(timezone.utc) - pos.opened_at).days if pos.opened_at else 0
+            diff_days = (
+                (datetime.now(timezone.utc) - pos.opened_at).days
+                if pos.opened_at
+                else 0
+            )
 
             # Preliminary gross PnL for tax estimation (Decimal)
             if pos.side == OrderSide.BUY:
@@ -153,14 +175,15 @@ async def lifespan(app: FastAPI):
                 net_pnl=prelim_gross,
             )
 
-            exchange_name = getattr(pos, 'exchange', 'BINANCE') if hasattr(pos, 'exchange') else 'BINANCE'
+            exchange_name = (
+                getattr(pos, "exchange", "BINANCE")
+                if hasattr(pos, "exchange")
+                else "BINANCE"
+            )
             taker_rate = TAKER_RATES.get(str(exchange_name).upper(), DEFAULT_TAKER_RATE)
 
             snapshot = PnLCalculator.calculate(
-                position=pos,
-                current_price=cp,
-                taker_rate=taker_rate,
-                tax_result=tax
+                position=pos, current_price=cp, taker_rate=taker_rate, tax_result=tax
             )
             await publisher.publish_update(str(pos.profile_id), snapshot)
 
@@ -193,8 +216,8 @@ async def lifespan(app: FastAPI):
     # Loop
     logger.info(
         "Starting PNL PubSub listener loop (exit policies: stop-loss=%.1f%%, take-profit=%.1f%%, max-hold=%dh)",
-        float(settings.DEFAULT_STOP_LOSS_PCT) * 100,
-        float(settings.DEFAULT_TAKE_PROFIT_PCT) * 100,
+        float(settings.DEFAULT_STOP_LOSS_PCT) * 100,  # float-ok: log display
+        float(settings.DEFAULT_TAKE_PROFIT_PCT) * 100,  # float-ok: log display
         int(settings.DEFAULT_MAX_HOLDING_HOURS),
     )
     listener_task = supervised_task(
@@ -205,22 +228,45 @@ async def lifespan(app: FastAPI):
         lambda: rehydrate_loop(position_repo),
         name="pnl.rehydrate",
     )
+    # Fill-confirmation consumer for reduce-only closes (PR1). Its own supervisor
+    # loop, but wrap in supervised_task too for crash visibility/restart parity
+    # with the other long-lived loops.
+    close_consumer_task = supervised_task(
+        lambda: close_consumer.run(),
+        name="pnl.close_consumer",
+    )
+    # Tiered halt / flatten-authority controller (PR3).
+    halt_task = supervised_task(
+        lambda: halt_controller.run(),
+        name="pnl.halt_controller",
+    )
 
     yield
 
     # Teardown
     listener_task.cancel()
     rehydrate_task.cancel()
-    await asyncio.gather(listener_task, rehydrate_task, return_exceptions=True)
+    close_consumer_task.cancel()
+    halt_task.cancel()
+    await asyncio.gather(
+        listener_task,
+        rehydrate_task,
+        close_consumer_task,
+        halt_task,
+        return_exceptions=True,
+    )
     await telemetry.stop()
     await timescale_client.close()
     logger.info("PnL Agent shutdown")
 
+
 app = FastAPI(title="PnL Service", lifespan=lifespan)
+
 
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 if __name__ == "__main__":
     uvicorn.run("services.pnl.src.main:app", host="0.0.0.0", port=8084)

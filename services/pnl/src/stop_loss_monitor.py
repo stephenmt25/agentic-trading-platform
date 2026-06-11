@@ -7,14 +7,12 @@ Defect D-9 fix: risk_limits.stop_loss_pct was defined in the schema and
 validated at order time, but never enforced against open positions.
 """
 
-import json
 from decimal import Decimal
-from typing import Optional
 
 from libs.core.models import Position
 from libs.core.schemas import RiskLimitsPayload
-from libs.storage.repositories import ProfileRepository
 from libs.observability import get_logger
+from libs.storage.repositories import ProfileRepository
 
 from .calculator import PnLSnapshot
 from .closer import PositionCloser
@@ -58,7 +56,11 @@ class StopLossMonitor:
                     risk_limits = RiskLimitsPayload()
                 stop_loss = Decimal(str(risk_limits.stop_loss_pct))
         except Exception as e:
-            logger.error("Failed to load stop-loss for profile", profile_id=profile_id, error=str(e))
+            logger.error(
+                "Failed to load stop-loss for profile",
+                profile_id=profile_id,
+                error=str(e),
+            )
 
         self._stop_loss_cache[profile_id] = stop_loss
         return stop_loss

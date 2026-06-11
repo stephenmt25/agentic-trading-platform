@@ -1,5 +1,6 @@
+from typing import List, Optional
+
 import numpy as np
-from typing import Optional, List
 from hmmlearn.hmm import GaussianHMM
 
 from libs.observability import get_logger
@@ -62,7 +63,9 @@ class HMMRegimeModel:
             logger.error("HMM predict failed", error=str(e))
             return None
 
-    def predict_confidence(self, prices: List[float], state_index: int) -> Optional[float]:
+    def predict_confidence(
+        self, prices: List[float], state_index: int
+    ) -> Optional[float]:
         """Return the forward-algorithm probability of state_index at the final time step.
 
         Uses predict_proba() (forward pass) to compute per-state occupancy
@@ -117,16 +120,20 @@ class HMMRegimeModel:
         log_returns = np.diff(np.log(arr))
 
         # Rolling volatility (std of log returns over window)
-        vol = np.array([
-            np.std(log_returns[max(0, i - self.ROLLING_WINDOW + 1):i + 1])
-            for i in range(len(log_returns))
-        ])
+        vol = np.array(
+            [
+                np.std(log_returns[max(0, i - self.ROLLING_WINDOW + 1) : i + 1])
+                for i in range(len(log_returns))
+            ]
+        )
 
         # Trim to align
         start = self.ROLLING_WINDOW - 1
-        observations = np.column_stack([
-            log_returns[start:],
-            vol[start:],
-        ])
+        observations = np.column_stack(
+            [
+                log_returns[start:],
+                vol[start:],
+            ]
+        )
 
         return observations

@@ -1,8 +1,11 @@
-import asyncio, sys
+import asyncio
+import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from libs.config import settings
 import asyncpg
+
+from libs.config import settings
 
 
 async def main() -> int:
@@ -18,7 +21,9 @@ async def main() -> int:
         )
         print(f"Decisions in last 10 min: {len(rows)}")
         for r in rows:
-            print(f"  {r['created_at'].strftime('%H:%M:%S')}  prof={r['pid'][:8]}  {r['symbol']:<10}  {r['outcome']}")
+            print(
+                f"  {r['created_at'].strftime('%H:%M:%S')}  prof={r['pid'][:8]}  {r['symbol']:<10}  {r['outcome']}"
+            )
     finally:
         await c.close()
     return 0

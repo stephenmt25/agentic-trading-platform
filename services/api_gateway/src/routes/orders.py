@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import List, Literal, Optional
+from typing import Literal, Optional
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -23,7 +23,9 @@ class OrderSubmitRequest(BaseModel):
     symbol: str
     side: Literal["BUY", "SELL"]
     type: Literal["market", "limit"] = "limit"
-    quantity: str = Field(..., description="Decimal-as-string; coerced to Decimal server-side")
+    quantity: str = Field(
+        ..., description="Decimal-as-string; coerced to Decimal server-side"
+    )
     price: Optional[str] = Field(
         default=None,
         description="Required for limit orders; ignored for market orders.",
@@ -61,11 +63,15 @@ async def submit_order(
     polling api.orders.list.
     """
     if await KillSwitch.is_active(redis):
-        raise HTTPException(status_code=403, detail="Kill switch is active — trading halted.")
+        raise HTTPException(
+            status_code=403, detail="Kill switch is active — trading halted."
+        )
 
     profile = await profile_repo.get_profile_for_user(body.profile_id, user_id)
     if not profile:
-        raise HTTPException(status_code=404, detail="Profile not found or not owned by current user")
+        raise HTTPException(
+            status_code=404, detail="Profile not found or not owned by current user"
+        )
 
     try:
         quantity = Decimal(body.quantity)
@@ -162,5 +168,7 @@ async def cancel_order(
     """Cancel a pending/submitted order (must belong to a profile owned by the current user)."""
     result = await repo.cancel_order_for_user(order_id, user_id)
     if not result:
-        raise HTTPException(status_code=404, detail="Order not found or not cancellable")
+        raise HTTPException(
+            status_code=404, detail="Order not found or not cancellable"
+        )
     return {"status": "cancelled", "order_id": str(order_id)}

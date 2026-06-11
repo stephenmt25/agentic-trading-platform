@@ -8,18 +8,18 @@ import math
 import pytest
 
 from libs.indicators import (
-    VWAPCalculator,
+    HurstCalculator,
     KeltnerCalculator,
     KeltnerResult,
     RVOLCalculator,
+    VWAPCalculator,
     ZScoreCalculator,
-    HurstCalculator,
 )
-
 
 # ---------------------------------------------------------------------------
 # VWAP
 # ---------------------------------------------------------------------------
+
 
 class TestVWAPCalculator:
     def test_first_bar_returns_vwap_equal_to_close(self):
@@ -29,7 +29,7 @@ class TestVWAPCalculator:
 
     def test_two_bars_volume_weighted(self):
         v = VWAPCalculator(window=10)
-        v.update(100.0, 1.0)         # pv=100, v=1
+        v.update(100.0, 1.0)  # pv=100, v=1
         result = v.update(110.0, 9.0)  # pv=990, v=9
         # vwap = (100 + 990) / (100 + 9) = 1090 / 10 = 109.0
         # That's wrong. (1*100 + 9*110) = 100 + 990 = 1090; 1+9=10; 1090/10=109.0
@@ -53,6 +53,7 @@ class TestVWAPCalculator:
 # ---------------------------------------------------------------------------
 # Keltner Channel
 # ---------------------------------------------------------------------------
+
 
 class TestKeltnerCalculator:
     def test_returns_none_during_priming(self):
@@ -99,6 +100,7 @@ class TestKeltnerCalculator:
 # RVOL
 # ---------------------------------------------------------------------------
 
+
 class TestRVOLCalculator:
     def test_returns_none_during_priming(self):
         r = RVOLCalculator(period=5)
@@ -132,6 +134,7 @@ class TestRVOLCalculator:
 # ---------------------------------------------------------------------------
 # Z-Score
 # ---------------------------------------------------------------------------
+
 
 class TestZScoreCalculator:
     def test_returns_none_during_priming(self):
@@ -172,6 +175,7 @@ class TestZScoreCalculator:
 # Hurst Exponent (R/S)
 # ---------------------------------------------------------------------------
 
+
 class TestHurstCalculator:
     def test_window_too_small_raises(self):
         with pytest.raises(ValueError):
@@ -204,7 +208,7 @@ class TestHurstCalculator:
         assert result is not None
         # Expected: derive R and S analytically.
         L2, L3, L4, L5 = math.log(2), math.log(3), math.log(4), math.log(5)
-        var = (2 * L2 ** 2 + 2 * L3 ** 2 + 2 * L4 ** 2 + 2 * L5 ** 2) / 8
+        var = (2 * L2**2 + 2 * L3**2 + 2 * L4**2 + 2 * L5**2) / 8
         s = math.sqrt(var)
         rng = L5  # cumulative max is ln(5), min is 0
         expected = math.log(rng / s) / math.log(8)
@@ -213,6 +217,7 @@ class TestHurstCalculator:
     def test_value_within_reasonable_bounds(self):
         # Sanity: a noisy sequence should produce H in [0, 1]-ish range.
         import random
+
         random.seed(7)
         h = HurstCalculator(window=64)
         result = None
@@ -226,6 +231,7 @@ class TestHurstCalculator:
     def test_random_walk_near_half(self):
         # Deterministic pseudo-random walk with mean-zero increments.
         import random
+
         random.seed(42)
         h = HurstCalculator(window=64)
         result = None

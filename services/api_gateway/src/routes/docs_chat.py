@@ -6,15 +6,17 @@ construct prompt with context → stream Claude response via SSE.
 
 import json
 import os
-import httpx
-from dotenv import load_dotenv
-from fastapi import APIRouter, Request
-from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 from typing import Optional
 
+import httpx
+from dotenv import load_dotenv
+from fastapi import APIRouter
+from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
+
 from libs.observability import get_logger
-from ..docs_search import search_docs, read_doc_content, uri_to_doc_slug
+
+from ..docs_search import read_doc_content, search_docs, uri_to_doc_slug
 
 logger = get_logger("api-gateway.docs-chat")
 
@@ -65,29 +67,58 @@ async def docs_chat(body: ChatRequest):
     if not ANTHROPIC_API_KEY:
         logger.error("ANTHROPIC_API_KEY not configured")
         return StreamingResponse(
-            iter([_sse({"type": "error", "error": "ANTHROPIC_API_KEY not configured on server"})]),
+            iter(
+                [
+                    _sse(
+                        {
+                            "type": "error",
+                            "error": "ANTHROPIC_API_KEY not configured on server",
+                        }
+                    )
+                ]
+            ),
             media_type="text/event-stream",
         )
 
     async def stream_response():
         # --- Stage 1: Search ---
-        yield _sse({"type": "status", "stage": "searching", "message": "Searching documentation..."})
+        yield _sse(
+            {
+                "type": "status",
+                "stage": "searching",
+                "message": "Searching documentation...",
+            }
+        )
 
         results = await search_docs(body.message, top_k=5)
         relevant = [r for r in results if r.score >= 0.4]
 
         if not relevant:
-            yield _sse({"type": "status", "stage": "searching", "message": "No relevant docs found, trying broader search..."})
+            yield _sse(
+                {
+                    "type": "status",
+                    "stage": "searching",
+                    "message": "No relevant docs found, trying broader search...",
+                }
+            )
             relevant = results[:3]  # Use top 3 regardless of score
 
-        yield _sse({
-            "type": "status",
-            "stage": "searching",
-            "message": f"Found {len(relevant)} relevant section{'s' if len(relevant) != 1 else ''}",
-        })
+        yield _sse(
+            {
+                "type": "status",
+                "stage": "searching",
+                "message": f"Found {len(relevant)} relevant section{'s' if len(relevant) != 1 else ''}",
+            }
+        )
 
         # --- Stage 2: Read docs from disk (instant, no subprocess) ---
-        yield _sse({"type": "status", "stage": "reading", "message": "Reading documentation..."})
+        yield _sse(
+            {
+                "type": "status",
+                "stage": "reading",
+                "message": "Reading documentation...",
+            }
+        )
 
         context_parts = []
         sources = []
@@ -103,20 +134,28 @@ async def docs_chat(body: ChatRequest):
                     "snippet": result.snippet[:120] if result.snippet else "",
                 }
                 sources.append(source_entry)
-                yield _sse({
-                    "type": "status",
-                    "stage": "reading",
-                    "message": f"Read: {slug or source_label}",
-                })
+                yield _sse(
+                    {
+                        "type": "status",
+                        "stage": "reading",
+                        "message": f"Read: {slug or source_label}",
+                    }
+                )
 
         # Send sources to frontend
         if sources:
             yield _sse({"type": "sources", "sources": sources})
 
-        context_text = "\n\n---\n\n".join(context_parts) if context_parts else "No relevant documentation found."
+        context_text = (
+            "\n\n---\n\n".join(context_parts)
+            if context_parts
+            else "No relevant documentation found."
+        )
 
         # --- Stage 3: Generate ---
-        yield _sse({"type": "status", "stage": "generating", "message": "Generating answer..."})
+        yield _sse(
+            {"type": "status", "stage": "generating", "message": "Generating answer..."}
+        )
 
         messages = []
         if body.history:
@@ -152,8 +191,15 @@ async def docs_chat(body: ChatRequest):
                     if resp.status_code != 200:
                         error_body = await resp.aread()
                         error_text = error_body.decode()
-                        logger.error("Claude API error", status=resp.status_code, body=error_text)
-                        yield _sse({"type": "error", "error": f"Claude API returned {resp.status_code}: {error_text[:200]}"})
+                        logger.error(
+                            "Claude API error", status=resp.status_code, body=error_text
+                        )
+                        yield _sse(
+                            {
+                                "type": "error",
+                                "error": f"Claude API returned {resp.status_code}: {error_text[:200]}",
+                            }
+                        )
                         return
 
                     async for line in resp.aiter_lines():
@@ -167,18 +213,27 @@ async def docs_chat(body: ChatRequest):
                             if event.get("type") == "content_block_delta":
                                 delta = event.get("delta", {})
                                 if delta.get("type") == "text_delta":
-                                    yield _sse({"type": "text", "text": delta.get("text", "")})
+                                    yield _sse(
+                                        {"type": "text", "text": delta.get("text", "")}
+                                    )
                             elif event.get("type") == "message_stop":
                                 break
                         except json.JSONDecodeError:
                             continue
 
         except httpx.TimeoutException:
-            yield _sse({"type": "error", "error": "Request timed out. Please try again."})
+            yield _sse(
+                {"type": "error", "error": "Request timed out. Please try again."}
+            )
             return
         except Exception as e:
             logger.error("Streaming error", error=str(e))
-            yield _sse({"type": "error", "error": "An internal error occurred. Please try again."})
+            yield _sse(
+                {
+                    "type": "error",
+                    "error": "An internal error occurred. Please try again.",
+                }
+            )
             return
 
         yield _sse({"type": "done"})

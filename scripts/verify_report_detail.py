@@ -1,8 +1,8 @@
 """Smoke test for GET /paper-trading/reports/{date}/detail."""
+
 from __future__ import annotations
 
 import asyncio
-import json
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -23,7 +23,9 @@ async def first_user_id() -> str:
     db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(db_url)
     try:
-        row = await conn.fetchrow("SELECT user_id FROM users ORDER BY created_at LIMIT 1")
+        row = await conn.fetchrow(
+            "SELECT user_id FROM users ORDER BY created_at LIMIT 1"
+        )
         return str(row["user_id"]) if row else "00000000-0000-0000-0000-000000000001"
     finally:
         await conn.close()
@@ -55,12 +57,18 @@ async def main() -> int:
         if trades:
             t = trades[0]
             print(f"  first trade keys: {sorted(t.keys())}")
-            print(f"  outcome={t['outcome']}  pnl={t['realized_pnl']}  reason={t['close_reason']}")
+            print(
+                f"  outcome={t['outcome']}  pnl={t['realized_pnl']}  reason={t['close_reason']}"
+            )
             print(f"  order: {t.get('order')}")
             pr = t.get("profile_rules") or {}
-            print(f"  profile_rules keys: {list(pr.keys()) if isinstance(pr, dict) else None}")
+            print(
+                f"  profile_rules keys: {list(pr.keys()) if isinstance(pr, dict) else None}"
+            )
             if isinstance(pr, dict):
-                print(f"    direction={pr.get('direction')}  logic={pr.get('logic')}  base_conf={pr.get('base_confidence')}")
+                print(
+                    f"    direction={pr.get('direction')}  logic={pr.get('logic')}  base_conf={pr.get('base_confidence')}"
+                )
                 conds = pr.get("conditions") or []
                 print(f"    conditions: {len(conds)} entries")
         blocked = d.get("blocked", {})
@@ -70,7 +78,9 @@ async def main() -> int:
         print(f"  blocked.recent: {len(recent)} rows (showing first):")
         if recent:
             b = recent[0]
-            print(f"    {b['created_at'][11:19] if b['created_at'] else '—'}  {b['symbol']}  {b['outcome']}  gates_keys={list(b['gates'].keys()) if b.get('gates') else None}")
+            print(
+                f"    {b['created_at'][11:19] if b['created_at'] else '—'}  {b['symbol']}  {b['outcome']}  gates_keys={list(b['gates'].keys()) if b.get('gates') else None}"
+            )
     return 0
 
 

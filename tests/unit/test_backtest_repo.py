@@ -45,6 +45,7 @@ class FakeTimescale:
 # Coercion helpers
 # ---------------------------------------------------------------------------
 
+
 class TestCoercion:
     def test_coerce_uuid_passes_str(self):
         u = "11111111-2222-3333-4444-555555555555"
@@ -72,6 +73,7 @@ class TestCoercion:
 # get_history filtering
 # ---------------------------------------------------------------------------
 
+
 class TestGetHistory:
     @pytest.mark.asyncio
     async def test_user_scope_required_for_history(self):
@@ -89,7 +91,10 @@ class TestGetHistory:
         client = FakeTimescale(fetch_rows=[])
         repo = BacktestRepository(client)
         await repo.get_history(
-            user_id="user-1", profile_id="prof-1", symbol="BTC/USDT", limit=5,
+            user_id="user-1",
+            profile_id="prof-1",
+            symbol="BTC/USDT",
+            limit=5,
         )
         assert "profile_id" in client.last_query
         assert "symbol" in client.last_query
@@ -138,6 +143,7 @@ class TestGetHistory:
 # save_result with new fields
 # ---------------------------------------------------------------------------
 
+
 class TestSaveResult:
     @pytest.mark.asyncio
     async def test_save_result_passes_history_fields(self):
@@ -174,17 +180,19 @@ class TestSaveResult:
         new columns just become NULL."""
         client = FakeTimescale()
         repo = BacktestRepository(client)
-        await repo.save_result({
-            "job_id": "j1",
-            "profile_id": "",
-            "symbol": "BTC/USDT",
-            "total_trades": 0,
-            "win_rate": 0.0,
-            "avg_return": 0.0,
-            "max_drawdown": 0.0,
-            "sharpe": 0.0,
-            "profit_factor": 0.0,
-        })
+        await repo.save_result(
+            {
+                "job_id": "j1",
+                "profile_id": "",
+                "symbol": "BTC/USDT",
+                "total_trades": 0,
+                "win_rate": 0.0,
+                "avg_return": 0.0,
+                "max_drawdown": 0.0,
+                "sharpe": 0.0,
+                "profit_factor": 0.0,
+            }
+        )
         # created_by, start_date, end_date, timeframe all None
         assert client.last_args[12] is None
         assert client.last_args[13] is None

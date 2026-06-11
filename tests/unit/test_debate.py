@@ -4,68 +4,97 @@ Tests the debate engine rounds, prompt rendering, JSON extraction,
 fallback logic, and result structure.
 """
 
-import pytest
 import json
 from typing import Optional
 
-from services.debate.src.engine import (
-    DebateEngine, DebateResult, DebateRound, MarketContext,
-    _extract_json, _render, _load_template,
-)
+import pytest
 
+from services.debate.src.engine import (
+    DebateEngine,
+    DebateResult,
+    DebateRound,
+    MarketContext,
+    _extract_json,
+    _load_template,
+    _render,
+)
 
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_context(symbol="BTC/USDT"):
     return MarketContext(
-        symbol=symbol, price=50000.0, rsi=45.0, macd_histogram=0.002,
-        adx=28.0, bb_pct_b=0.6, atr=500.0, regime="TRENDING_UP",
-        ta_score=0.35, sentiment_score=0.2,
+        symbol=symbol,
+        price=50000.0,
+        rsi=45.0,
+        macd_histogram=0.002,
+        adx=28.0,
+        bb_pct_b=0.6,
+        atr=500.0,
+        regime="TRENDING_UP",
+        ta_score=0.35,
+        sentiment_score=0.2,
     )
 
 
 class MockBackend:
     """Returns canned JSON responses for bull, bear, and judge prompts."""
 
-    def __init__(self, bull_score=0.7, bear_score=0.6, judge_score=0.3, judge_conf=0.75):
+    def __init__(
+        self, bull_score=0.7, bear_score=0.6, judge_score=0.3, judge_conf=0.75
+    ):
         self.bull_score = bull_score
         self.bear_score = bear_score
         self.judge_score = judge_score
         self.judge_conf = judge_conf
         self.prompts_received: list[str] = []
 
-    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
+    async def complete(
+        self, prompt: str, grammar: Optional[str] = None
+    ) -> Optional[str]:
         self.prompts_received.append(prompt)
         if "BULL advocate" in prompt:
-            return json.dumps({
-                "argument": "RSI is oversold, MACD turning positive, strong buy signal.",
-                "conviction": self.bull_score,
-            })
+            return json.dumps(
+                {
+                    "argument": "RSI is oversold, MACD turning positive, strong buy signal.",
+                    "conviction": self.bull_score,
+                }
+            )
         elif "BEAR advocate" in prompt:
-            return json.dumps({
-                "argument": "High volatility and overbought conditions suggest reversal.",
-                "conviction": self.bear_score,
-            })
+            return json.dumps(
+                {
+                    "argument": "High volatility and overbought conditions suggest reversal.",
+                    "conviction": self.bear_score,
+                }
+            )
         elif "impartial JUDGE" in prompt:
-            return json.dumps({
-                "score": self.judge_score,
-                "confidence": self.judge_conf,
-                "reasoning": "Bull case slightly stronger due to momentum indicators.",
-            })
+            return json.dumps(
+                {
+                    "score": self.judge_score,
+                    "confidence": self.judge_conf,
+                    "reasoning": "Bull case slightly stronger due to momentum indicators.",
+                }
+            )
         return None
 
 
 class FailingBackend:
     """Always returns None."""
-    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
+
+    async def complete(
+        self, prompt: str, grammar: Optional[str] = None
+    ) -> Optional[str]:
         return None
 
 
 class GarbageBackend:
     """Returns non-JSON text."""
-    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
+
+    async def complete(
+        self, prompt: str, grammar: Optional[str] = None
+    ) -> Optional[str]:
         return "I cannot make a determination at this time."
 
 
@@ -73,13 +102,16 @@ class GarbageBackend:
 # JSON extraction
 # ---------------------------------------------------------------------------
 
+
 class TestExtractJson:
     def test_valid_json(self):
         result = _extract_json('{"score": 0.5, "confidence": 0.8}')
         assert result["score"] == 0.5
 
     def test_json_with_preamble(self):
-        result = _extract_json('Here is my response: {"score": -0.3, "confidence": 0.6}')
+        result = _extract_json(
+            'Here is my response: {"score": -0.3, "confidence": 0.6}'
+        )
         assert result is not None
         assert result["score"] == -0.3
 
@@ -96,6 +128,7 @@ class TestExtractJson:
 # ---------------------------------------------------------------------------
 # Template rendering
 # ---------------------------------------------------------------------------
+
 
 class TestRender:
     def test_renders_context(self):
@@ -117,6 +150,7 @@ class TestRender:
 # Template loading
 # ---------------------------------------------------------------------------
 
+
 class TestLoadTemplate:
     def test_load_bull(self):
         t = _load_template("bull")
@@ -135,6 +169,7 @@ class TestLoadTemplate:
 # ---------------------------------------------------------------------------
 # Debate engine
 # ---------------------------------------------------------------------------
+
 
 class TestDebateEngine:
 
@@ -157,6 +192,7 @@ class TestDebateEngine:
     async def test_result_has_unique_cycle_id_per_run(self):
         """Every debate cycle should have a fresh UUID for transcript persistence."""
         from uuid import UUID
+
         backend = MockBackend()
         engine = DebateEngine(backend, num_rounds=1)
         r1 = await engine.run(_make_context())
@@ -238,7 +274,9 @@ class TestDebateEngine:
         class ExtremeBackend:
             async def complete(self, prompt, grammar: Optional[str] = None):
                 if "JUDGE" in prompt:
-                    return json.dumps({"score": 5.0, "confidence": 3.0, "reasoning": "extreme"})
+                    return json.dumps(
+                        {"score": 5.0, "confidence": 3.0, "reasoning": "extreme"}
+                    )
                 return json.dumps({"argument": "test", "conviction": 0.5})
 
         engine = DebateEngine(ExtremeBackend(), num_rounds=1)

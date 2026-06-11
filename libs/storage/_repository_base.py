@@ -1,6 +1,9 @@
-from ._timescale_client import TimescaleClient
 from typing import Any, List, Optional
+
 import asyncpg
+
+from ._timescale_client import TimescaleClient
+
 
 class BaseRepository:
     def __init__(self, db: TimescaleClient):

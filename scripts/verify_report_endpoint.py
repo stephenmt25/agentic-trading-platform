@@ -3,6 +3,7 @@
 Mints a JWT, hits the endpoint for today's UTC date, then for an explicit
 historical date to confirm both paths return well-formed responses.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,7 +27,9 @@ async def first_user_id() -> str:
     db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(db_url)
     try:
-        row = await conn.fetchrow("SELECT user_id FROM users ORDER BY created_at LIMIT 1")
+        row = await conn.fetchrow(
+            "SELECT user_id FROM users ORDER BY created_at LIMIT 1"
+        )
         return str(row["user_id"]) if row else "00000000-0000-0000-0000-000000000001"
     finally:
         await conn.close()
@@ -39,9 +42,15 @@ def mint(secret: str, sub: str) -> str:
 
 async def post(c: httpx.AsyncClient, headers: dict, date: str) -> None:
     print(f"=== POST /paper-trading/reports/generate  date={date} ===")
-    r = await c.post(f"{API}/paper-trading/reports/generate", headers=headers, json={"date": date})
+    r = await c.post(
+        f"{API}/paper-trading/reports/generate", headers=headers, json={"date": date}
+    )
     print(f"  HTTP {r.status_code}")
-    body = r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text
+    body = (
+        r.json()
+        if r.headers.get("content-type", "").startswith("application/json")
+        else r.text
+    )
     if r.status_code == 200:
         print(f"  wrote: {body.get('wrote')}")
         print(f"  report: {body.get('report')}")
@@ -66,7 +75,11 @@ async def main() -> int:
         print()
         # Validation error test
         print("=== POST with malformed date ===")
-        r = await c.post(f"{API}/paper-trading/reports/generate", headers=headers, json={"date": "not-a-date"})
+        r = await c.post(
+            f"{API}/paper-trading/reports/generate",
+            headers=headers,
+            json={"date": "not-a-date"},
+        )
         print(f"  HTTP {r.status_code}  body: {r.text[:200]}")
     return 0
 

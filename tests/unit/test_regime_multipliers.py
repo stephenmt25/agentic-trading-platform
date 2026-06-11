@@ -7,30 +7,32 @@ regimes more than trending-up regimes.
 """
 
 import json
+from decimal import Decimal
+from unittest.mock import AsyncMock
 
 import pytest
-from unittest.mock import AsyncMock
 
 from libs.core.enums import Regime, SignalDirection
 from libs.core.models import NormalisedTick, RiskLimits
 from libs.indicators import create_indicator_set
 from services.hot_path.src.regime_dampener import (
-    RegimeDampener,
     _REGIME_CONFIDENCE_MULTIPLIER,
+    RegimeDampener,
 )
 from services.hot_path.src.state import ProfileState
 from services.hot_path.src.strategy_eval import EvaluatedIndicators, SignalResult
 from services.strategy.src.compiler import RuleCompiler
-from decimal import Decimal
 
 
 def _make_state() -> ProfileState:
-    rules = RuleCompiler.compile({
-        "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-        "logic": "AND",
-        "direction": "BUY",
-        "base_confidence": 0.85,
-    })
+    rules = RuleCompiler.compile(
+        {
+            "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
+        }
+    )
     limits = RiskLimits(
         max_drawdown_pct=Decimal("0.10"),
         stop_loss_pct=Decimal("0.05"),
@@ -47,37 +49,51 @@ def _make_state() -> ProfileState:
 
 
 def _signal() -> SignalResult:
-    return SignalResult(direction=SignalDirection.BUY, confidence=0.85, rule_matched=True)
+    return SignalResult(
+        direction=SignalDirection.BUY, confidence=0.85, rule_matched=True
+    )
 
 
 def _tick() -> NormalisedTick:
-    return NormalisedTick(symbol="BTC/USDT", exchange="binance", timestamp=1, price=50000.0, volume=1.0)
+    return NormalisedTick(
+        symbol="BTC/USDT", exchange="binance", timestamp=1, price=50000.0, volume=1.0
+    )
 
 
 def _inds() -> EvaluatedIndicators:
-    return EvaluatedIndicators(rsi=28.0, macd_line=0.5, signal_line=0.3, histogram=0.2, atr=100.0)
+    return EvaluatedIndicators(
+        rsi=28.0, macd_line=0.5, signal_line=0.3, histogram=0.2, atr=100.0
+    )
 
 
-@pytest.mark.parametrize("regime,expected", [
-    (Regime.TRENDING_UP, 1.0),
-    (Regime.TRENDING_DOWN, 0.5),
-    (Regime.RANGE_BOUND, 0.8),
-    (Regime.HIGH_VOLATILITY, 0.6),
-])
+@pytest.mark.parametrize(
+    "regime,expected",
+    [
+        (Regime.TRENDING_UP, 1.0),
+        (Regime.TRENDING_DOWN, 0.5),
+        (Regime.RANGE_BOUND, 0.8),
+        (Regime.HIGH_VOLATILITY, 0.6),
+    ],
+)
 def test_multiplier_table_matches_brief(regime, expected):
     assert _REGIME_CONFIDENCE_MULTIPLIER[regime] == expected
 
 
-@pytest.mark.parametrize("hmm_regime,expected_multiplier", [
-    ("TRENDING_UP", 1.0),
-    ("TRENDING_DOWN", 0.5),
-    ("RANGE_BOUND", 0.8),
-    ("HIGH_VOLATILITY", 0.6),
-])
+@pytest.mark.parametrize(
+    "hmm_regime,expected_multiplier",
+    [
+        ("TRENDING_UP", 1.0),
+        ("TRENDING_DOWN", 0.5),
+        ("RANGE_BOUND", 0.8),
+        ("HIGH_VOLATILITY", 0.6),
+    ],
+)
 @pytest.mark.asyncio
 async def test_dampener_uses_per_regime_multiplier(hmm_regime, expected_multiplier):
     redis = AsyncMock()
-    redis.get = AsyncMock(return_value=json.dumps({"regime": hmm_regime, "state_index": 0}))
+    redis.get = AsyncMock(
+        return_value=json.dumps({"regime": hmm_regime, "state_index": 0})
+    )
     dampener = RegimeDampener(redis_client=redis, pubsub=AsyncMock())
     state = _make_state()
 
@@ -85,6 +101,7 @@ async def test_dampener_uses_per_regime_multiplier(hmm_regime, expected_multipli
     # uses __slots__ so we replace the whole calculator with a Mock instead of
     # patching its update method in place.
     from unittest.mock import MagicMock
+
     state.indicators.regime = MagicMock(update=MagicMock(return_value=None))
 
     result = await dampener.check(state, _signal(), _tick(), _inds())
@@ -97,7 +114,9 @@ async def test_crisis_still_blocks():
     from unittest.mock import MagicMock
 
     redis = AsyncMock()
-    redis.get = AsyncMock(return_value=json.dumps({"regime": "CRISIS", "state_index": 4}))
+    redis.get = AsyncMock(
+        return_value=json.dumps({"regime": "CRISIS", "state_index": 4})
+    )
     dampener = RegimeDampener(redis_client=redis, pubsub=AsyncMock())
     state = _make_state()
     state.indicators.regime = MagicMock(update=MagicMock(return_value=None))

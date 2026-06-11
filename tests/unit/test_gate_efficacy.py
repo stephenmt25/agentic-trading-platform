@@ -7,12 +7,11 @@ and the 6-hour orchestrator are covered separately by integration tests.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 import pytest
 
 from services.analyst.src.gate_efficacy import (
-    DEFAULT_LOOKAHEAD_BARS,
     MIN_SAMPLE_SIZE,
     _classify_block_gate,
     compute_gate_report,
@@ -20,19 +19,27 @@ from services.analyst.src.gate_efficacy import (
     simulate_exit,
 )
 
-
 # ---------------------------------------------------------------------------
 # simulate_exit
 # ---------------------------------------------------------------------------
 
+
 def _candle(close: float, high: float = None, low: float = None) -> Dict[str, Any]:
-    return {"open": close, "close": close, "high": high or close, "low": low or close, "volume": 100.0}
+    return {
+        "open": close,
+        "close": close,
+        "high": high or close,
+        "low": low or close,
+        "volume": 100.0,
+    }
 
 
 class TestSimulateExit:
     def test_buy_take_profit(self):
         candles = [_candle(100), _candle(101), _candle(103, high=103)]
-        sim = simulate_exit("BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.02, max_bars=10)
+        sim = simulate_exit(
+            "BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.02, max_bars=10
+        )
         assert sim.reason == "take_profit"
         assert sim.is_win is True
         assert sim.pnl_pct == pytest.approx(0.02)
@@ -40,7 +47,9 @@ class TestSimulateExit:
 
     def test_buy_stop_loss(self):
         candles = [_candle(99, low=99), _candle(96, low=96), _candle(95, low=94)]
-        sim = simulate_exit("BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.10, max_bars=10)
+        sim = simulate_exit(
+            "BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.10, max_bars=10
+        )
         # Stop at 95 — bar 3 low 94 triggers
         assert sim.reason == "stop_loss"
         assert sim.is_win is False
@@ -49,52 +58,77 @@ class TestSimulateExit:
 
     def test_buy_time_exit_positive_pnl(self):
         candles = [_candle(101), _candle(101.5), _candle(101.2)]
-        sim = simulate_exit("BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.05, max_bars=3)
+        sim = simulate_exit(
+            "BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.05, max_bars=3
+        )
         assert sim.reason == "time_exit"
         assert sim.is_win is True
         assert sim.pnl_pct == pytest.approx(0.012)
 
     def test_buy_time_exit_negative_pnl(self):
         candles = [_candle(99), _candle(98.5), _candle(98)]
-        sim = simulate_exit("BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.05, max_bars=3)
+        sim = simulate_exit(
+            "BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.05, max_bars=3
+        )
         assert sim.reason == "time_exit"
         assert sim.is_win is False
         assert sim.pnl_pct == pytest.approx(-0.02)
 
     def test_sell_take_profit(self):
         candles = [_candle(99, low=99), _candle(98, low=98), _candle(97.5, low=97.5)]
-        sim = simulate_exit("SELL", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.02, max_bars=10)
+        sim = simulate_exit(
+            "SELL",
+            100.0,
+            candles,
+            stop_loss_pct=0.05,
+            take_profit_pct=0.02,
+            max_bars=10,
+        )
         assert sim.reason == "take_profit"
         assert sim.is_win is True
         assert sim.pnl_pct == pytest.approx(0.02)
 
     def test_sell_stop_loss(self):
         candles = [_candle(101, high=101), _candle(105, high=106)]
-        sim = simulate_exit("SELL", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.10, max_bars=10)
+        sim = simulate_exit(
+            "SELL",
+            100.0,
+            candles,
+            stop_loss_pct=0.05,
+            take_profit_pct=0.10,
+            max_bars=10,
+        )
         assert sim.reason == "stop_loss"
         assert sim.pnl_pct == pytest.approx(-0.05)
 
     def test_max_bars_caps_holding(self):
         candles = [_candle(100 + i * 0.001) for i in range(100)]
-        sim = simulate_exit("BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.10, max_bars=5)
+        sim = simulate_exit(
+            "BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.10, max_bars=5
+        )
         assert sim.bars_held == 5
         assert sim.reason == "time_exit"
 
     def test_no_candles_returns_no_data(self):
-        sim = simulate_exit("BUY", 100.0, [], stop_loss_pct=0.01, take_profit_pct=0.01, max_bars=1)
+        sim = simulate_exit(
+            "BUY", 100.0, [], stop_loss_pct=0.01, take_profit_pct=0.01, max_bars=1
+        )
         assert sim.reason == "no_data"
 
     def test_stop_first_when_both_in_one_bar(self):
         # Bar straddles both levels: low=94 (stop), high=103 (target). Conservative
         # convention: stop wins.
         candles = [_candle(98, high=103, low=94)]
-        sim = simulate_exit("BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.02, max_bars=10)
+        sim = simulate_exit(
+            "BUY", 100.0, candles, stop_loss_pct=0.05, take_profit_pct=0.02, max_bars=10
+        )
         assert sim.reason == "stop_loss"
 
 
 # ---------------------------------------------------------------------------
 # _classify_block_gate
 # ---------------------------------------------------------------------------
+
 
 class TestClassifyBlockGate:
     @pytest.mark.parametrize(
@@ -120,6 +154,7 @@ class TestClassifyBlockGate:
 # discover_gates_in_window
 # ---------------------------------------------------------------------------
 
+
 def test_discover_gates_in_window():
     decs = [
         {"outcome": "APPROVED"},
@@ -134,6 +169,7 @@ def test_discover_gates_in_window():
 # ---------------------------------------------------------------------------
 # compute_gate_report
 # ---------------------------------------------------------------------------
+
 
 def _decision(
     outcome: str,
@@ -164,7 +200,10 @@ class TestComputeGateReport:
         # 5 blocked decisions — far below MIN_SAMPLE_SIZE (30) — so the
         # report must surface NULLs to discourage interpretation.
         now = datetime.now(timezone.utc)
-        decs = [_decision("BLOCKED_ABSTENTION", created_at=now - timedelta(minutes=i)) for i in range(5)]
+        decs = [
+            _decision("BLOCKED_ABSTENTION", created_at=now - timedelta(minutes=i))
+            for i in range(5)
+        ]
         future_winners = self._winning_future()
         report = compute_gate_report(
             profile_id="00000000-0000-0000-0000-000000000001",
@@ -190,8 +229,14 @@ class TestComputeGateReport:
         story this MVP exists to tell."""
         now = datetime.now(timezone.utc)
         n = MIN_SAMPLE_SIZE + 5
-        blocked = [_decision("BLOCKED_ABSTENTION", created_at=now - timedelta(minutes=i)) for i in range(n)]
-        passed = [_decision("APPROVED", created_at=now - timedelta(minutes=i + 100)) for i in range(n)]
+        blocked = [
+            _decision("BLOCKED_ABSTENTION", created_at=now - timedelta(minutes=i))
+            for i in range(n)
+        ]
+        passed = [
+            _decision("APPROVED", created_at=now - timedelta(minutes=i + 100))
+            for i in range(n)
+        ]
         future = self._winning_future()
         report = compute_gate_report(
             profile_id="00000000-0000-0000-0000-000000000001",
@@ -219,9 +264,18 @@ class TestComputeGateReport:
         influence either count or the metric arrays."""
         now = datetime.now(timezone.utc)
         n = MIN_SAMPLE_SIZE + 2
-        target = [_decision("BLOCKED_ABSTENTION", created_at=now - timedelta(minutes=i)) for i in range(n)]
-        other_gate = [_decision("BLOCKED_HITL", created_at=now - timedelta(minutes=i + 200)) for i in range(20)]
-        passed = [_decision("APPROVED", created_at=now - timedelta(minutes=i + 100)) for i in range(n)]
+        target = [
+            _decision("BLOCKED_ABSTENTION", created_at=now - timedelta(minutes=i))
+            for i in range(n)
+        ]
+        other_gate = [
+            _decision("BLOCKED_HITL", created_at=now - timedelta(minutes=i + 200))
+            for i in range(20)
+        ]
+        passed = [
+            _decision("APPROVED", created_at=now - timedelta(minutes=i + 100))
+            for i in range(n)
+        ]
         future = self._losing_future()
         report = compute_gate_report(
             profile_id="00000000-0000-0000-0000-000000000001",
@@ -242,7 +296,10 @@ class TestComputeGateReport:
     def test_no_candles_drops_decision(self):
         now = datetime.now(timezone.utc)
         n = MIN_SAMPLE_SIZE + 2
-        blocked = [_decision("BLOCKED_ABSTENTION", created_at=now - timedelta(minutes=i)) for i in range(n)]
+        blocked = [
+            _decision("BLOCKED_ABSTENTION", created_at=now - timedelta(minutes=i))
+            for i in range(n)
+        ]
         report = compute_gate_report(
             profile_id="00000000-0000-0000-0000-000000000001",
             symbol="BTC/USDT",

@@ -1,10 +1,12 @@
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Dict, Optional
+
 from libs.core.enums import SignalDirection
 from libs.core.models import NormalisedTick
-from .state import ProfileState
-from libs.indicators import MACDResult, BollingerResult
 from services.strategy.src.compiler import StrategyTrace
+
+from .state import ProfileState
+
 
 @dataclass(frozen=True, slots=True)
 class EvaluatedIndicators:
@@ -29,15 +31,19 @@ class EvaluatedIndicators:
     z_score: Optional[float] = None
     hurst: Optional[float] = None
 
+
 @dataclass(frozen=True, slots=True)
 class SignalResult:
     direction: SignalDirection
     confidence: float
     rule_matched: bool
 
+
 class StrategyEvaluator:
     @staticmethod
-    def evaluate(state: ProfileState, tick: NormalisedTick) -> Optional[tuple[SignalResult, EvaluatedIndicators]]:
+    def evaluate(
+        state: ProfileState, tick: NormalisedTick
+    ) -> Optional[tuple[SignalResult, EvaluatedIndicators]]:
         price = float(tick.price)  # float-ok: indicator library requires float
 
         # 1. Update Indicators Incrementally
@@ -49,58 +55,94 @@ class StrategyEvaluator:
             tick_high = float(tick.ask)  # float-ok: indicator library requires float
             tick_low = float(tick.bid)  # float-ok: indicator library requires float
         else:
-            prev = state.indicators.atr.prev_close if state.indicators.atr.prev_close else price
+            prev = (
+                state.indicators.atr.prev_close
+                if state.indicators.atr.prev_close
+                else price
+            )
             tick_high = max(price, prev)
             tick_low = min(price, prev)
         atr_val = state.indicators.atr.update(tick_high, tick_low, price)
 
         # New indicators (optional — None means still priming or not configured)
-        adx_val = state.indicators.adx.update(tick_high, tick_low, price) if state.indicators.adx else None
-        bb_val = state.indicators.bollinger.update(price) if state.indicators.bollinger else None
-        obv_val = state.indicators.obv.update(price, float(tick.volume)) if state.indicators.obv else None  # float-ok: indicator library requires float
-        chop_val = state.indicators.choppiness.update(tick_high, tick_low, price) if state.indicators.choppiness else None
+        adx_val = (
+            state.indicators.adx.update(tick_high, tick_low, price)
+            if state.indicators.adx
+            else None
+        )
+        bb_val = (
+            state.indicators.bollinger.update(price)
+            if state.indicators.bollinger
+            else None
+        )
+        obv_val = (
+            state.indicators.obv.update(price, float(tick.volume))
+            if state.indicators.obv
+            else None
+        )  # float-ok: indicator library requires float
+        chop_val = (
+            state.indicators.choppiness.update(tick_high, tick_low, price)
+            if state.indicators.choppiness
+            else None
+        )
         # C.2 additions
-        vwap_val = state.indicators.vwap.update(price, float(tick.volume)) if state.indicators.vwap else None  # float-ok
-        keltner_val = state.indicators.keltner.update(tick_high, tick_low, price) if state.indicators.keltner else None
-        rvol_val = state.indicators.rvol.update(float(tick.volume)) if state.indicators.rvol else None  # float-ok
-        zscore_val = state.indicators.zscore.update(price) if state.indicators.zscore else None
-        hurst_val = state.indicators.hurst.update(price) if state.indicators.hurst else None
+        vwap_val = (
+            state.indicators.vwap.update(price, float(tick.volume))
+            if state.indicators.vwap
+            else None
+        )  # float-ok
+        keltner_val = (
+            state.indicators.keltner.update(tick_high, tick_low, price)
+            if state.indicators.keltner
+            else None
+        )
+        rvol_val = (
+            state.indicators.rvol.update(float(tick.volume))
+            if state.indicators.rvol
+            else None
+        )  # float-ok
+        zscore_val = (
+            state.indicators.zscore.update(price) if state.indicators.zscore else None
+        )
+        hurst_val = (
+            state.indicators.hurst.update(price) if state.indicators.hurst else None
+        )
 
         if rsi_val is None or macd_val is None or atr_val is None:
-            return None # Core indicators still priming
+            return None  # Core indicators still priming
 
         # Pack into evaluation logic mapping
         eval_dict = {
-            'rsi': rsi_val,
-            'macd.macd_line': macd_val.macd_line,
-            'macd.signal_line': macd_val.signal_line,
-            'macd.histogram': macd_val.histogram,
-            'atr': atr_val,
+            "rsi": rsi_val,
+            "macd.macd_line": macd_val.macd_line,
+            "macd.signal_line": macd_val.signal_line,
+            "macd.histogram": macd_val.histogram,
+            "atr": atr_val,
         }
         # Add new indicators to eval_dict only when primed
         if adx_val is not None:
-            eval_dict['adx'] = adx_val
+            eval_dict["adx"] = adx_val
         if bb_val is not None:
-            eval_dict['bb.pct_b'] = bb_val.pct_b
-            eval_dict['bb.bandwidth'] = bb_val.bandwidth
-            eval_dict['bb.upper'] = bb_val.upper
-            eval_dict['bb.lower'] = bb_val.lower
+            eval_dict["bb.pct_b"] = bb_val.pct_b
+            eval_dict["bb.bandwidth"] = bb_val.bandwidth
+            eval_dict["bb.upper"] = bb_val.upper
+            eval_dict["bb.lower"] = bb_val.lower
         if obv_val is not None:
-            eval_dict['obv'] = obv_val
+            eval_dict["obv"] = obv_val
         if chop_val is not None:
-            eval_dict['choppiness'] = chop_val
+            eval_dict["choppiness"] = chop_val
         if vwap_val is not None:
-            eval_dict['vwap'] = vwap_val
+            eval_dict["vwap"] = vwap_val
         if keltner_val is not None:
-            eval_dict['keltner.upper'] = keltner_val.upper
-            eval_dict['keltner.middle'] = keltner_val.middle
-            eval_dict['keltner.lower'] = keltner_val.lower
+            eval_dict["keltner.upper"] = keltner_val.upper
+            eval_dict["keltner.middle"] = keltner_val.middle
+            eval_dict["keltner.lower"] = keltner_val.lower
         if rvol_val is not None:
-            eval_dict['rvol'] = rvol_val
+            eval_dict["rvol"] = rvol_val
         if zscore_val is not None:
-            eval_dict['z_score'] = zscore_val
+            eval_dict["z_score"] = zscore_val
         if hurst_val is not None:
-            eval_dict['hurst'] = hurst_val
+            eval_dict["hurst"] = hurst_val
 
         eval_inds = EvaluatedIndicators(
             rsi=rsi_val,
@@ -128,14 +170,23 @@ class StrategyEvaluator:
         res = state.compiled_rules.evaluate(eval_dict)
         if res:
             direction, confidence = res
-            return SignalResult(direction=direction, confidence=confidence, rule_matched=True), eval_inds
+            return (
+                SignalResult(
+                    direction=direction, confidence=confidence, rule_matched=True
+                ),
+                eval_inds,
+            )
 
         return None, eval_inds
 
     @staticmethod
     def evaluate_with_trace(
         state: ProfileState, tick: NormalisedTick
-    ) -> Optional[tuple[Optional[SignalResult], EvaluatedIndicators, StrategyTrace, Dict[str, float]]]:
+    ) -> Optional[
+        tuple[
+            Optional[SignalResult], EvaluatedIndicators, StrategyTrace, Dict[str, float]
+        ]
+    ]:
         """Like evaluate() but returns a StrategyTrace and the raw indicator dict.
 
         Returns None only when core indicators are still priming.
@@ -150,21 +201,57 @@ class StrategyEvaluator:
             tick_high = float(tick.ask)
             tick_low = float(tick.bid)
         else:
-            prev = state.indicators.atr.prev_close if state.indicators.atr.prev_close else price
+            prev = (
+                state.indicators.atr.prev_close
+                if state.indicators.atr.prev_close
+                else price
+            )
             tick_high = max(price, prev)
             tick_low = min(price, prev)
         atr_val = state.indicators.atr.update(tick_high, tick_low, price)
 
-        adx_val = state.indicators.adx.update(tick_high, tick_low, price) if state.indicators.adx else None
-        bb_val = state.indicators.bollinger.update(price) if state.indicators.bollinger else None
-        obv_val = state.indicators.obv.update(price, float(tick.volume)) if state.indicators.obv else None
-        chop_val = state.indicators.choppiness.update(tick_high, tick_low, price) if state.indicators.choppiness else None
+        adx_val = (
+            state.indicators.adx.update(tick_high, tick_low, price)
+            if state.indicators.adx
+            else None
+        )
+        bb_val = (
+            state.indicators.bollinger.update(price)
+            if state.indicators.bollinger
+            else None
+        )
+        obv_val = (
+            state.indicators.obv.update(price, float(tick.volume))
+            if state.indicators.obv
+            else None
+        )
+        chop_val = (
+            state.indicators.choppiness.update(tick_high, tick_low, price)
+            if state.indicators.choppiness
+            else None
+        )
         # C.2 additions
-        vwap_val = state.indicators.vwap.update(price, float(tick.volume)) if state.indicators.vwap else None
-        keltner_val = state.indicators.keltner.update(tick_high, tick_low, price) if state.indicators.keltner else None
-        rvol_val = state.indicators.rvol.update(float(tick.volume)) if state.indicators.rvol else None
-        zscore_val = state.indicators.zscore.update(price) if state.indicators.zscore else None
-        hurst_val = state.indicators.hurst.update(price) if state.indicators.hurst else None
+        vwap_val = (
+            state.indicators.vwap.update(price, float(tick.volume))
+            if state.indicators.vwap
+            else None
+        )
+        keltner_val = (
+            state.indicators.keltner.update(tick_high, tick_low, price)
+            if state.indicators.keltner
+            else None
+        )
+        rvol_val = (
+            state.indicators.rvol.update(float(tick.volume))
+            if state.indicators.rvol
+            else None
+        )
+        zscore_val = (
+            state.indicators.zscore.update(price) if state.indicators.zscore else None
+        )
+        hurst_val = (
+            state.indicators.hurst.update(price) if state.indicators.hurst else None
+        )
 
         if rsi_val is None or macd_val is None or atr_val is None:
             return None
@@ -225,7 +312,9 @@ class StrategyEvaluator:
         res, strat_trace = state.compiled_rules.evaluate_with_trace(eval_dict)
         if res:
             direction, confidence = res
-            sig = SignalResult(direction=direction, confidence=confidence, rule_matched=True)
+            sig = SignalResult(
+                direction=direction, confidence=confidence, rule_matched=True
+            )
             return sig, eval_inds, strat_trace, eval_dict
 
         return None, eval_inds, strat_trace, eval_dict

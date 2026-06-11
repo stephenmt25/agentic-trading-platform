@@ -1,13 +1,15 @@
-import asyncio
 import time
+
+from libs.core.enums import ValidationMode, ValidationVerdict
+from libs.core.schemas import ValidationRequestEvent, ValidationResponseEvent
 from libs.messaging import StreamConsumer
 from libs.storage.repositories import ValidationRepository
-from libs.core.schemas import ValidationRequestEvent, ValidationResponseEvent
-from libs.core.enums import ValidationVerdict, ValidationMode
+
 from .check_2_hallucination import HallucinationCheck
 from .check_3_bias import BiasCheck
 from .check_4_drift import DriftCheck
 from .check_5_escalation import EscalationCheck
+
 
 class AsyncAuditHandler:
     def __init__(
@@ -18,7 +20,7 @@ class AsyncAuditHandler:
         check3: BiasCheck,
         check4: DriftCheck,
         check5: EscalationCheck,
-        channel: str
+        channel: str,
     ):
         self._consumer = consumer
         self._validation_repo = validation_repo
@@ -30,32 +32,46 @@ class AsyncAuditHandler:
 
     async def run(self):
         while True:
-            events = await self._consumer.consume(self._channel, "async_val_group", "auditor_1", count=50)
-            
+            events = await self._consumer.consume(
+                self._channel, "async_val_group", "auditor_1", count=50
+            )
+
             for msg_id, ev in events:
                 if not ev or not isinstance(ev, ValidationRequestEvent):
                     continue
-                    
+
                 t0 = time.monotonic()
                 profile_id = ev.profile_id
                 payload = ev.payload
-                
+
                 # Check 2
                 res2 = await self._check2.check(profile_id, payload)
                 if not res2.passed:
-                    await self._check5.evaluate(profile_id, "check2_hallucination", {"reason": "AMBER " + str(res2.reason)})
-                    
+                    await self._check5.evaluate(
+                        profile_id,
+                        "check2_hallucination",
+                        {"reason": "AMBER " + str(res2.reason)},
+                    )
+
                 # Check 3
                 res3 = await self._check3.check(profile_id, payload)
                 if not res3.passed:
-                    await self._check5.evaluate(profile_id, "check3_bias", {"reason": "AMBER " + str(res3.reason)})
-                    
+                    await self._check5.evaluate(
+                        profile_id,
+                        "check3_bias",
+                        {"reason": "AMBER " + str(res3.reason)},
+                    )
+
                 # Check 4
                 res4 = await self._check4.check(profile_id, payload)
                 if not res4.passed:
                     status = "RED" if "RED" in res4.reason else "AMBER"
-                    await self._check5.evaluate(profile_id, "check4_drift", {"reason": f"{status} " + str(res4.reason)})
-                    
+                    await self._check5.evaluate(
+                        profile_id,
+                        "check4_drift",
+                        {"reason": f"{status} " + str(res4.reason)},
+                    )
+
                 # Persist the async-audit outcome. ValidationMode.ASYNC_AUDIT
                 # exists in the schema precisely for this path; mirror the
                 # fast-gate's ValidationResponseEvent construction. Verdict is
@@ -91,6 +107,8 @@ class AsyncAuditHandler:
                     audit_resp,
                     {"res2": res2.passed, "res3": res3.passed, "res4": res4.passed},
                 )
-                
+
             if events:
-                await self._consumer.ack(self._channel, "async_val_group", [m for m, _ in events])
+                await self._consumer.ack(
+                    self._channel, "async_val_group", [m for m, _ in events]
+                )

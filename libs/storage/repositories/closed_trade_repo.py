@@ -54,18 +54,20 @@ class ClosedTradeRepository(BaseRepository):
         realized_pnl: Decimal,
         realized_pnl_pct: Decimal,
         outcome: str,
+        slippage_cost: Decimal = Decimal("0"),
+        funding_cost: Decimal = Decimal("0"),
     ) -> None:
         query = """
         INSERT INTO closed_trades (
             position_id, profile_id, symbol, side, decision_event_id, order_id,
             entry_price, entry_quantity, entry_fee, entry_regime, entry_agent_scores,
             exit_price, exit_fee, close_reason, opened_at, closed_at, holding_duration_s,
-            realized_pnl, realized_pnl_pct, outcome
+            realized_pnl, realized_pnl_pct, outcome, slippage_cost, funding_cost
         ) VALUES (
             $1, $2, $3, $4, $5, $6,
             $7, $8, $9, $10, $11,
             $12, $13, $14, $15, $16, $17,
-            $18, $19, $20
+            $18, $19, $20, $21, $22
         )
         ON CONFLICT (position_id) DO NOTHING
         """
@@ -91,7 +93,71 @@ class ClosedTradeRepository(BaseRepository):
             realized_pnl,
             realized_pnl_pct,
             outcome,
+            slippage_cost,
+            funding_cost,
         )
+
+    async def net_of_cost_by_profile(
+        self,
+        *,
+        profile_id: Optional[UUID] = None,
+        window_hours: int = 168,
+    ) -> List[Dict[str, Any]]:
+        """Per-strategy (profile) net-of-cost rollup — the honest number the
+        learning loop needs (PR5, closes 0.5).
+
+        realized_pnl is already net of entry+exit fees (and, post-PR1, of slippage
+        via the real fill). This breaks the costs out per profile so a net-negative
+        strategy is visible: net P&L, gross fees, attributed slippage, funding
+        (0 on spot), trade count, win rate, and a `net_negative` flag.
+        """
+        conditions: list = ["closed_at >= NOW() - ($1 || ' hours')::INTERVAL"]
+        params: list = [str(window_hours)]
+        idx = 2
+        if profile_id:
+            conditions.append(f"profile_id = ${idx}")
+            params.append(profile_id)
+            idx += 1
+        where = "WHERE " + " AND ".join(conditions)
+
+        query = f"""
+        SELECT
+            profile_id,
+            COUNT(*)::INT                                         AS trade_count,
+            COUNT(*) FILTER (WHERE outcome = 'win')::INT          AS win_count,
+            COUNT(*) FILTER (WHERE outcome = 'loss')::INT         AS loss_count,
+            SUM(realized_pnl)::NUMERIC(20,8)                      AS net_pnl,
+            SUM(entry_fee + exit_fee)::NUMERIC(20,8)              AS total_fees,
+            SUM(slippage_cost)::NUMERIC(20,8)                     AS total_slippage,
+            SUM(funding_cost)::NUMERIC(20,8)                      AS total_funding,
+            AVG(realized_pnl_pct)::NUMERIC(10,6)                  AS avg_pnl_pct
+        FROM closed_trades
+        {where}
+        GROUP BY profile_id
+        ORDER BY net_pnl ASC
+        """
+        rows = await self._fetch(query, *params)
+        out: List[Dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            n = d["trade_count"] or 0
+            net = d.get("net_pnl")
+            d["win_rate"] = (d["win_count"] / n) if n else None
+            d["profile_id"] = str(d["profile_id"])
+            for key in (
+                "net_pnl",
+                "total_fees",
+                "total_slippage",
+                "total_funding",
+                "avg_pnl_pct",
+            ):
+                v = d.get(key)
+                if v is not None:
+                    d[key] = float(v)
+            # The honest flag: is this strategy net-negative after all costs?
+            d["net_negative"] = net is not None and net < 0
+            out.append(d)
+        return out
 
     async def get_recent(
         self,
@@ -129,7 +195,9 @@ class ClosedTradeRepository(BaseRepository):
         )
         return dict(row) if row else None
 
-    async def get_by_decision_event(self, decision_event_id: UUID) -> Optional[Dict[str, Any]]:
+    async def get_by_decision_event(
+        self, decision_event_id: UUID
+    ) -> Optional[Dict[str, Any]]:
         row = await self._fetchrow(
             "SELECT * FROM closed_trades WHERE decision_event_id = $1 LIMIT 1",
             decision_event_id,
@@ -262,8 +330,10 @@ class ClosedTradeRepository(BaseRepository):
         Buckets with ``trade_count < min_trades`` are dropped — a single-
         trade fingerprint isn't actionable.
         """
-        conditions: list = ["ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
-                            "d.outcome = 'APPROVED'"]
+        conditions: list = [
+            "ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
+            "d.outcome = 'APPROVED'",
+        ]
         params: list = [str(window_hours), min_trades]
         idx = 3
         if profile_id:
@@ -367,8 +437,10 @@ class ClosedTradeRepository(BaseRepository):
         closed_trade row (PR1 audit chain shipped this). Trades whose
         decision row was pruned by archiver retention are silently dropped.
         """
-        conditions: list = ["ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
-                            "d.outcome = 'APPROVED'"]
+        conditions: list = [
+            "ct.closed_at >= NOW() - ($1 || ' hours')::INTERVAL",
+            "d.outcome = 'APPROVED'",
+        ]
         params: list = [str(window_hours), threshold]
         idx = 3
         if profile_id:
@@ -482,7 +554,9 @@ class ClosedTradeRepository(BaseRepository):
             idx += 1
 
         where = "WHERE " + " AND ".join(conditions)
-        regime_select = ", COALESCE(entry_regime, 'unknown') AS regime" if group_by_regime else ""
+        regime_select = (
+            ", COALESCE(entry_regime, 'unknown') AS regime" if group_by_regime else ""
+        )
         regime_group = ", COALESCE(entry_regime, 'unknown')" if group_by_regime else ""
         order_extra = ", regime" if group_by_regime else ""
 

@@ -14,8 +14,6 @@ Usage:
 """
 
 import os
-import base64
-import json
 from typing import Optional
 
 from cryptography.fernet import Fernet
@@ -60,6 +58,7 @@ class SecretManager:
         if self._use_gcp:
             try:
                 from google.cloud import secretmanager
+
                 self._client = secretmanager.SecretManagerServiceClient()
                 logger.info("Using GCP Secret Manager", project=self._gcp_project_id)
             except ImportError:
@@ -119,7 +118,6 @@ class SecretManager:
 
     def _gcp_store(self, secret_id: str, plaintext: str) -> str:
         """Store secret in GCP Secret Manager."""
-        from google.cloud import secretmanager
         from google.api_core import exceptions as gcp_exceptions
 
         parent = f"projects/{self._gcp_project_id}"

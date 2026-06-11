@@ -24,6 +24,7 @@ Adding a schema entry costs nothing at runtime; missing schemas mean
 unknown keys silently pass. Plan: add entries as new keys are introduced
 in ``libs/messaging/channels.py`` / ``libs/core/agent_registry.py``.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -37,9 +38,10 @@ logger = get_logger("observability.redis_invariants")
 @dataclass(frozen=True)
 class KeySchema:
     """Declarative schema for a Redis key/stream pattern."""
-    pattern: str                                # SCAN MATCH pattern (glob)
-    expected_type: str                          # 'hash'|'stream'|'string'|'zset'|'set'|'list'
-    required_fields: tuple[str, ...] = ()       # for hashes / streams; empty = no check
+
+    pattern: str  # SCAN MATCH pattern (glob)
+    expected_type: str  # 'hash'|'stream'|'string'|'zset'|'set'|'list'
+    required_fields: tuple[str, ...] = ()  # for hashes / streams; empty = no check
     notes: str = ""
 
 
@@ -64,40 +66,46 @@ SCHEMAS: tuple[KeySchema, ...] = (
         pattern="agent:weights:*",
         expected_type="hash",
         notes="Per-symbol agent weights. Field names are agent identifiers "
-              "(ta/sentiment/debate). Field values are stringified floats.",
+        "(ta/sentiment/debate). Field values are stringified floats.",
     ),
     KeySchema(
         pattern="agent:tracker:*",
         expected_type="hash",
         required_fields=("ewma_accuracy", "sample_count", "last_updated"),
         notes="Per (symbol, agent) EWMA tracker state. Bytes-vs-str on these "
-              "fields was the acb25ae class of bug — verify field names match "
-              "what consumers look up.",
+        "fields was the acb25ae class of bug — verify field names match "
+        "what consumers look up.",
     ),
     KeySchema(
         pattern="agent:outcomes:*",
         expected_type="stream",
         required_fields=("agent", "direction", "score", "timestamp"),
         notes="Stream of agent score snapshots taken at order-execution time. "
-              "Producer is libs/core/agent_registry.py::record_agent_scores; "
-              "no live consumer — kept as an audit trail. Field is `score` "
-              "(stringified float in [0, 1]), not `price` — the original plan "
-              "doc had this wrong.",
+        "Producer is libs/core/agent_registry.py::record_agent_scores; "
+        "no live consumer — kept as an audit trail. Field is `score` "
+        "(stringified float in [0, 1]), not `price` — the original plan "
+        "doc had this wrong.",
     ),
     KeySchema(
         pattern="agent:closed:*",
         expected_type="stream",
-        required_fields=("position_id", "outcome", "pnl_pct", "agents_json", "timestamp"),
+        required_fields=(
+            "position_id",
+            "outcome",
+            "pnl_pct",
+            "agents_json",
+            "timestamp",
+        ),
         notes="Stream of closed-trade outcomes consumed by the EWMA "
-              "learning loop in AgentPerformanceTracker.recompute_weights.",
+        "learning loop in AgentPerformanceTracker.recompute_weights.",
     ),
     KeySchema(
         pattern="pnl:daily:*",
         expected_type="hash",
         required_fields=("date", "total_pct_micro"),
         notes="Daily realised-PnL counter. f583ffb was a producer/consumer "
-              "type mismatch on this key — the counter is a hash, not a JSON "
-              "string. CircuitBreaker reads total_pct_micro / 1e6.",
+        "type mismatch on this key — the counter is a hash, not a JSON "
+        "string. CircuitBreaker reads total_pct_micro / 1e6.",
     ),
     KeySchema(
         pattern="praxis:kill_switch",
@@ -108,7 +116,7 @@ SCHEMAS: tuple[KeySchema, ...] = (
         pattern="agent:position_scores:*",
         expected_type="string",
         notes="JSON-encoded snapshot {agents, regime} written by execution "
-              "at order placement time. PnL closer reads this on close.",
+        "at order placement time. PnL closer reads this on close.",
     ),
     # Deliberately not registered:
     #   - agent:archive:* (post-hoc archives from reset_clean_baseline.py — schema-free)
@@ -125,23 +133,30 @@ def _decode(v):
     return v.decode() if isinstance(v, (bytes, bytearray)) else v
 
 
-async def _check_hash(redis, key: str, schema: KeySchema) -> list[RedisInvariantViolation]:
+async def _check_hash(
+    redis, key: str, schema: KeySchema
+) -> list[RedisInvariantViolation]:
     raw = await redis.hgetall(key)
     decoded = {_decode(k): _decode(v) for k, v in raw.items()}
     if not schema.required_fields:
         return []
     missing = [f for f in schema.required_fields if f not in decoded]
     if missing:
-        return [RedisInvariantViolation(
-            key=key, pattern=schema.pattern,
-            expected=f"hash with required fields {list(schema.required_fields)}",
-            actual=f"missing: {missing}; present: {sorted(decoded.keys())}",
-            severity="HIGH",
-        )]
+        return [
+            RedisInvariantViolation(
+                key=key,
+                pattern=schema.pattern,
+                expected=f"hash with required fields {list(schema.required_fields)}",
+                actual=f"missing: {missing}; present: {sorted(decoded.keys())}",
+                severity="HIGH",
+            )
+        ]
     return []
 
 
-async def _check_stream(redis, key: str, schema: KeySchema) -> list[RedisInvariantViolation]:
+async def _check_stream(
+    redis, key: str, schema: KeySchema
+) -> list[RedisInvariantViolation]:
     if not schema.required_fields:
         return []
     entries = await redis.xrevrange(key, count=STREAM_SAMPLE_COUNT)
@@ -153,17 +168,22 @@ async def _check_stream(redis, key: str, schema: KeySchema) -> list[RedisInvaria
         decoded = {_decode(k): _decode(v) for k, v in fields.items()}
         missing = [f for f in schema.required_fields if f not in decoded]
         if missing:
-            violations.append(RedisInvariantViolation(
-                key=key, pattern=schema.pattern,
-                expected=f"stream entry with fields {list(schema.required_fields)}",
-                actual=f"latest entry id={_decode(entry_id)} missing: {missing}; "
-                       f"present: {sorted(decoded.keys())}",
-                severity="HIGH",
-            ))
+            violations.append(
+                RedisInvariantViolation(
+                    key=key,
+                    pattern=schema.pattern,
+                    expected=f"stream entry with fields {list(schema.required_fields)}",
+                    actual=f"latest entry id={_decode(entry_id)} missing: {missing}; "
+                    f"present: {sorted(decoded.keys())}",
+                    severity="HIGH",
+                )
+            )
     return violations
 
 
-async def scan(redis, schemas: Sequence[KeySchema] = SCHEMAS) -> list[RedisInvariantViolation]:
+async def scan(
+    redis, schemas: Sequence[KeySchema] = SCHEMAS
+) -> list[RedisInvariantViolation]:
     """Walk every schema's pattern; return a list of violations.
 
     Empty list = no violations found (healthy). Failures while reading a
@@ -182,21 +202,27 @@ async def scan(redis, schemas: Sequence[KeySchema] = SCHEMAS) -> list[RedisInvar
                 try:
                     actual_type = _decode(await redis.type(key))
                 except Exception as e:
-                    violations.append(RedisInvariantViolation(
-                        key=key, pattern=schema.pattern,
-                        expected=schema.expected_type,
-                        actual=f"type lookup failed: {e}",
-                        severity="LOW",
-                    ))
+                    violations.append(
+                        RedisInvariantViolation(
+                            key=key,
+                            pattern=schema.pattern,
+                            expected=schema.expected_type,
+                            actual=f"type lookup failed: {e}",
+                            severity="LOW",
+                        )
+                    )
                     continue
 
                 if actual_type != schema.expected_type:
-                    violations.append(RedisInvariantViolation(
-                        key=key, pattern=schema.pattern,
-                        expected=f"type={schema.expected_type}",
-                        actual=f"type={actual_type}",
-                        severity="HIGH",
-                    ))
+                    violations.append(
+                        RedisInvariantViolation(
+                            key=key,
+                            pattern=schema.pattern,
+                            expected=f"type={schema.expected_type}",
+                            actual=f"type={actual_type}",
+                            severity="HIGH",
+                        )
+                    )
                     continue
 
                 try:
@@ -205,12 +231,17 @@ async def scan(redis, schemas: Sequence[KeySchema] = SCHEMAS) -> list[RedisInvar
                     elif schema.expected_type == "stream":
                         violations.extend(await _check_stream(redis, key, schema))
                 except Exception as e:
-                    violations.append(RedisInvariantViolation(
-                        key=key, pattern=schema.pattern,
-                        expected=schema.expected_type,
-                        actual=f"field check failed: {e}",
-                        severity="LOW",
-                    ))
+                    violations.append(
+                        RedisInvariantViolation(
+                            key=key,
+                            pattern=schema.pattern,
+                            expected=schema.expected_type,
+                            actual=f"field check failed: {e}",
+                            severity="LOW",
+                        )
+                    )
         except Exception as e:
-            logger.exception("Scan failed for pattern", pattern=schema.pattern, error=str(e))
+            logger.exception(
+                "Scan failed for pattern", pattern=schema.pattern, error=str(e)
+            )
     return violations

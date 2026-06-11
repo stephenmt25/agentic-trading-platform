@@ -1,19 +1,19 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
-import uvicorn
-
-from libs.config import settings
 from decimal import Decimal
 
-from libs.storage import RedisClient
-from libs.storage.repositories.market_data_repo import MarketDataRepository
-from libs.storage.repositories.agent_score_repo import AgentScoreRepository
-from libs.storage._timescale_client import TimescaleClient
+import uvicorn
+from fastapi import FastAPI
+
+from libs.config import settings
 from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
+from libs.storage import RedisClient
+from libs.storage._timescale_client import TimescaleClient
+from libs.storage.repositories.agent_score_repo import AgentScoreRepository
+from libs.storage.repositories.market_data_repo import MarketDataRepository
+
 from .confluence import TAConfluenceScorer
 
 logger = get_logger("ta-agent")
@@ -25,7 +25,12 @@ SCORE_TTL_S = 120
 CANDLE_LIMIT = 150
 
 
-async def scoring_loop(redis_client, market_repo: MarketDataRepository, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
+async def scoring_loop(
+    redis_client,
+    market_repo: MarketDataRepository,
+    telemetry: TelemetryPublisher,
+    score_repo: AgentScoreRepository = None,
+):
     """Periodically compute TA confluence scores and write to Redis."""
     symbols = settings.TRADING_SYMBOLS
     scorer_map = {sym: TAConfluenceScorer() for sym in symbols}
@@ -33,29 +38,45 @@ async def scoring_loop(redis_client, market_repo: MarketDataRepository, telemetr
     while True:
         try:
             for symbol in symbols:
-                await telemetry.emit("input_received", {"symbol": symbol, "message_type": "scoring_cycle"}, source_agent="ingestion")
+                await telemetry.emit(
+                    "input_received",
+                    {"symbol": symbol, "message_type": "scoring_cycle"},
+                    source_agent="ingestion",
+                )
                 scorer = scorer_map[symbol]
 
                 for tf in TAConfluenceScorer.TIMEFRAMES:
-                    candles = await market_repo.get_candles(symbol, tf, limit=CANDLE_LIMIT)
+                    candles = await market_repo.get_candles(
+                        symbol, tf, limit=CANDLE_LIMIT
+                    )
                     # Re-initialize scorer for this cycle with fresh data
                     for candle in candles:
                         scorer.update_timeframe(
                             tf,
-                            float(candle["high"]),  # float-ok: indicator library requires float
-                            float(candle["low"]),  # float-ok: indicator library requires float
-                            float(candle["close"]),  # float-ok: indicator library requires float
+                            float(
+                                candle["high"]
+                            ),  # float-ok: indicator library requires float
+                            float(
+                                candle["low"]
+                            ),  # float-ok: indicator library requires float
+                            float(
+                                candle["close"]
+                            ),  # float-ok: indicator library requires float
                         )
 
                 score = scorer.score()
                 if score is not None:
                     key = f"agent:ta_score:{symbol}"
-                    await redis_client.set(key, json.dumps({"score": score}), ex=SCORE_TTL_S)
+                    await redis_client.set(
+                        key, json.dumps({"score": score}), ex=SCORE_TTL_S
+                    )
                     logger.info("TA score updated", symbol=symbol, score=score)
                     # Persist to TimescaleDB for charting overlays
                     if score_repo:
                         try:
-                            await score_repo.write_score(symbol, "ta", Decimal(str(score)))
+                            await score_repo.write_score(
+                                symbol, "ta", Decimal(str(score))
+                            )
                         except Exception as pe:
                             logger.warning("Failed to persist TA score", error=str(pe))
                     await telemetry.emit(

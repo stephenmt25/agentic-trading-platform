@@ -7,26 +7,26 @@ written to Redis key agent:debate:{symbol}.
 import asyncio
 import json
 from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
-import uvicorn
-
 from decimal import Decimal
 
+import uvicorn
+from fastapi import FastAPI
+
 from libs.config import settings
+from libs.observability import get_logger, supervised_task
+from libs.observability.telemetry import TelemetryPublisher
 from libs.storage import RedisClient
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage.repositories.debate_repo import DebateRepository
-from libs.observability import get_logger, supervised_task
-from libs.observability.telemetry import TelemetryPublisher
 from services.sentiment.src.scorer import create_backend
+
 from .engine import DebateEngine, MarketContext
 
 logger = get_logger("debate-agent")
 
 DEBATE_INTERVAL_S = 300  # 5 minutes
-DEBATE_TTL_S = 600       # 10 minutes
+DEBATE_TTL_S = 600  # 10 minutes
 
 
 async def _get_market_context(redis_client, symbol: str) -> MarketContext:
@@ -48,13 +48,17 @@ async def _get_market_context(redis_client, symbol: str) -> MarketContext:
     sent_score = 0.0
     if sent_raw:
         try:
-            sent_score = float(json.loads(sent_raw).get("score", 0))  # float-ok: ML score
+            sent_score = float(
+                json.loads(sent_raw).get("score", 0)
+            )  # float-ok: ML score
         except Exception:
             pass
 
     regime = "UNKNOWN"
     if regime_raw:
-        regime = regime_raw.decode() if isinstance(regime_raw, bytes) else str(regime_raw)
+        regime = (
+            regime_raw.decode() if isinstance(regime_raw, bytes) else str(regime_raw)
+        )
 
     # Indicator values (may not be cached — use defaults)
     rsi, macd_hist, adx, bb_pct_b, atr, price = 50.0, 0.0, 0.0, 0.5, 0.0, 0.0
@@ -62,11 +66,15 @@ async def _get_market_context(redis_client, symbol: str) -> MarketContext:
         try:
             ind = json.loads(ind_raw)
             rsi = float(ind.get("rsi", 50))  # float-ok: indicator/ML values
-            macd_hist = float(ind.get("macd_histogram", 0))  # float-ok: indicator/ML values
+            macd_hist = float(
+                ind.get("macd_histogram", 0)
+            )  # float-ok: indicator/ML values
             adx = float(ind.get("adx", 0))  # float-ok: indicator/ML values
             bb_pct_b = float(ind.get("bb_pct_b", 0.5))  # float-ok: indicator/ML values
             atr = float(ind.get("atr", 0))  # float-ok: indicator/ML values
-            price = float(ind.get("price", 0))  # float-ok: indicator context (not financial calc)
+            price = float(
+                ind.get("price", 0)
+            )  # float-ok: indicator context (not financial calc)
         except Exception:
             pass
 
@@ -95,7 +103,11 @@ async def debate_loop(
     while True:
         try:
             for symbol in settings.TRADING_SYMBOLS:
-                await telemetry.emit("input_received", {"symbol": symbol, "message_type": "debate_context"}, source_agent="ta_agent")
+                await telemetry.emit(
+                    "input_received",
+                    {"symbol": symbol, "message_type": "debate_context"},
+                    source_agent="ta_agent",
+                )
                 ctx = await _get_market_context(redis_client, symbol)
                 result = await engine.run(ctx)
 
@@ -115,21 +127,24 @@ async def debate_loop(
                 key = f"agent:debate:{symbol}"
                 await redis_client.set(
                     key,
-                    json.dumps({
-                        "score": result.score,
-                        "confidence": result.confidence,
-                        "reasoning": result.reasoning,
-                        "num_rounds": len(result.rounds),
-                        "latency_ms": result.total_latency_ms,
-                        "cycle_id": str(result.cycle_id),
-                    }),
+                    json.dumps(
+                        {
+                            "score": result.score,
+                            "confidence": result.confidence,
+                            "reasoning": result.reasoning,
+                            "num_rounds": len(result.rounds),
+                            "latency_ms": result.total_latency_ms,
+                            "cycle_id": str(result.cycle_id),
+                        }
+                    ),
                     ex=DEBATE_TTL_S,
                 )
                 # Persist to TimescaleDB for charting overlays
                 if score_repo:
                     try:
                         await score_repo.write_score(
-                            symbol, "debate",
+                            symbol,
+                            "debate",
                             Decimal(str(result.score)),
                             confidence=Decimal(str(result.confidence)),
                             metadata={
@@ -175,7 +190,9 @@ async def debate_loop(
                             ],
                         )
                     except Exception as pe:
-                        logger.warning("Failed to persist debate transcript", error=str(pe))
+                        logger.warning(
+                            "Failed to persist debate transcript", error=str(pe)
+                        )
                 logger.info(
                     "Debate completed",
                     symbol=symbol,

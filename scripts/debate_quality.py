@@ -1,13 +1,18 @@
 import asyncio
 from pathlib import Path
+
 import asyncpg
 
 
 def url() -> str:
     for line in Path(".env").read_text().splitlines():
         if line.startswith("PRAXIS_DATABASE_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'").replace(
-                "postgresql+asyncpg://", "postgresql://"
+            return (
+                line.split("=", 1)[1]
+                .strip()
+                .strip('"')
+                .strip("'")
+                .replace("postgresql+asyncpg://", "postgresql://")
             )
     raise SystemExit("missing")
 
@@ -19,7 +24,9 @@ async def main() -> None:
         failed = await c.fetchval(
             "SELECT COUNT(*) FROM debate_transcripts WHERE bull_argument LIKE 'Failed%' OR bear_argument LIKE 'Failed%'"
         )
-        cycles = await c.fetchval("SELECT COUNT(DISTINCT cycle_id) FROM debate_transcripts")
+        cycles = await c.fetchval(
+            "SELECT COUNT(DISTINCT cycle_id) FROM debate_transcripts"
+        )
         latest_at = await c.fetchval("SELECT MAX(recorded_at) FROM debate_transcripts")
         oldest_at = await c.fetchval("SELECT MIN(recorded_at) FROM debate_transcripts")
 
@@ -39,7 +46,9 @@ async def main() -> None:
             """
         )
         if not row:
-            print("  (none — every round is a 'Failed to generate argument' placeholder)")
+            print(
+                "  (none — every round is a 'Failed to generate argument' placeholder)"
+            )
         else:
             for k, v in dict(row).items():
                 sv = str(v)

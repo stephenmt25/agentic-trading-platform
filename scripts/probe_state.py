@@ -4,17 +4,16 @@ Reads SECRET_KEY + DATABASE_URL from .env, finds an existing user_id,
 mints a 1-hour JWT, and queries the API gateway for trading state.
 Prints findings to stdout; the token itself is never printed.
 """
+
 from __future__ import annotations
 
+import asyncio
 import json
-import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
-
-import asyncio
 
 import asyncpg
 import jwt
@@ -37,7 +36,9 @@ def load_env(path: Path) -> dict:
 
 async def _first_user(database_url: str):
     # asyncpg doesn't accept the +asyncpg/+psycopg suffixes some libs add
-    url = database_url.replace("postgresql+asyncpg://", "postgresql://").replace("postgresql+psycopg://", "postgresql://")
+    url = database_url.replace("postgresql+asyncpg://", "postgresql://").replace(
+        "postgresql+psycopg://", "postgresql://"
+    )
     conn = await asyncpg.connect(url)
     try:
         return await conn.fetchrow(
@@ -51,7 +52,9 @@ def first_user_id(database_url: str) -> str | None:
     row = asyncio.run(_first_user(database_url))
     if not row:
         return None
-    print(f"  user: {row['display_name']} <{row['email']}> ({row['provider']})  id={row['user_id']}")
+    print(
+        f"  user: {row['display_name']} <{row['email']}> ({row['provider']})  id={row['user_id']}"
+    )
     return str(row["user_id"])
 
 
@@ -87,7 +90,9 @@ def main() -> int:
     secret = env.get("PRAXIS_SECRET_KEY")
     db_url = env.get("PRAXIS_DATABASE_URL")
     if not secret or not db_url:
-        print("missing PRAXIS_SECRET_KEY or PRAXIS_DATABASE_URL in .env", file=sys.stderr)
+        print(
+            "missing PRAXIS_SECRET_KEY or PRAXIS_DATABASE_URL in .env", file=sys.stderr
+        )
         return 2
 
     print("[1/3] Looking up a user...")
@@ -100,17 +105,17 @@ def main() -> int:
     token = mint(secret, uid)
 
     print("[3/3] Querying API gateway...")
-    show("AUTH /me",          "/auth/me",                       token)
-    show("PAPER MODE",        "/paper-trading/mode",            token)
-    show("PAPER STATUS",      "/paper-trading/status",          token)
-    show("KILL SWITCH",       "/commands/kill-switch",          token)
-    show("PROFILES",          "/profiles/",                     token)
-    show("AGENTS STATUS",     "/agents/status",                 token)
-    show("POSITIONS",         "/positions/",                    token)
-    show("PNL SUMMARY",       "/pnl/summary",                   token)
-    show("PNL HISTORY",       "/pnl/history",                   token)
-    show("ORDERS",            "/orders/",                       token)
-    show("RECENT DECISIONS",  "/paper-trading/decisions",       token)
+    show("AUTH /me", "/auth/me", token)
+    show("PAPER MODE", "/paper-trading/mode", token)
+    show("PAPER STATUS", "/paper-trading/status", token)
+    show("KILL SWITCH", "/commands/kill-switch", token)
+    show("PROFILES", "/profiles/", token)
+    show("AGENTS STATUS", "/agents/status", token)
+    show("POSITIONS", "/positions/", token)
+    show("PNL SUMMARY", "/pnl/summary", token)
+    show("PNL HISTORY", "/pnl/history", token)
+    show("ORDERS", "/orders/", token)
+    show("RECENT DECISIONS", "/paper-trading/decisions", token)
     return 0
 
 

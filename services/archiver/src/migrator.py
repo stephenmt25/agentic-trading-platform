@@ -1,7 +1,8 @@
 import logging
+
+from libs.config import settings
 from libs.storage._redis_client import RedisClient
 from libs.storage._timescale_client import TimescaleClient
-from libs.config import settings
 
 logger = logging.getLogger("archiver.migrator")
 
@@ -16,7 +17,12 @@ ARCHIVE_POLICIES = {
 
 
 class DataMigrator:
-    def __init__(self, redis_client: RedisClient, timescale_client: TimescaleClient, gcs_bucket: str = None):
+    def __init__(
+        self,
+        redis_client: RedisClient,
+        timescale_client: TimescaleClient,
+        gcs_bucket: str = None,
+    ):
         self._redis = redis_client
         self._timescale = timescale_client
         self._gcs_bucket = gcs_bucket
@@ -32,7 +38,10 @@ class DataMigrator:
 
         # 3. (Optional) Export archive tables to GCS if configured
         if self._gcs_bucket:
-            logger.info("GCS export configured but deferred to batch pipeline (bucket=%s)", self._gcs_bucket)
+            logger.info(
+                "GCS export configured but deferred to batch pipeline (bucket=%s)",
+                self._gcs_bucket,
+            )
         else:
             logger.info("GCS_BUCKET_NAME not set, skipping external export")
 
@@ -51,7 +60,9 @@ class DataMigrator:
             try:
                 cursor = 0
                 while True:
-                    cursor, keys = await redis_conn.scan(cursor=cursor, match=pattern, count=200)
+                    cursor, keys = await redis_conn.scan(
+                        cursor=cursor, match=pattern, count=200
+                    )
                     for key in keys:
                         ttl = await redis_conn.ttl(key)
                         if ttl == -1:  # no expiry set -- apply retention TTL
@@ -80,21 +91,27 @@ class DataMigrator:
 
                 try:
                     # Check if archive table exists; create if not
-                    exists = await conn.fetchval("""
+                    exists = await conn.fetchval(
+                        """
                         SELECT EXISTS (
                             SELECT FROM information_schema.tables
                             WHERE table_name = $1
                         )
-                    """, archive_table)
+                    """,
+                        archive_table,
+                    )
 
                     if not exists:
-                        await conn.execute(f"""
+                        await conn.execute(
+                            f"""
                             CREATE TABLE {archive_table} (LIKE {table} INCLUDING ALL)
-                        """)
+                        """
+                        )
                         logger.info("Created archive table: %s", archive_table)
 
                     # Move old rows: INSERT INTO archive, then DELETE from hot table
-                    result = await conn.execute(f"""
+                    result = await conn.execute(
+                        f"""
                         WITH moved AS (
                             DELETE FROM {table}
                             WHERE {ts_col} < NOW() - INTERVAL '{retention_days} days'
@@ -102,7 +119,8 @@ class DataMigrator:
                         )
                         INSERT INTO {archive_table}
                         SELECT * FROM moved
-                    """)
+                    """
+                    )
                     logger.info("Archived from %s: %s", table, result)
 
                 except Exception as e:

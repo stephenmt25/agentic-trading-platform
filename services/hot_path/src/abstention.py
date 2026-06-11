@@ -1,13 +1,20 @@
 from typing import Optional, Tuple
+
 from libs.core.enums import Regime, SignalDirection
 from libs.core.models import NormalisedTick
+
 from .state import ProfileState
-from .strategy_eval import SignalResult, EvaluatedIndicators
+from .strategy_eval import EvaluatedIndicators, SignalResult
 
 
 class AbstentionChecker:
     @staticmethod
-    def check(state: ProfileState, signal: SignalResult, tick: NormalisedTick, inds: EvaluatedIndicators) -> bool:
+    def check(
+        state: ProfileState,
+        signal: SignalResult,
+        tick: NormalisedTick,
+        inds: EvaluatedIndicators,
+    ) -> bool:
         # True = abstain
         price = float(tick.price)  # float-ok: indicator library requires float
         if inds.atr < (price * 0.003):
@@ -23,7 +30,10 @@ class AbstentionChecker:
 
     @staticmethod
     def check_with_reason(
-        state: ProfileState, signal: SignalResult, tick: NormalisedTick, inds: EvaluatedIndicators
+        state: ProfileState,
+        signal: SignalResult,
+        tick: NormalisedTick,
+        inds: EvaluatedIndicators,
     ) -> Tuple[bool, Optional[str]]:
         """Returns (blocked, reason) — same logic as check() but with reason string."""
         price = float(tick.price)

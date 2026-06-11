@@ -36,6 +36,7 @@ NOT touched:
 
 Idempotent: safe to run multiple times. Archives append a unix timestamp.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -99,9 +100,9 @@ async def reset(redis, archive_ts: int) -> None:
 
         for k in (
             f"agent:weights:{sym}",
-            f"sentiment:{sym}:latest",          # poisoned cache from llm_error
-            f"agent:sentiment:{sym}",           # force fresh write
-            f"agent:debate:{sym}",              # force fresh write
+            f"sentiment:{sym}:latest",  # poisoned cache from llm_error
+            f"agent:sentiment:{sym}",  # force fresh write
+            f"agent:debate:{sym}",  # force fresh write
         ):
             existed = await redis.delete(k)
             if existed:

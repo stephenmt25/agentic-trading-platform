@@ -1,7 +1,6 @@
 from ._redis_client import RedisClient
-from ._timescale_client import TimescaleClient
 from ._repository_base import BaseRepository
-
+from ._timescale_client import TimescaleClient
 from .repositories import (
     AuditRepository,
     MarketDataRepository,
@@ -9,19 +8,18 @@ from .repositories import (
     PnlRepository,
     PositionRepository,
     ProfileRepository,
-    ValidationRepository
+    ValidationRepository,
 )
 
 __all__ = [
     "RedisClient",
     "TimescaleClient",
     "BaseRepository",
-    
     "AuditRepository",
     "MarketDataRepository",
     "OrderRepository",
     "PnlRepository",
     "PositionRepository",
     "ProfileRepository",
-    "ValidationRepository"
+    "ValidationRepository",
 ]

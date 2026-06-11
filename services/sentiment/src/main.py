@@ -1,18 +1,18 @@
 import asyncio
 import json
 from contextlib import asynccontextmanager
-
-from fastapi import FastAPI
-import uvicorn
-
 from decimal import Decimal
 
+import uvicorn
+from fastapi import FastAPI
+
 from libs.config import settings
+from libs.observability import get_logger, supervised_task
+from libs.observability.telemetry import TelemetryPublisher
 from libs.storage import RedisClient
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
-from libs.observability import get_logger, supervised_task
-from libs.observability.telemetry import TelemetryPublisher
+
 from .news_client import NewsClient
 from .scorer import LLMSentimentScorer, create_backend
 
@@ -22,12 +22,22 @@ SCORE_INTERVAL_S = 300  # 5 minutes
 SCORE_TTL_S = 900  # 15 minutes
 
 
-async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: NewsClient, telemetry: TelemetryPublisher, score_repo: AgentScoreRepository = None):
+async def sentiment_loop(
+    redis_client,
+    scorer: LLMSentimentScorer,
+    news_client: NewsClient,
+    telemetry: TelemetryPublisher,
+    score_repo: AgentScoreRepository = None,
+):
     """Periodically score sentiment for tracked symbols and write to Redis."""
     while True:
         try:
             for symbol in settings.TRADING_SYMBOLS:
-                await telemetry.emit("input_received", {"symbol": symbol, "message_type": "headline_fetch"}, source_agent="external")
+                await telemetry.emit(
+                    "input_received",
+                    {"symbol": symbol, "message_type": "headline_fetch"},
+                    source_agent="external",
+                )
                 headlines = await news_client.get_headlines(symbol, limit=5)
                 result = await scorer.score(symbol, headlines)
 
@@ -41,11 +51,13 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
                     key = f"agent:sentiment:{symbol}"
                     await redis_client.set(
                         key,
-                        json.dumps({
-                            "score": result.score,
-                            "confidence": result.confidence,
-                            "source": result.source,
-                        }),
+                        json.dumps(
+                            {
+                                "score": result.score,
+                                "confidence": result.confidence,
+                                "source": result.source,
+                            }
+                        ),
                         ex=SCORE_TTL_S,
                     )
                 else:
@@ -60,13 +72,16 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
                 if score_repo:
                     try:
                         await score_repo.write_score(
-                            symbol, "sentiment",
+                            symbol,
+                            "sentiment",
                             Decimal(str(result.score)),
                             confidence=Decimal(str(result.confidence)),
                             metadata={"source": result.source},
                         )
                     except Exception as pe:
-                        logger.warning("Failed to persist sentiment score", error=str(pe))
+                        logger.warning(
+                            "Failed to persist sentiment score", error=str(pe)
+                        )
                 logger.info(
                     "Sentiment score updated",
                     symbol=symbol,
@@ -75,7 +90,11 @@ async def sentiment_loop(redis_client, scorer: LLMSentimentScorer, news_client: 
                 )
                 await telemetry.emit(
                     "output_emitted",
-                    {"symbol": symbol, "score": result.score, "confidence": result.confidence},
+                    {
+                        "symbol": symbol,
+                        "score": result.score,
+                        "confidence": result.confidence,
+                    },
                     target_agent="hot_path",
                 )
 
@@ -99,14 +118,19 @@ async def lifespan(app: FastAPI):
         cache_ttl=SCORE_TTL_S,
         backends=backends,
     )
-    logger.info("Sentiment scorer initialized", backend_mode=settings.LLM_BACKEND,
-                num_backends=len(backends))
+    logger.info(
+        "Sentiment scorer initialized",
+        backend_mode=settings.LLM_BACKEND,
+        num_backends=len(backends),
+    )
 
     telemetry = TelemetryPublisher(redis_instance, "sentiment", "sentiment")
     await telemetry.start_health_loop()
 
     task = supervised_task(
-        lambda: sentiment_loop(redis_instance, scorer, news_client, telemetry, score_repo),
+        lambda: sentiment_loop(
+            redis_instance, scorer, news_client, telemetry, score_repo
+        ),
         name="sentiment.loop",
     )
     logger.info("Sentiment Agent started")

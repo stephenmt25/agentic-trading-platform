@@ -1,6 +1,7 @@
 import json
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
+
 from ._repository_base import BaseRepository
 
 
@@ -72,9 +73,21 @@ class BacktestRepository(BaseRepository):
         if not row:
             return None
         result = dict(row)
-        result["strategy_rules"] = json.loads(result["strategy_rules"]) if isinstance(result["strategy_rules"], str) else result["strategy_rules"]
-        result["equity_curve"] = json.loads(result["equity_curve"]) if isinstance(result["equity_curve"], str) else result["equity_curve"]
-        result["trades"] = json.loads(result["trades"]) if isinstance(result["trades"], str) else result["trades"]
+        result["strategy_rules"] = (
+            json.loads(result["strategy_rules"])
+            if isinstance(result["strategy_rules"], str)
+            else result["strategy_rules"]
+        )
+        result["equity_curve"] = (
+            json.loads(result["equity_curve"])
+            if isinstance(result["equity_curve"], str)
+            else result["equity_curve"]
+        )
+        result["trades"] = (
+            json.loads(result["trades"])
+            if isinstance(result["trades"], str)
+            else result["trades"]
+        )
         return result
 
     async def get_history(
@@ -122,3 +135,18 @@ class BacktestRepository(BaseRepository):
         """
         rows = await self._fetch(query, *params)
         return [dict(r) for r in rows]
+
+    async def latest_for_profile(self, profile_id: str) -> Optional[Dict[str, Any]]:
+        """Most recent backtest result for a profile — the baseline the decay
+        tracker (PR7) compares live performance against. profile_id is stored as
+        TEXT in backtest_results, so we match on the string form."""
+        query = """
+        SELECT job_id, profile_id, symbol, total_trades,
+               win_rate, avg_return, max_drawdown, sharpe, profit_factor, created_at
+        FROM backtest_results
+        WHERE profile_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        """
+        row = await self._fetchrow(query, str(profile_id))
+        return dict(row) if row else None

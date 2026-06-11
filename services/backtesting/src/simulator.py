@@ -1,12 +1,10 @@
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass, field
-from datetime import datetime
 from decimal import Decimal
-import math
+from typing import Any, Dict, List, Optional
 
-from services.strategy.src.compiler import RuleCompiler, CompiledRuleSet
-from libs.indicators import create_indicator_set
 from libs.core.enums import Regime
+from libs.indicators import create_indicator_set
+from services.strategy.src.compiler import RuleCompiler
 
 _D = Decimal
 
@@ -67,8 +65,13 @@ class TradingSimulator:
 
         if not data:
             return BacktestResult(
-                job_id=job.job_id, total_trades=0, win_rate=_ZERO,
-                avg_return=_ZERO, max_drawdown=_ZERO, sharpe=_ZERO, profit_factor=_ZERO,
+                job_id=job.job_id,
+                total_trades=0,
+                win_rate=_ZERO,
+                avg_return=_ZERO,
+                max_drawdown=_ZERO,
+                sharpe=_ZERO,
+                profit_factor=_ZERO,
             )
 
         compiled = RuleCompiler.compile(job.strategy_rules)
@@ -83,31 +86,55 @@ class TradingSimulator:
         open_trade: Optional[SimulatedTrade] = None
 
         for candle in data:
-            close_f = float(candle["close"])  # float-ok: indicator library requires float
+            close_f = float(
+                candle["close"]
+            )  # float-ok: indicator library requires float
             high_f = float(candle["high"])  # float-ok: indicator library requires float
             low_f = float(candle["low"])  # float-ok: indicator library requires float
             close = _D(str(candle["close"]))
             candle_time = str(candle.get("time", ""))
 
-            volume_f = float(candle.get("volume", 0))  # float-ok: indicator library requires float
+            volume_f = float(
+                candle.get("volume", 0)
+            )  # float-ok: indicator library requires float
 
             # Update indicators (these use float internally — that's fine for signal generation)
             rsi_val = indicators.rsi.update(close_f)
             macd_val = indicators.macd.update(close_f)
             atr_val = indicators.atr.update(high_f, low_f, close_f)
 
-            adx_val = indicators.adx.update(high_f, low_f, close_f) if indicators.adx else None
-            bb_val = indicators.bollinger.update(close_f) if indicators.bollinger else None
-            obv_val = indicators.obv.update(close_f, volume_f) if indicators.obv else None
-            chop_val = indicators.choppiness.update(high_f, low_f, close_f) if indicators.choppiness else None
+            adx_val = (
+                indicators.adx.update(high_f, low_f, close_f)
+                if indicators.adx
+                else None
+            )
+            bb_val = (
+                indicators.bollinger.update(close_f) if indicators.bollinger else None
+            )
+            obv_val = (
+                indicators.obv.update(close_f, volume_f) if indicators.obv else None
+            )
+            chop_val = (
+                indicators.choppiness.update(high_f, low_f, close_f)
+                if indicators.choppiness
+                else None
+            )
 
             # C.2 indicators — must be populated for templates that reference them
             # (z_score / vwap / keltner / rvol / hurst). Without these, the rule
             # compiler sees `None` for any C.2 condition and treats every candle
             # as "still priming" → zero trades.
-            zscore_val = indicators.zscore.update(close_f) if indicators.zscore else None
-            vwap_val = indicators.vwap.update(close_f, volume_f) if indicators.vwap else None
-            keltner_val = indicators.keltner.update(high_f, low_f, close_f) if indicators.keltner else None
+            zscore_val = (
+                indicators.zscore.update(close_f) if indicators.zscore else None
+            )
+            vwap_val = (
+                indicators.vwap.update(close_f, volume_f) if indicators.vwap else None
+            )
+            keltner_val = (
+                indicators.keltner.update(high_f, low_f, close_f)
+                if indicators.keltner
+                else None
+            )
             rvol_val = indicators.rvol.update(volume_f) if indicators.rvol else None
             hurst_val = indicators.hurst.update(close_f) if indicators.hurst else None
 
@@ -167,19 +194,25 @@ class TradingSimulator:
             if open_trade and result:
                 direction, _confidence = result
                 slip = close * job.slippage_pct
-                exit_price = close - slip if open_trade.direction == "BUY" else close + slip
+                exit_price = (
+                    close - slip if open_trade.direction == "BUY" else close + slip
+                )
 
                 if open_trade.direction == "BUY":
-                    pnl_pct = (exit_price - open_trade.entry_price) / open_trade.entry_price
+                    pnl_pct = (
+                        exit_price - open_trade.entry_price
+                    ) / open_trade.entry_price
                 else:
-                    pnl_pct = (open_trade.entry_price - exit_price) / open_trade.entry_price
+                    pnl_pct = (
+                        open_trade.entry_price - exit_price
+                    ) / open_trade.entry_price
 
                 open_trade.exit_time = candle_time
                 open_trade.exit_price = exit_price
                 open_trade.pnl_pct = pnl_pct
                 trades.append(open_trade)
 
-                equity *= (_ONE + pnl_pct)
+                equity *= _ONE + pnl_pct
                 open_trade = None
 
             # Open new trade on signal
@@ -207,7 +240,11 @@ class TradingSimulator:
         if open_trade and data:
             last_close = _D(str(data[-1]["close"]))
             slip = last_close * job.slippage_pct
-            exit_price = last_close - slip if open_trade.direction == "BUY" else last_close + slip
+            exit_price = (
+                last_close - slip
+                if open_trade.direction == "BUY"
+                else last_close + slip
+            )
             if open_trade.direction == "BUY":
                 pnl_pct = (exit_price - open_trade.entry_price) / open_trade.entry_price
             else:
@@ -216,7 +253,7 @@ class TradingSimulator:
             open_trade.exit_price = exit_price
             open_trade.pnl_pct = pnl_pct
             trades.append(open_trade)
-            equity *= (_ONE + pnl_pct)
+            equity *= _ONE + pnl_pct
             equity_curve.append(equity)
 
         # Compute aggregate metrics
@@ -224,7 +261,11 @@ class TradingSimulator:
         wins = [t for t in trades if t.pnl_pct > 0]
         losses = [t for t in trades if t.pnl_pct <= 0]
         win_rate = _D(len(wins)) / _D(total_trades) if total_trades > 0 else _ZERO
-        avg_return = sum(t.pnl_pct for t in trades) / _D(total_trades) if total_trades > 0 else _ZERO
+        avg_return = (
+            sum(t.pnl_pct for t in trades) / _D(total_trades)
+            if total_trades > 0
+            else _ZERO
+        )
 
         # Sharpe ratio (annualised, assuming daily returns)
         returns = [t.pnl_pct for t in trades]
@@ -238,7 +279,11 @@ class TradingSimulator:
 
         gross_profit = sum(t.pnl_pct for t in wins) if wins else _ZERO
         gross_loss = abs(sum(t.pnl_pct for t in losses)) if losses else _ZERO
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else _D("Infinity") if gross_profit > 0 else _ZERO
+        profit_factor = (
+            gross_profit / gross_loss
+            if gross_loss > 0
+            else _D("Infinity") if gross_profit > 0 else _ZERO
+        )
 
         return BacktestResult(
             job_id=job.job_id,

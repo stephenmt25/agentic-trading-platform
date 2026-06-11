@@ -1,7 +1,8 @@
 from typing import Optional
 
+
 class EMACalculator:
-    __slots__ = ('period', 'multiplier', 'count', 'sum_prices', 'ema')
+    __slots__ = ("period", "multiplier", "count", "sum_prices", "ema")
 
     def __init__(self, period: int):
         self.period = period

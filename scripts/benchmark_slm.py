@@ -33,7 +33,9 @@ DEFAULT_PROMPT = (
 
 
 def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Latency benchmark for slm_inference /v1/completions")
+    p = argparse.ArgumentParser(
+        description="Latency benchmark for slm_inference /v1/completions"
+    )
     p.add_argument("--base-url", default="http://localhost:8095")
     p.add_argument("--n", type=int, default=20)
     p.add_argument("--max-tokens", type=int, default=50)
@@ -52,7 +54,9 @@ def main() -> int:
 
     print(f"health: {h}")
     if not h.get("model_loaded"):
-        print("WARN  model_loaded=false — server is running with mock responses; benchmark is meaningless")
+        print(
+            "WARN  model_loaded=false — server is running with mock responses; benchmark is meaningless"
+        )
 
     samples: list[float] = []
     last_text = ""
@@ -62,11 +66,17 @@ def main() -> int:
             start = time.monotonic()
             res = c.post(
                 f"{args.base_url}/v1/completions",
-                json={"prompt": args.prompt, "max_tokens": args.max_tokens, "temperature": 0.1},
+                json={
+                    "prompt": args.prompt,
+                    "max_tokens": args.max_tokens,
+                    "temperature": 0.1,
+                },
             )
             elapsed = (time.monotonic() - start) * 1000.0
             if res.status_code != 200:
-                print(f"FAIL  request {i+1}/{args.n} returned {res.status_code}: {res.text[:200]}")
+                print(
+                    f"FAIL  request {i+1}/{args.n} returned {res.status_code}: {res.text[:200]}"
+                )
                 return 1
             samples.append(elapsed)
             body = res.json()

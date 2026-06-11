@@ -1,5 +1,11 @@
-from typing import Dict, Optional, Tuple
-from libs.indicators import create_indicator_set, IndicatorSet, MACDResult, BollingerResult
+from typing import Dict, Optional
+
+from libs.indicators import (
+    BollingerResult,
+    IndicatorSet,
+    MACDResult,
+    create_indicator_set,
+)
 
 
 class TAConfluenceScorer:
@@ -12,14 +18,25 @@ class TAConfluenceScorer:
             tf: create_indicator_set() for tf in self.TIMEFRAMES
         }
         # Track last computed values since indicators don't expose .current
-        self._last_rsi: Dict[str, Optional[float]] = {tf: None for tf in self.TIMEFRAMES}
-        self._last_macd: Dict[str, Optional[MACDResult]] = {tf: None for tf in self.TIMEFRAMES}
-        self._last_adx: Dict[str, Optional[float]] = {tf: None for tf in self.TIMEFRAMES}
-        self._last_bb: Dict[str, Optional[BollingerResult]] = {tf: None for tf in self.TIMEFRAMES}
-        self._last_chop: Dict[str, Optional[float]] = {tf: None for tf in self.TIMEFRAMES}
+        self._last_rsi: Dict[str, Optional[float]] = {
+            tf: None for tf in self.TIMEFRAMES
+        }
+        self._last_macd: Dict[str, Optional[MACDResult]] = {
+            tf: None for tf in self.TIMEFRAMES
+        }
+        self._last_adx: Dict[str, Optional[float]] = {
+            tf: None for tf in self.TIMEFRAMES
+        }
+        self._last_bb: Dict[str, Optional[BollingerResult]] = {
+            tf: None for tf in self.TIMEFRAMES
+        }
+        self._last_chop: Dict[str, Optional[float]] = {
+            tf: None for tf in self.TIMEFRAMES
+        }
 
-    def update_timeframe(self, timeframe: str, high: float, low: float, close: float,
-                         volume: float = 0.0):
+    def update_timeframe(
+        self, timeframe: str, high: float, low: float, close: float, volume: float = 0.0
+    ):
         """Feed a candle to the indicator set for a specific timeframe."""
         iset = self._indicator_sets.get(timeframe)
         if not iset:
@@ -75,7 +92,11 @@ class TAConfluenceScorer:
                 macd_signal = macd_result.histogram / macd_line_abs
                 macd_signal = max(-1.0, min(1.0, macd_signal))
             else:
-                macd_signal = max(-1.0, min(1.0, macd_result.histogram * 1000.0)) if macd_result.histogram else 0.0
+                macd_signal = (
+                    max(-1.0, min(1.0, macd_result.histogram * 1000.0))
+                    if macd_result.histogram
+                    else 0.0
+                )
             macd_signals.append(macd_signal)
 
             # Bollinger %B signal: %B < 0.2 -> bullish (oversold), %B > 0.8 -> bearish (overbought)

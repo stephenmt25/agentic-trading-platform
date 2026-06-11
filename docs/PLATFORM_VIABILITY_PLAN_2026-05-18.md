@@ -4,6 +4,19 @@
 > **Scope:** Directional correction after partner review. Three questions: (1) is the laptop a fit substrate for honest paper trading; (2) what cloud setup is needed and at what cost; (3) what plan first fixes existing tech debt and then enables Yield Harvester + Mean Reverter strategies. HFT / Latency Exploiter is explicitly deferred.
 > **Companion docs:** `STRATEGY_FOLLOWUP_DISCUSSION.md`, `STRATEGY_GAP_ANALYSIS.md`, `TECH-DEBT-REGISTRY.md`, `DOCUMENTATION-GAPS.md`.
 
+> **Status update (2026-06-11).** Two items below are superseded by later locked
+> decisions (see `DECISIONS.md` entries of 2026-06-11 and
+> `NEXT-SESSION-PLAN-2026-06-10.md` §2):
+>
+> - **§4 Decision 1 (cloud region) is RESOLVED — AWS Tokyo (`ap-northeast-1`).**
+> - **§3 Phase 3 (risk + ops maturity) is SATISFIED** by the Risk-Truth
+>   Hardening slice (`feat/risk-truth-hardening`, PR0–PR7): portfolio-level risk
+>   + stress-correlation concentration (PR4), tiered kill-switch verbs with the
+>   defense-in-depth executor check (PR3), BalanceReconciler live and real
+>   exchange-side close (PR0–PR2), net-of-cost accounting (PR5). The one Phase-3
+>   item not yet built — the scheduled-jobs framework (APScheduler) — moves to
+>   the next slice (EN-W3 in the next-session plan).
+
 ---
 
 ## 1 · Is the laptop-only setup unable to mirror live trading?
@@ -92,6 +105,9 @@ Straight from `STRATEGY_GAP_ANALYSIS.md` Section 6 Phase A. These unblock ≥80%
 
 ### Phase 3 — Strategy Gap Analysis Phase B: risk + ops maturity (~1–2 weeks)
 
+> **SATISFIED 2026-06 by the Risk-Truth Hardening slice** (see status update at
+> top) — except the scheduled-jobs framework, which moves to the next slice.
+
 `STRATEGY_GAP_ANALYSIS.md` Section 6 Phase B. Get the safety perimeter in place before any new strategy is live-eligible:
 
 - Portfolio Risk aggregator that consumes `pubsub:pnl_updates`, sums drawdown across profiles, calls `KillSwitch.activate` on threshold breach.
@@ -135,7 +151,7 @@ After Phase 4 and Phase 5 have each accumulated 60 days of cloud paper-trading d
 
 ## 4 · Two decisions to confirm before Phase 0 starts
 
-1. **Cloud region.** AWS Tokyo and GCP asia-northeast1 are both reasonable. AWS is cheaper at scale and has more secrets / security primitives; GCP has marginally simpler ops. Either works.
+1. **Cloud region.** AWS Tokyo and GCP asia-northeast1 are both reasonable. AWS is cheaper at scale and has more secrets / security primitives; GCP has marginally simpler ops. Either works. → **RESOLVED 2026-06-10: AWS Tokyo (`ap-northeast-1`)** — locked decision #1, recorded in `DECISIONS.md` (2026-06-11).
 2. **Phase 0 scope.** Five fixes listed above distort measurement. If you want a hard 1-week ceiling, drop rows 27, 31, 32 and ship with just row 18 (regime gating) + G-10 (schema docs). Everything else can move with us to cloud and get fixed there.
 
 > **Correction (2026-05-19, post-Phase-0 implementation).** The §3 Phase 0 exit criterion originally specified a *"hold-style profile (manual trigger, hour-scale hold, manual exit)."* That describes a workflow Praxis does not have — every profile is **autonomous signal-driven**: `hot_path` evaluates `strategy_rules` per tick and fires; exits come from `StopLossMonitor` / opposing-signal, not a human. There is no manual-trigger or manual-exit profile mode. The §3 criterion has been reworded to an **autonomous hold-style profile** — the load-bearing requirement is only that the profile *holds* (hour-scale, not scalping), so the 14-day soak genuinely exercises the laptop-uptime hypothesis from §1. Choosing or building that profile (an existing slow profile such as `Trend Following (MACD)`, or one deliberately-slow regime-gated profile as a proxy for the eventual Yield Harvester / Mean Reverter holds) is a setup step before the soak clock starts.

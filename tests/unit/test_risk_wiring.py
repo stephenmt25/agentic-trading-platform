@@ -1,26 +1,28 @@
 """Sprint 10.4: Portfolio risk wiring verification tests."""
-import json
-import pytest
-from unittest.mock import AsyncMock
+
 from decimal import Decimal
 
-from services.hot_path.src.risk_gate import RiskGate, RiskGateResult
-from services.hot_path.src.circuit_breaker import CircuitBreaker
-from services.hot_path.src.strategy_eval import SignalResult
-from services.hot_path.src.state import ProfileState
-from services.strategy.src.compiler import RuleCompiler
-from libs.indicators import create_indicator_set
+import pytest
+
 from libs.core.enums import Regime, SignalDirection
 from libs.core.models import NormalisedTick, RiskLimits
+from libs.indicators import create_indicator_set
+from services.hot_path.src.circuit_breaker import CircuitBreaker
+from services.hot_path.src.risk_gate import RiskGate
+from services.hot_path.src.state import ProfileState
+from services.hot_path.src.strategy_eval import SignalResult
+from services.strategy.src.compiler import RuleCompiler
 
 
 def _make_state(profile_id="test-profile", daily_pnl=0.0, drawdown=0.0, allocation=0.0):
-    rules = RuleCompiler.compile({
-        "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-        "logic": "AND",
-        "direction": "BUY",
-        "base_confidence": 0.85,
-    })
+    rules = RuleCompiler.compile(
+        {
+            "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
+        }
+    )
     limits = RiskLimits(
         max_drawdown_pct=Decimal("0.10"),
         stop_loss_pct=Decimal("0.05"),
@@ -42,13 +44,18 @@ def _make_state(profile_id="test-profile", daily_pnl=0.0, drawdown=0.0, allocati
 
 def _make_tick():
     return NormalisedTick(
-        symbol="BTC/USDT", exchange="binance", timestamp=1000000,
-        price=Decimal("50000"), volume=Decimal("1"),
+        symbol="BTC/USDT",
+        exchange="binance",
+        timestamp=1000000,
+        price=Decimal("50000"),
+        volume=Decimal("1"),
     )
 
 
 def _make_signal(confidence=0.85):
-    return SignalResult(direction=SignalDirection.BUY, confidence=confidence, rule_matched=True)
+    return SignalResult(
+        direction=SignalDirection.BUY, confidence=confidence, rule_matched=True
+    )
 
 
 class TestCircuitBreaker:

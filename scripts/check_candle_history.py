@@ -1,14 +1,20 @@
 """How much 1h candle history is in market_data_ohlcv per symbol?"""
+
 import asyncio
 from pathlib import Path
+
 import asyncpg
 
 
 def url() -> str:
     for line in Path(".env").read_text().splitlines():
         if line.startswith("PRAXIS_DATABASE_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'").replace(
-                "postgresql+asyncpg://", "postgresql://"
+            return (
+                line.split("=", 1)[1]
+                .strip()
+                .strip('"')
+                .strip("'")
+                .replace("postgresql+asyncpg://", "postgresql://")
             )
     raise SystemExit("missing PRAXIS_DATABASE_URL")
 
@@ -38,7 +44,7 @@ async def main() -> None:
         if not rows:
             print("\nno 1h candles in market_data_ohlcv")
         else:
-            print(f"\n1h candle coverage:")
+            print("\n1h candle coverage:")
             for r in rows:
                 d = dict(r)
                 print(

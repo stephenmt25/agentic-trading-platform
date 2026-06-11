@@ -6,28 +6,21 @@ boilerplate infrastructure setup.
 """
 
 import json
-import asyncio
 import uuid
-from decimal import Decimal
 from datetime import datetime
+from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from libs.core.enums import (
-    EventType, OrderSide, OrderStatus, PositionStatus,
-    SignalDirection, Regime, ValidationCheck, ValidationVerdict, ValidationMode,
-)
-from libs.core.schemas import (
-    OrderApprovedEvent, OrderExecutedEvent, OrderRejectedEvent,
-    SignalEvent, ValidationRequestEvent,
-)
+from libs.core.enums import EventType, OrderSide, OrderStatus, PositionStatus
 from libs.core.models import Order, Position
-
+from libs.core.schemas import OrderApprovedEvent
 
 # ---------------------------------------------------------------------------
 # Redis mock
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_redis():
@@ -56,6 +49,7 @@ def mock_redis():
 # ---------------------------------------------------------------------------
 # TimescaleDB / repository mocks
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_timescale():
@@ -101,17 +95,21 @@ def mock_audit_repo():
 def mock_profile_repo():
     """AsyncMock ProfileRepository with a default test profile."""
     repo = AsyncMock()
-    repo.get_profile = AsyncMock(return_value={
-        "profile_id": "test-profile-001",
-        "exchange_key_ref": "paper",
-        "allocation_pct": "1.0",
-        "risk_limits": json.dumps({
-            "max_allocation_pct": 0.25,
-            "stop_loss_pct": 0.05,
-            "max_drawdown_pct": 0.10,
-            "circuit_breaker_daily_loss_pct": 0.02,
-        }),
-    })
+    repo.get_profile = AsyncMock(
+        return_value={
+            "profile_id": "test-profile-001",
+            "exchange_key_ref": "paper",
+            "allocation_pct": "1.0",
+            "risk_limits": json.dumps(
+                {
+                    "max_allocation_pct": 0.25,
+                    "stop_loss_pct": 0.05,
+                    "max_drawdown_pct": 0.10,
+                    "circuit_breaker_daily_loss_pct": 0.02,
+                }
+            ),
+        }
+    )
     repo.get_active_profiles = AsyncMock(return_value=[])
     repo.get_all_profiles_for_user = AsyncMock(return_value=[])
     return repo
@@ -123,9 +121,14 @@ def mock_market_data_repo():
     repo = AsyncMock()
     # Generate 20 candles with incrementing prices for RSI/indicator tests
     candles = [
-        {"close": str(100 + i * 0.5), "open": str(99.5 + i * 0.5),
-         "high": str(101 + i * 0.5), "low": str(99 + i * 0.5),
-         "volume": "1000", "timestamp": 1000000 + i * 300000000}
+        {
+            "close": str(100 + i * 0.5),
+            "open": str(99.5 + i * 0.5),
+            "high": str(101 + i * 0.5),
+            "low": str(99 + i * 0.5),
+            "volume": "1000",
+            "timestamp": 1000000 + i * 300000000,
+        }
         for i in range(20)
     ]
     repo.get_candles = AsyncMock(return_value=candles)
@@ -144,6 +147,7 @@ def mock_pnl_repo():
 # ---------------------------------------------------------------------------
 # Messaging mocks
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_publisher():
@@ -184,9 +188,11 @@ def mock_telemetry():
 # Domain object factories
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def sample_order_approved_event():
     """Factory for valid OrderApprovedEvent instances."""
+
     def _make(
         profile_id="test-profile-001",
         symbol="BTC/USDT",
@@ -204,12 +210,14 @@ def sample_order_approved_event():
             quantity=quantity,
             price=price,
         )
+
     return _make
 
 
 @pytest.fixture
 def sample_order():
     """Factory for valid Order instances."""
+
     def _make(
         order_id=None,
         profile_id="test-profile-001",
@@ -230,12 +238,14 @@ def sample_order():
             exchange="BINANCE",
             created_at=datetime.utcnow(),
         )
+
     return _make
 
 
 @pytest.fixture
 def sample_position():
     """Factory for valid Position instances."""
+
     def _make(
         position_id=None,
         profile_id="test-profile-001",
@@ -256,12 +266,14 @@ def sample_position():
             opened_at=datetime.utcnow(),
             status=PositionStatus.OPEN,
         )
+
     return _make
 
 
 # ---------------------------------------------------------------------------
 # Settings mock
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_settings():

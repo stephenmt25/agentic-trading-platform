@@ -72,11 +72,14 @@ class TestAggregateApprovedByAttribute:
     @pytest.mark.asyncio
     async def test_post_processing_returns_floats_for_percent(self):
         from decimal import Decimal as D
+
         db = AsyncMock()
-        db.fetch = AsyncMock(return_value=[
-            {"bucket": "BUY", "count": 30, "percent": D("0.75")},
-            {"bucket": "SELL", "count": 10, "percent": D("0.25")},
-        ])
+        db.fetch = AsyncMock(
+            return_value=[
+                {"bucket": "BUY", "count": 30, "percent": D("0.75")},
+                {"bucket": "SELL", "count": 10, "percent": D("0.25")},
+            ]
+        )
         repo = DecisionRepository(db)
         out = await repo.aggregate_approved_by_attribute(dimension="direction")
         assert out[0]["percent"] == 0.75

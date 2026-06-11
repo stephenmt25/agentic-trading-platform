@@ -1,26 +1,77 @@
-from typing import List, Optional
 from decimal import Decimal
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import List
+
 from pydantic import AliasChoices, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _INSECURE_DEFAULT_KEY = "praxis-dev-secret-key-change-in-production"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        env_prefix="PRAXIS_",
-        extra="ignore"
+        env_file=".env", env_file_encoding="utf-8", env_prefix="PRAXIS_", extra="ignore"
     )
 
     REDIS_URL: str = Field(default="redis://localhost:6379/1")
-    DATABASE_URL: str = Field(default="postgresql://postgres:postgres@localhost:5432/praxis_trading")
+    DATABASE_URL: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/praxis_trading"
+    )
     BINANCE_TESTNET: bool = Field(default=True)
     COINBASE_SANDBOX: bool = Field(default=True)
     TRADING_ENABLED: bool = Field(default=False)
     PAPER_TRADING_MODE: bool = Field(default=False)
     LOG_LEVEL: str = Field(default="INFO")
+
+    # PR1 (real exchange close). When True (default) position closes route
+    # through the execution OMS as a reduce-only order and the DB close is
+    # finalised on fill confirmation (the real fill price is authoritative).
+    # Flip to False as an emergency rollback to the legacy synchronous DB-only
+    # close (which re-opens the phantom-close gap) without a code revert.
+    EXCHANGE_CLOSE_ENABLED: bool = Field(default=True)
+    # Optional exchange-resident reduce-only stop placed at position open
+    # (defense-in-depth that survives a process crash — see DECISIONS.md
+    # 2026-06-10 flatten-authority). Off until validated on testnet.
+    PROTECTIVE_STOP_ENABLED: bool = Field(default=False)
+
+    # PR3 tiered kill-switch / flatten-authority (DECISIONS.md 2026-06-10).
+    # The HaltController always executes a FLATTEN level (manual or automated).
+    # AUTO_HALT_ESCALATION_ENABLED gates the *automated* escalation path: when on,
+    # the controller reads the severe triggers and may raise the halt level itself
+    # (DE_RISK on a single trigger; FLATTEN only when the authority gate passes —
+    # >= 2 triggers persisted through the dwell). It never de-escalates a manual halt.
+    AUTO_HALT_ESCALATION_ENABLED: bool = Field(default=True)
+    HALT_CONTROLLER_INTERVAL_S: float = Field(default=10.0)
+    AUTO_FLATTEN_DWELL_S: float = Field(default=30.0)
+    # Severe-trigger thresholds for the auto-flatten gate. Drawdown is read as the
+    # daily realised loss-as-fraction-of-equity counter (pnl:daily:<pid>).
+    AUTO_FLATTEN_DRAWDOWN_PCT: Decimal = Field(default=Decimal("0.15"))
+
+    # PR4 portfolio risk + stress-correlation concentration (closes 0.4, 2.12).
+    # Portfolio-wide cap on total open notional across ALL profiles.
+    PORTFOLIO_GROSS_BUDGET_USD: Decimal = Field(default=Decimal("100000"))
+    # A correlation cluster's combined open exposure is capped at this fraction of
+    # the gross budget — stops N correlated assets each sneaking under the
+    # per-symbol cap. Stress assumption: correlated crypto moves together.
+    CORRELATION_CLUSTER_CAP_PCT: Decimal = Field(default=Decimal("0.40"))
+    # Stress-correlation cluster map (symbol or base -> cluster). Unmapped symbols
+    # fall into the conservative shared "ALT" cluster. Initial values; tunable, and
+    # replaceable with live-computed correlations later (see DECISIONS / brief §2).
+    CORRELATION_CLUSTERS: dict = Field(
+        default_factory=lambda: {"BTC/USDT": "MAJORS", "ETH/USDT": "MAJORS"}
+    )
+    # NEUTRALIZE (PR3 verb) trims gross exposure down to this fraction of the budget.
+    NEUTRALIZE_GROSS_TARGET_PCT: Decimal = Field(default=Decimal("0.50"))
+    # Cadence for the portfolio-exposure aggregator snapshot (risk service).
+    PORTFOLIO_AGGREGATOR_INTERVAL_S: float = Field(default=10.0)
+
+    # PR7 strategy-decay tracking (live vs backtest). Decay fires when live win
+    # rate falls more than DECAY_WIN_RATE_DROP below backtest, or live avg return
+    # drops below DECAY_AVG_FACTOR of backtest — once enough live trades exist.
+    DECAY_WINDOW_HOURS: int = Field(default=168)
+    DECAY_MIN_LIVE_TRADES: int = Field(default=20)
+    DECAY_WIN_RATE_DROP: float = Field(default=0.15)
+    DECAY_AVG_FACTOR: float = Field(default=0.5)
+    DECAY_TRACKER_INTERVAL_S: float = Field(default=3600.0)
 
     FAST_GATE_TIMEOUT_MS: int = Field(default=50)
     CIRCUIT_BREAKER_DAILY_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
@@ -50,13 +101,20 @@ class Settings(BaseSettings):
     SECRET_KEY: str = Field(default=_INSECURE_DEFAULT_KEY)
     REFRESH_SECRET_KEY: str = Field(default="")  # Separate key for refresh tokens
     NEXTAUTH_SECRET: str = Field(default="")  # Must match NextAuth.js NEXTAUTH_SECRET
-    GCP_PROJECT_ID: str = Field(default="")   # Empty = use local Fernet fallback
+    GCP_PROJECT_ID: str = Field(default="")  # Empty = use local Fernet fallback
 
     # CORS — set PRAXIS_CORS_ORIGINS='["https://your-app.vercel.app","http://localhost:3000"]'
     # to allow Vercel frontend through a tunnel
     # REST calls go through Vercel rewrite (same-origin, no CORS needed).
     # CORS is only needed for: local dev and direct WebSocket connections.
-    CORS_ORIGINS: List[str] = Field(default=["http://localhost:3001", "http://localhost:3000", "http://localhost:3002", "https://frontend-seven-khaki-13.vercel.app"])
+    CORS_ORIGINS: List[str] = Field(
+        default=[
+            "http://localhost:3001",
+            "http://localhost:3000",
+            "http://localhost:3002",
+            "https://frontend-seven-khaki-13.vercel.app",
+        ]
+    )
 
     # Connection pool settings
     DB_POOL_MIN_SIZE: int = Field(default=5)
@@ -70,11 +128,13 @@ class Settings(BaseSettings):
     BACKTEST_MAX_QUEUE_DEPTH: int = Field(default=100)
 
     # Local SLM inference
-    LLM_BACKEND: str = Field(default="cloud")           # "cloud", "local", or "auto" (local with cloud fallback)
+    LLM_BACKEND: str = Field(
+        default="cloud"
+    )  # "cloud", "local", or "auto" (local with cloud fallback)
     SLM_INFERENCE_URL: str = Field(default="http://localhost:8095")
-    SLM_MODEL_PATH: str = Field(default="")              # Path to GGUF model file
+    SLM_MODEL_PATH: str = Field(default="")  # Path to GGUF model file
     SLM_CONTEXT_LENGTH: int = Field(default=4096)
-    SLM_GPU_LAYERS: int = Field(default=-1)              # -1 = all layers on GPU
+    SLM_GPU_LAYERS: int = Field(default=-1)  # -1 = all layers on GPU
 
     # Regime HMM emission threshold. With ~30 days of 1h candles, 5-state
     # GaussianHMM confidences typically peak around 0.45-0.55, so a 0.70
@@ -85,9 +145,13 @@ class Settings(BaseSettings):
 
     # HITL (Human-in-the-Loop) execution gate
     HITL_ENABLED: bool = Field(default=False)
-    HITL_SIZE_THRESHOLD_PCT: float = Field(default=5.0)       # Trigger when trade size > X% of allocation
-    HITL_CONFIDENCE_THRESHOLD: float = Field(default=0.5)     # Trigger when confidence < threshold
-    HITL_TIMEOUT_S: int = Field(default=60)                   # Seconds to wait for human response
+    HITL_SIZE_THRESHOLD_PCT: float = Field(
+        default=5.0
+    )  # Trigger when trade size > X% of allocation
+    HITL_CONFIDENCE_THRESHOLD: float = Field(
+        default=0.5
+    )  # Trigger when confidence < threshold
+    HITL_TIMEOUT_S: int = Field(default=60)  # Seconds to wait for human response
 
     # Redis schema invariant scanner cadence (libs/observability/redis_invariants.py).
     # Set to 0 to disable. Background task lives in services/logger.

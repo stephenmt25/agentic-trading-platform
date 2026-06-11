@@ -50,13 +50,60 @@ class PositionCloser:
         # Populated lazily; refreshed whenever a lookup misses or returns 0.
         self._notional_cache: dict[str, Decimal] = {}
 
-    async def close(self, position: Position, exit_price: Decimal, taker_rate: Decimal, close_reason: str = "stop_loss"):
-        """Close a position, persist the closed_trades audit row, and tag agent outcomes."""
-        # Single timestamp for both the DB close and the closed_trades row
-        closed_at = datetime.now(timezone.utc)
-
-        # 1. Close in DB
+    async def close(
+        self,
+        position: Position,
+        exit_price: Decimal,
+        taker_rate: Decimal,
+        close_reason: str = "stop_loss",
+    ):
+        """Legacy synchronous close: mark the DB row CLOSED unconditionally, then
+        record PnL/audit/outcomes. This is the fallback path used when
+        PRAXIS_EXCHANGE_CLOSE_ENABLED is off — it does NOT reach the exchange
+        (the "phantom close"). The real-exchange-close path uses finalize_close().
+        """
+        # 1. Close in DB (unguarded legacy transition)
         await self._position_repo.close_position(position.position_id, exit_price)
+        return await self._record_close(position, exit_price, taker_rate, close_reason)
+
+    async def finalize_close(
+        self,
+        position: Position,
+        exit_price: Decimal,
+        taker_rate: Decimal,
+        close_reason: str = "stop_loss",
+        slippage_cost: Decimal = _ZERO,
+    ):
+        """Finalise an in-flight close on confirmed exchange fill (PR1).
+
+        CAS-transitions PENDING_CLOSE -> CLOSED first; if the row was already
+        finalised (a duplicate fill event), this is a no-op and returns None so
+        the daily-PnL counter and agent EWMA — neither protected by the
+        closed_trades ON CONFLICT guard — run exactly once. `exit_price` is the
+        authoritative exchange fill price, not the trigger mark. `slippage_cost`
+        (PR5) is the adverse fill-vs-intended cost, recorded for attribution.
+        """
+        won = await self._position_repo.finalize_close(position.position_id, exit_price)
+        if not won:
+            logger.info("close_finalize_noop", position_id=str(position.position_id))
+            return None
+        return await self._record_close(
+            position, exit_price, taker_rate, close_reason, slippage_cost
+        )
+
+    async def _record_close(
+        self,
+        position: Position,
+        exit_price: Decimal,
+        taker_rate: Decimal,
+        close_reason: str,
+        slippage_cost: Decimal = _ZERO,
+    ):
+        """Steps 2-7 of a close: PnL, outcome, audit row, daily-PnL bump, agent
+        outcome tagging, snapshot cleanup. Assumes the positions row has already
+        been transitioned to CLOSED by the caller (close() or finalize_close())."""
+        # Single timestamp for the closed_trades row + daily-PnL date tag
+        closed_at = datetime.now(timezone.utc)
 
         # 2. Compute final PnL
         snapshot = PnLCalculator.calculate(
@@ -74,7 +121,9 @@ class PositionCloser:
             outcome = "breakeven"
 
         # 4. Retrieve entry-time snapshot (agent scores + regime) from Redis
-        agent_scores, entry_regime = await self._get_position_snapshot(str(position.position_id))
+        agent_scores, entry_regime = await self._get_position_snapshot(
+            str(position.position_id)
+        )
 
         # 5. Persist closed_trades audit row (PR1 ledger). Never raises.
         await self._write_closed_trade_row(
@@ -87,6 +136,7 @@ class PositionCloser:
             agent_scores=agent_scores,
             entry_regime=entry_regime,
             outcome=outcome,
+            slippage_cost=slippage_cost,
         )
 
         # 6a. Increment the daily realised P&L counter for the profile.
@@ -146,7 +196,9 @@ class PositionCloser:
             try:
                 row = await self._profile_repo.get_profile(profile_id)
             except Exception:
-                logger.exception("Failed to fetch profile for notional lookup", profile_id=profile_id)
+                logger.exception(
+                    "Failed to fetch profile for notional lookup", profile_id=profile_id
+                )
                 row = None
         notional = profile_notional(row)
         self._notional_cache[profile_id] = notional
@@ -169,7 +221,9 @@ class PositionCloser:
             return
         try:
             notional = await self._profile_notional(profile_id)
-            equity_fraction = realized_pnl_dollars / notional if notional > _ZERO else _ZERO
+            equity_fraction = (
+                realized_pnl_dollars / notional if notional > _ZERO else _ZERO
+            )
 
             key = f"pnl:daily:{profile_id}"
             today = closed_at.astimezone(timezone.utc).date().isoformat()
@@ -189,7 +243,9 @@ class PositionCloser:
                 realized_pnl_dollars=str(realized_pnl_dollars),
             )
 
-    async def _get_position_snapshot(self, position_id: str) -> Tuple[Optional[dict], Optional[str]]:
+    async def _get_position_snapshot(
+        self, position_id: str
+    ) -> Tuple[Optional[dict], Optional[str]]:
         """Read the entry-time agent_scores + regime snapshot.
 
         Handles both payload shapes for backward compatibility:
@@ -220,6 +276,7 @@ class PositionCloser:
         agent_scores: Optional[dict],
         entry_regime: Optional[str],
         outcome: str,
+        slippage_cost: Decimal = _ZERO,
     ) -> None:
         """Append-only write to closed_trades. Logs on failure; never raises."""
         if self._closed_trade_repo is None:
@@ -228,13 +285,24 @@ class PositionCloser:
         try:
             exit_fee = exit_price * position.quantity * taker_rate
             cost_basis = position.entry_price * position.quantity
-            realized_pnl_pct = snapshot.net_pre_tax / cost_basis if cost_basis > _ZERO else _ZERO
+            realized_pnl_pct = (
+                snapshot.net_pre_tax / cost_basis if cost_basis > _ZERO else _ZERO
+            )
             holding_duration_s = (
                 int((closed_at - position.opened_at).total_seconds())
-                if position.opened_at else 0
+                if position.opened_at
+                else 0
             )
-            profile_id_uuid = UUID(str(position.profile_id)) if not isinstance(position.profile_id, UUID) else position.profile_id
-            side_str = position.side.value if hasattr(position.side, "value") else str(position.side)
+            profile_id_uuid = (
+                UUID(str(position.profile_id))
+                if not isinstance(position.profile_id, UUID)
+                else position.profile_id
+            )
+            side_str = (
+                position.side.value
+                if hasattr(position.side, "value")
+                else str(position.side)
+            )
 
             await self._closed_trade_repo.write_closed_trade(
                 position_id=position.position_id,
@@ -257,6 +325,8 @@ class PositionCloser:
                 realized_pnl=snapshot.net_pre_tax,
                 realized_pnl_pct=realized_pnl_pct,
                 outcome=outcome,
+                slippage_cost=slippage_cost,
+                funding_cost=_ZERO,  # spot has no funding (PR5 placeholder)
             )
         except Exception:
             logger.exception(

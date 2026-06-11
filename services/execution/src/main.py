@@ -1,21 +1,30 @@
 import asyncio
 import time
-from fastapi import FastAPI
-import uvicorn
 from contextlib import asynccontextmanager
 
+import uvicorn
+from fastapi import FastAPI
+
 from libs.config import settings
-from libs.storage import RedisClient, TimescaleClient, OrderRepository, PositionRepository, AuditRepository
-from libs.messaging import StreamConsumer, StreamPublisher
+from libs.messaging import PubSubBroadcaster, StreamConsumer, StreamPublisher
 from libs.messaging.channels import ORDERS_STREAM
 from libs.observability import get_logger
 from libs.observability.telemetry import TelemetryPublisher
+from libs.storage import (
+    AuditRepository,
+    OrderRepository,
+    PositionRepository,
+    RedisClient,
+    TimescaleClient,
+)
+from libs.storage.repositories import ProfileRepository
 
-from .ledger import OptimisticLedger
 from .executor import OrderExecutor
+from .ledger import OptimisticLedger
 from .reconciler import BalanceReconciler
 
 logger = get_logger("execution")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,15 +32,17 @@ async def lifespan(app: FastAPI):
     redis_instance = RedisClient.get_instance(settings.REDIS_URL).get_connection()
     timescale_client = TimescaleClient(settings.DATABASE_URL)
     await timescale_client.init_pool()
-    
+
     # Initialize Dependencies
     publisher = StreamPublisher(redis_instance)
     consumer = StreamConsumer(redis_instance)
-    
+
     order_repo = OrderRepository(timescale_client)
     position_repo = PositionRepository(timescale_client)
     audit_repo = AuditRepository(timescale_client)
-    
+    profile_repo = ProfileRepository(timescale_client)
+    pubsub = PubSubBroadcaster(redis_instance)
+
     ledger = OptimisticLedger(order_repo)
 
     telemetry = TelemetryPublisher(redis_instance, "execution", "execution")
@@ -48,8 +59,16 @@ async def lifespan(app: FastAPI):
         redis_client=redis_instance,
         telemetry=telemetry,
     )
-    
-    reconciler = BalanceReconciler(position_repo)
+
+    # Wired live (PR2): profile_repo lets it iterate active profiles instead of
+    # early-returning; pubsub lets a >0.1% drift publish an ALERT_RED to
+    # PUBSUB_SYSTEM_ALERTS. No-op for paper profiles (skipped by key_ref).
+    reconciler = BalanceReconciler(
+        position_repo,
+        profile_repo=profile_repo,
+        pubsub=pubsub,
+        redis_client=redis_instance,
+    )
 
     # Background Tasks
     logger.info("Starting Execution Loop")
@@ -68,6 +87,7 @@ async def lifespan(app: FastAPI):
         exc = t.exception()
         if exc is not None:
             import traceback as _tb
+
             tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
             logger.error("executor_task_crashed", error=str(exc), traceback=tb)
 
@@ -88,8 +108,9 @@ async def lifespan(app: FastAPI):
             stalled_for = time.monotonic() - executor.last_progress_mono
             if stalled_for > STALL_S:
                 if not dumped:
-                    logger.error("executor_stall_detected",
-                                 stalled_for_s=round(stalled_for, 1))
+                    logger.error(
+                        "executor_stall_detected", stalled_for_s=round(stalled_for, 1)
+                    )
                     for t in asyncio.all_tasks():
                         if t.done():
                             continue
@@ -98,8 +119,12 @@ async def lifespan(app: FastAPI):
                         for fr in reversed(frames[-12:]):
                             fn = fr.f_code.co_filename.replace("\\", "/").split("/")[-1]
                             parts.append(f"{fr.f_code.co_name}@{fn}:{fr.f_lineno}")
-                        logger.error("stall_taskdump", task=t.get_name(),
-                                     frames=len(frames), stack=" <- ".join(parts))
+                        logger.error(
+                            "stall_taskdump",
+                            task=t.get_name(),
+                            frames=len(frames),
+                            stack=" <- ".join(parts),
+                        )
                     dumped = True
             else:
                 dumped = False
@@ -120,9 +145,11 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Execution Agent", lifespan=lifespan)
 
+
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 if __name__ == "__main__":
     uvicorn.run("services.execution.src.main:app", host="0.0.0.0", port=8083)

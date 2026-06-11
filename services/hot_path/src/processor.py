@@ -3,30 +3,38 @@ import time
 import uuid
 from dataclasses import asdict
 from decimal import Decimal
-from typing import Dict, Any, Optional
-from .state import ProfileStateCache
-from .strategy_eval import StrategyEvaluator, SignalResult, EvaluatedIndicators
-from .abstention import AbstentionChecker
-from .regime_dampener import RegimeDampener
-from .agent_modifier import AgentModifier
-from .circuit_breaker import CircuitBreaker
-from .blacklist import BlacklistChecker
-from .reentry_gate import ReentryGate
-from .risk_gate import RiskGate
-from .hitl_gate import HITLGate
-from .kill_switch import KillSwitch
-from .validation_client import ValidationClient
-from .decision_writer import DecisionTraceWriter
+from typing import Any, Dict, Optional
 
 from libs.config import settings
-from libs.core.enums import SignalDirection, EventType, ValidationCheck, ValidationVerdict, ValidationMode
-from libs.core.models import NormalisedTick
-from libs.core.schemas import MarketTickEvent, OrderApprovedEvent, ThresholdProximityEvent, ValidationRequestEvent
 from libs.core.constants import THRESHOLD_PROXIMITY_BAND_PCT
-from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
+from libs.core.enums import SignalDirection, ValidationCheck, ValidationVerdict
+from libs.core.models import NormalisedTick
+from libs.core.portfolio import SNAPSHOT_KEY as PORTFOLIO_SNAPSHOT_KEY
+from libs.core.portfolio import PortfolioExposure, check_order_against_budget
+from libs.core.schemas import (
+    MarketTickEvent,
+    OrderApprovedEvent,
+    ThresholdProximityEvent,
+    ValidationRequestEvent,
+)
+from libs.messaging import PubSubBroadcaster, StreamConsumer, StreamPublisher
 from libs.messaging.channels import ORDERS_STREAM_MAXLEN
-from libs.observability import get_logger, timer, MetricsCollector
+from libs.observability import MetricsCollector, get_logger, timer
 from libs.observability.telemetry import TelemetryPublisher
+
+from .abstention import AbstentionChecker
+from .agent_modifier import AgentModifier
+from .blacklist import BlacklistChecker
+from .circuit_breaker import CircuitBreaker
+from .decision_writer import DecisionTraceWriter
+from .hitl_gate import HITLGate
+from .kill_switch import KillSwitch
+from .reentry_gate import ReentryGate
+from .regime_dampener import RegimeDampener
+from .risk_gate import RiskGate
+from .state import ProfileStateCache
+from .strategy_eval import SignalResult, StrategyEvaluator
+from .validation_client import ValidationClient
 
 logger = get_logger("hot-path.processor")
 
@@ -73,7 +81,11 @@ class HotPathProcessor:
         # Phase 3: HITL execution gate. Uses a separate Redis client with no
         # socket_timeout so the 60 s BLPOP for human response isn't truncated
         # by the default-pool's 5 s socket_timeout.
-        self._hitl_gate = HITLGate(hitl_redis_client or redis_client, pubsub) if redis_client else None
+        self._hitl_gate = (
+            HITLGate(hitl_redis_client or redis_client, pubsub)
+            if redis_client
+            else None
+        )
 
         # Updated every consume cycle. The stall watchdog in main.py reads this
         # to detect a hung processor loop (a stuck await stops it advancing).
@@ -110,7 +122,13 @@ class HotPathProcessor:
             # raise out of run() ends the processor task silently and kills the
             # engine, so catch it: log, back off, and retry the loop.
             try:
-                events = await self._consumer.consume(self._tick_channel, group_name, "processor_1", count=100, block_ms=50)
+                events = await self._consumer.consume(
+                    self._tick_channel,
+                    group_name,
+                    "processor_1",
+                    count=100,
+                    block_ms=50,
+                )
             except Exception as exc:
                 logger.error("consume failed — retrying", error=str(exc))
                 await asyncio.sleep(1)
@@ -122,7 +140,9 @@ class HotPathProcessor:
             if self._redis and await KillSwitch.is_active(self._redis):
                 message_ids_to_ack.extend(msg_id for msg_id, _ in events)
                 if message_ids_to_ack:
-                    await self._consumer.ack(self._tick_channel, group_name, message_ids_to_ack)
+                    await self._consumer.ack(
+                        self._tick_channel, group_name, message_ids_to_ack
+                    )
                 continue
 
             for msg_id, event in events:
@@ -150,7 +170,15 @@ class HotPathProcessor:
                     continue
 
                 if self._telemetry:
-                    await self._telemetry.emit("input_received", {"symbol": event.symbol, "price": str(event.price), "exchange": event.exchange}, source_agent="ingestion")
+                    await self._telemetry.emit(
+                        "input_received",
+                        {
+                            "symbol": event.symbol,
+                            "price": str(event.price),
+                            "exchange": event.exchange,
+                        },
+                        source_agent="ingestion",
+                    )
 
                 with timer("hot_path.tick_processing"):
                     # Master trading gate — skip all order logic when trading is disabled
@@ -166,12 +194,16 @@ class HotPathProcessor:
                         strat_trace = None
                         eval_dict = None
                         if self._decision_writer:
-                            trace_result = StrategyEvaluator.evaluate_with_trace(profile_state, tick)
+                            trace_result = StrategyEvaluator.evaluate_with_trace(
+                                profile_state, tick
+                            )
                             if trace_result is None:
                                 continue  # indicators still priming
                             sig_res, inds, strat_trace, eval_dict = trace_result
                         else:
-                            eval_result = StrategyEvaluator.evaluate(profile_state, tick)
+                            eval_result = StrategyEvaluator.evaluate(
+                                profile_state, tick
+                            )
                             if eval_result is None:
                                 continue
                             sig_res, inds = eval_result
@@ -191,12 +223,36 @@ class HotPathProcessor:
                                     "signal_line": round(inds.signal_line, 4),
                                     "histogram": round(inds.histogram, 4),
                                     "atr": round(inds.atr, 4),
-                                    "adx": round(inds.adx, 4) if inds.adx is not None else None,
-                                    "bb_upper": round(inds.bb_upper, 4) if inds.bb_upper is not None else None,
-                                    "bb_lower": round(inds.bb_lower, 4) if inds.bb_lower is not None else None,
-                                    "bb_pct_b": round(inds.bb_pct_b, 4) if inds.bb_pct_b is not None else None,
-                                    "obv": round(inds.obv, 2) if inds.obv is not None else None,
-                                    "choppiness": round(inds.choppiness, 4) if inds.choppiness is not None else None,
+                                    "adx": (
+                                        round(inds.adx, 4)
+                                        if inds.adx is not None
+                                        else None
+                                    ),
+                                    "bb_upper": (
+                                        round(inds.bb_upper, 4)
+                                        if inds.bb_upper is not None
+                                        else None
+                                    ),
+                                    "bb_lower": (
+                                        round(inds.bb_lower, 4)
+                                        if inds.bb_lower is not None
+                                        else None
+                                    ),
+                                    "bb_pct_b": (
+                                        round(inds.bb_pct_b, 4)
+                                        if inds.bb_pct_b is not None
+                                        else None
+                                    ),
+                                    "obv": (
+                                        round(inds.obv, 2)
+                                        if inds.obv is not None
+                                        else None
+                                    ),
+                                    "choppiness": (
+                                        round(inds.choppiness, 4)
+                                        if inds.choppiness is not None
+                                        else None
+                                    ),
                                 },
                                 "strategy": asdict(strat_trace) if strat_trace else {},
                                 "regime": None,
@@ -208,16 +264,26 @@ class HotPathProcessor:
                                     "base_confidence": profile_state.compiled_rules.base_confidence,
                                     "conditions": profile_state.compiled_rules.conditions,
                                     "risk_limits": {
-                                        "max_drawdown_pct": str(profile_state.risk_limits.max_drawdown_pct),
-                                        "stop_loss_pct": str(profile_state.risk_limits.stop_loss_pct),
-                                        "max_allocation_pct": str(profile_state.risk_limits.max_allocation_pct),
+                                        "max_drawdown_pct": str(
+                                            profile_state.risk_limits.max_drawdown_pct
+                                        ),
+                                        "stop_loss_pct": str(
+                                            profile_state.risk_limits.stop_loss_pct
+                                        ),
+                                        "max_allocation_pct": str(
+                                            profile_state.risk_limits.max_allocation_pct
+                                        ),
                                     },
                                 },
                             }
 
                         # 1b. Proximity check for pre-fetching
                         if not sig_res:
-                            if 30 <= inds.rsi <= 30 * (1 + THRESHOLD_PROXIMITY_BAND_PCT):
+                            if (
+                                30
+                                <= inds.rsi
+                                <= 30 * (1 + THRESHOLD_PROXIMITY_BAND_PCT)
+                            ):
                                 prox_event = ThresholdProximityEvent(
                                     profile_id=profile_state.profile_id,
                                     symbol=tick.symbol,
@@ -226,9 +292,11 @@ class HotPathProcessor:
                                     trigger_threshold=30.0,
                                     proximity_pct=abs(inds.rsi - 30.0) / 30.0,
                                     timestamp_us=tick.timestamp,
-                                    source_service="hot-path"
+                                    source_service="hot-path",
                                 )
-                                await self._pubsub.publish(self._proximity_pubsub_channel, prox_event)
+                                await self._pubsub.publish(
+                                    self._proximity_pubsub_channel, prox_event
+                                )
                             continue
 
                         # 1c. Re-entry guard — one open position per
@@ -239,7 +307,9 @@ class HotPathProcessor:
                         # Placed early so a held symbol short-circuits before
                         # the regime / agent / validation work.
                         if ReentryGate.check(profile_state, tick.symbol):
-                            logger.info("gate_block", gate="reentry", symbol=tick.symbol)
+                            logger.info(
+                                "gate_block", gate="reentry", symbol=tick.symbol
+                            )
                             if self._decision_writer:
                                 trace["outcome"] = "BLOCKED_REENTRY"
                                 trace["gates"]["reentry"] = {"passed": False}
@@ -249,27 +319,42 @@ class HotPathProcessor:
                             trace["gates"]["reentry"] = {"passed": True}
 
                         # 2. Abstention
-                        abstain_blocked, abstain_reason = AbstentionChecker.check_with_reason(profile_state, sig_res, tick, inds)
+                        abstain_blocked, abstain_reason = (
+                            AbstentionChecker.check_with_reason(
+                                profile_state, sig_res, tick, inds
+                            )
+                        )
                         if abstain_blocked:
-                            logger.info("gate_block", gate="abstention", symbol=tick.symbol)
+                            logger.info(
+                                "gate_block", gate="abstention", symbol=tick.symbol
+                            )
                             if self._decision_writer:
                                 trace["outcome"] = "BLOCKED_ABSTENTION"
-                                trace["gates"]["abstention"] = {"passed": False, "reason": abstain_reason}
+                                trace["gates"]["abstention"] = {
+                                    "passed": False,
+                                    "reason": abstain_reason,
+                                }
                                 await self._decision_writer.write(trace)
                             continue
                         if trace:
                             trace["gates"]["abstention"] = {"passed": True}
 
                         # 3. Regime Dampener (now async with dual-regime support)
-                        damp_res = await self._regime_dampener.check(profile_state, sig_res, tick, inds)
+                        damp_res = await self._regime_dampener.check(
+                            profile_state, sig_res, tick, inds
+                        )
                         if not damp_res.proceed:
                             logger.info("gate_block", gate="regime", symbol=tick.symbol)
                             if self._decision_writer:
                                 trace["outcome"] = "BLOCKED_REGIME"
                                 trace["regime"] = {
-                                    "rule_based": getattr(damp_res, "rule_regime", None),
+                                    "rule_based": getattr(
+                                        damp_res, "rule_regime", None
+                                    ),
                                     "hmm": getattr(damp_res, "hmm_regime", None),
-                                    "resolved": getattr(damp_res, "resolved_regime", None),
+                                    "resolved": getattr(
+                                        damp_res, "resolved_regime", None
+                                    ),
                                     "confidence_multiplier": damp_res.confidence_multiplier,
                                 }
                                 trace["gates"]["regime"] = {"passed": False}
@@ -279,8 +364,9 @@ class HotPathProcessor:
                         # Apply confidence multiplier
                         sig_res = SignalResult(
                             direction=sig_res.direction,
-                            confidence=sig_res.confidence * damp_res.confidence_multiplier,
-                            rule_matched=sig_res.rule_matched
+                            confidence=sig_res.confidence
+                            * damp_res.confidence_multiplier,
+                            rule_matched=sig_res.rule_matched,
                         )
                         if trace:
                             trace["regime"] = {
@@ -299,13 +385,21 @@ class HotPathProcessor:
                         # (regime-agnostic profile) or when the regime is
                         # unknown (don't shadow on missing data — that just
                         # means the dampener had nothing to resolve).
-                        if profile_state.preferred_regimes and profile_state.regime is not None:
-                            if profile_state.regime not in profile_state.preferred_regimes:
+                        if (
+                            profile_state.preferred_regimes
+                            and profile_state.regime is not None
+                        ):
+                            if (
+                                profile_state.regime
+                                not in profile_state.preferred_regimes
+                            ):
                                 logger.info(
                                     "gate_block",
                                     gate="regime_mismatch",
                                     symbol=tick.symbol,
-                                    profile_regimes=[r.value for r in profile_state.preferred_regimes],
+                                    profile_regimes=[
+                                        r.value for r in profile_state.preferred_regimes
+                                    ],
                                     live_regime=profile_state.regime.value,
                                 )
                                 if self._decision_writer:
@@ -313,7 +407,10 @@ class HotPathProcessor:
                                     trace["shadow"] = True
                                     trace["gates"]["regime_mismatch"] = {
                                         "passed": False,
-                                        "preferred": [r.value for r in profile_state.preferred_regimes],
+                                        "preferred": [
+                                            r.value
+                                            for r in profile_state.preferred_regimes
+                                        ],
                                         "actual": profile_state.regime.value,
                                     }
                                     await self._decision_writer.write(trace)
@@ -324,15 +421,23 @@ class HotPathProcessor:
                         # 3b. Agent Modifier (TA + sentiment scores)
                         if self._agent_modifier:
                             if self._decision_writer:
-                                agent_trace = await self._agent_modifier.apply_traced(tick.symbol, sig_res)
+                                agent_trace = await self._agent_modifier.apply_traced(
+                                    tick.symbol, sig_res
+                                )
                                 sig_res = agent_trace.signal
                                 trace["agents"] = {
                                     **agent_trace.agents,
-                                    "confidence_before": round(agent_trace.confidence_before, 6),
-                                    "confidence_after": round(agent_trace.confidence_after, 6),
+                                    "confidence_before": round(
+                                        agent_trace.confidence_before, 6
+                                    ),
+                                    "confidence_after": round(
+                                        agent_trace.confidence_after, 6
+                                    ),
                                 }
                             else:
-                                sig_res = await self._agent_modifier.apply(tick.symbol, sig_res)
+                                sig_res = await self._agent_modifier.apply(
+                                    tick.symbol, sig_res
+                                )
 
                         # Telemetry: decision trace after signal evaluation
                         if self._telemetry:
@@ -351,13 +456,21 @@ class HotPathProcessor:
 
                         # 4. Circuit Breaker
                         if CircuitBreaker.check(profile_state):
-                            logger.info("gate_block", gate="circuit_breaker", symbol=tick.symbol)
+                            logger.info(
+                                "gate_block", gate="circuit_breaker", symbol=tick.symbol
+                            )
                             if self._decision_writer:
                                 trace["outcome"] = "BLOCKED_CIRCUIT_BREAKER"
                                 trace["gates"]["circuit_breaker"] = {
                                     "passed": False,
-                                    "daily_pnl_pct": str(getattr(profile_state, "daily_realised_pnl_pct", 0)),
-                                    "threshold": str(profile_state.risk_limits.circuit_breaker_daily_loss_pct),
+                                    "daily_pnl_pct": str(
+                                        getattr(
+                                            profile_state, "daily_realised_pnl_pct", 0
+                                        )
+                                    ),
+                                    "threshold": str(
+                                        profile_state.risk_limits.circuit_breaker_daily_loss_pct
+                                    ),
                                 }
                                 await self._decision_writer.write(trace)
                             continue
@@ -366,7 +479,9 @@ class HotPathProcessor:
 
                         # 5. Blacklist
                         if BlacklistChecker.check(profile_state, tick.symbol):
-                            logger.info("gate_block", gate="blacklist", symbol=tick.symbol)
+                            logger.info(
+                                "gate_block", gate="blacklist", symbol=tick.symbol
+                            )
                             if self._decision_writer:
                                 trace["outcome"] = "BLOCKED_BLACKLIST"
                                 trace["gates"]["blacklist"] = {"passed": False}
@@ -378,14 +493,27 @@ class HotPathProcessor:
                         # 6. Risk Gate (now returns RiskGateResult with dynamic sizing)
                         risk_result = RiskGate.check(profile_state, sig_res, tick)
                         if risk_result.blocked:
-                            logger.info("gate_block", gate="risk_gate", symbol=tick.symbol, reason=risk_result.reason if hasattr(risk_result, 'reason') else "unknown")
+                            logger.info(
+                                "gate_block",
+                                gate="risk_gate",
+                                symbol=tick.symbol,
+                                reason=(
+                                    risk_result.reason
+                                    if hasattr(risk_result, "reason")
+                                    else "unknown"
+                                ),
+                            )
                             if self._decision_writer:
                                 trace["outcome"] = "BLOCKED_RISK"
                                 trace["gates"]["risk_gate"] = {
                                     "passed": False,
                                     "reason": risk_result.reason,
-                                    "allocation_pct": str(profile_state.current_allocation_pct),
-                                    "drawdown_pct": str(profile_state.current_drawdown_pct),
+                                    "allocation_pct": str(
+                                        profile_state.current_allocation_pct
+                                    ),
+                                    "drawdown_pct": str(
+                                        profile_state.current_drawdown_pct
+                                    ),
                                 }
                                 await self._decision_writer.write(trace)
                             continue
@@ -393,45 +521,113 @@ class HotPathProcessor:
                             trace["gates"]["risk_gate"] = {
                                 "passed": True,
                                 "suggested_qty": str(risk_result.suggested_quantity),
-                                "allocation_pct": str(profile_state.current_allocation_pct),
+                                "allocation_pct": str(
+                                    profile_state.current_allocation_pct
+                                ),
                                 "drawdown_pct": str(profile_state.current_drawdown_pct),
                             }
+
+                        # 6a2. Portfolio gross-exposure + correlation-cluster gate
+                        # (PR4). Cross-profile cap read from the risk-service
+                        # snapshot (single GET). Fails OPEN if the snapshot is
+                        # missing/stale — the per-profile risk_gate still bounds
+                        # each profile, and halting all trading on an aggregator
+                        # hiccup would be worse; missing snapshots are logged.
+                        order_value = risk_result.suggested_quantity * tick.price
+                        if self._redis and order_value > Decimal("0"):
+                            portfolio_breach = None
+                            try:
+                                exposure = PortfolioExposure.from_json(
+                                    await self._redis.get(PORTFOLIO_SNAPSHOT_KEY)
+                                )
+                                portfolio_breach = check_order_against_budget(
+                                    exposure,
+                                    tick.symbol,
+                                    order_value,
+                                    settings.CORRELATION_CLUSTERS,
+                                    settings.PORTFOLIO_GROSS_BUDGET_USD,
+                                    settings.CORRELATION_CLUSTER_CAP_PCT,
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    "portfolio_gate_read_failed", error=str(e)
+                                )
+                            if portfolio_breach:
+                                logger.info(
+                                    "gate_block",
+                                    gate="portfolio",
+                                    symbol=tick.symbol,
+                                    reason=portfolio_breach,
+                                )
+                                if self._decision_writer:
+                                    trace["outcome"] = "BLOCKED_PORTFOLIO"
+                                    trace["gates"]["portfolio"] = {
+                                        "passed": False,
+                                        "reason": portfolio_breach,
+                                    }
+                                    await self._decision_writer.write(trace)
+                                continue
+                            if trace:
+                                trace["gates"]["portfolio"] = {"passed": True}
 
                         # 6b. HITL Gate (between risk_gate and validation)
                         if self._hitl_gate:
                             hitl_result = await self._hitl_gate.check(
-                                profile_state, sig_res, tick, inds, risk_result,
+                                profile_state,
+                                sig_res,
+                                tick,
+                                inds,
+                                risk_result,
                             )
                             if hitl_result.blocked:
-                                logger.info(f"HITL blocked trade for {profile_state.profile_id} - {hitl_result.reason}")
+                                logger.info(
+                                    f"HITL blocked trade for {profile_state.profile_id} - {hitl_result.reason}"
+                                )
                                 if self._decision_writer:
                                     trace["outcome"] = "BLOCKED_HITL"
-                                    trace["gates"]["hitl"] = {"passed": False, "reason": hitl_result.reason}
+                                    trace["gates"]["hitl"] = {
+                                        "passed": False,
+                                        "reason": hitl_result.reason,
+                                    }
                                     await self._decision_writer.write(trace)
                                 continue
                             if trace:
-                                trace["gates"]["hitl"] = {"passed": True, "triggered": False}
+                                trace["gates"]["hitl"] = {
+                                    "passed": True,
+                                    "triggered": False,
+                                }
 
                         # 7. Validation Fast Gate
                         val_req = ValidationRequestEvent(
                             profile_id=profile_state.profile_id,
                             symbol=tick.symbol,
                             check_type=ValidationCheck.CHECK_1_STRATEGY,
-                            payload={"confidence": sig_res.confidence, "inds": {
-                                "rsi": inds.rsi, "macd": inds.macd_line, "atr": inds.atr
-                            }},
+                            payload={
+                                "confidence": sig_res.confidence,
+                                "inds": {
+                                    "rsi": inds.rsi,
+                                    "macd": inds.macd_line,
+                                    "atr": inds.atr,
+                                },
+                            },
                             timestamp_us=tick.timestamp,
-                            source_service="hot-path"
+                            source_service="hot-path",
                         )
 
                         val_resp = await self._validation_client.fast_gate(val_req)
                         if val_resp and val_resp.verdict == ValidationVerdict.RED:
-                            logger.info(f"Validation blocked trade for {profile_state.profile_id} - {val_resp.reason}")
+                            logger.info(
+                                f"Validation blocked trade for {profile_state.profile_id} - {val_resp.reason}"
+                            )
                             if self._decision_writer:
                                 trace["outcome"] = "BLOCKED_VALIDATION"
                                 trace["gates"]["validation"] = {
                                     "passed": False,
-                                    "verdict": val_resp.verdict.value if val_resp.verdict else "RED",
+                                    "verdict": (
+                                        val_resp.verdict.value
+                                        if val_resp.verdict
+                                        else "RED"
+                                    ),
                                     "reason": val_resp.reason,
                                 }
                                 await self._decision_writer.write(trace)
@@ -439,7 +635,11 @@ class HotPathProcessor:
                         if trace:
                             trace["gates"]["validation"] = {
                                 "passed": True,
-                                "verdict": val_resp.verdict.value if val_resp and val_resp.verdict else "GREEN",
+                                "verdict": (
+                                    val_resp.verdict.value
+                                    if val_resp and val_resp.verdict
+                                    else "GREEN"
+                                ),
                                 "reason": val_resp.reason if val_resp else None,
                             }
 
@@ -453,7 +653,7 @@ class HotPathProcessor:
                             price=tick.price,
                             decision_event_id=trace.get("event_id"),
                             timestamp_us=tick.timestamp,
-                            source_service="hot-path"
+                            source_service="hot-path",
                         )
                         await self._publisher.publish(
                             self._orders_channel, order_ev, maxlen=ORDERS_STREAM_MAXLEN
@@ -467,7 +667,9 @@ class HotPathProcessor:
                         # timestamp lets that reconciliation preserve this add
                         # while the position row is still in flight.
                         profile_state.open_position_symbols.add(tick.symbol)
-                        profile_state.open_position_symbols_optimistic_ts[tick.symbol] = time.monotonic()
+                        profile_state.open_position_symbols_optimistic_ts[
+                            tick.symbol
+                        ] = time.monotonic()
 
                         # Pre-bump open exposure so the next tick's RiskGate sees
                         # the projected commitment immediately. Without this,
@@ -479,7 +681,9 @@ class HotPathProcessor:
                         # this value in seconds with the DB-derived ground
                         # truth, so over-counting is bounded to one poll cycle.
                         try:
-                            projected_cost = Decimal(str(qty)) * Decimal(str(tick.price))
+                            projected_cost = Decimal(str(qty)) * Decimal(
+                                str(tick.price)
+                            )
                             profile_state.open_exposure_dollars += projected_cost
                         except Exception:
                             logger.exception(
@@ -512,4 +716,6 @@ class HotPathProcessor:
                 message_ids_to_ack.append(msg_id)
 
             if message_ids_to_ack:
-                await self._consumer.ack(self._tick_channel, group_name, message_ids_to_ack)
+                await self._consumer.ack(
+                    self._tick_channel, group_name, message_ids_to_ack
+                )

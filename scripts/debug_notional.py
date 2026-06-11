@@ -4,7 +4,9 @@ Replicates exactly what PnlSync does: read each active profile's
 allocation_pct, compute notional via libs.core.notional, and sum cost
 basis from positions table.
 """
-import asyncio, sys
+
+import asyncio
+import sys
 from decimal import Decimal
 from pathlib import Path
 

@@ -1,10 +1,13 @@
 import asyncio
-import json
-from libs.storage.repositories import ValidationRepository
+
 from libs.messaging import StreamPublisher
+from libs.storage.repositories import ValidationRepository
+
 
 class LearningLoop:
-    def __init__(self, validation_repo: ValidationRepository, publisher: StreamPublisher):
+    def __init__(
+        self, validation_repo: ValidationRepository, publisher: StreamPublisher
+    ):
         self._validation_repo = validation_repo
         self._publisher = publisher
 
@@ -14,10 +17,13 @@ class LearningLoop:
             try:
                 # Fetch recent red/amber events from the last hour across all check types
                 from libs.core.enums import ValidationCheck
+
                 events = []
                 for check_type in ValidationCheck:
                     try:
-                        records = await self._validation_repo.get_recent_events(check_type, hours=1)
+                        records = await self._validation_repo.get_recent_events(
+                            check_type, hours=1
+                        )
                         for r in records:
                             row = dict(r) if not isinstance(r, dict) else r
                             verdict = row.get("verdict", "")
@@ -25,7 +31,7 @@ class LearningLoop:
                                 events.append(row)
                     except Exception:
                         continue
-                
+
                 for ev in events:
                     job_type = ""
                     # If drift RED -> "what if we halted"
@@ -42,10 +48,10 @@ class LearningLoop:
                         payload = {
                             "source_event_id": ev.get("event_id"),
                             "profile_id": ev.get("profile_id"),
-                            "job_type": job_type
+                            "job_type": job_type,
                         }
                         # Write to auto_backtest_queue
                         await self._publisher.publish("auto_backtest_queue", payload)
-            except Exception as e:
+            except Exception:
                 # Log error
                 pass

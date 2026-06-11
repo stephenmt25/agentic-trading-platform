@@ -38,7 +38,9 @@ class DebateRepository(BaseRepository):
         num_rounds: int,
         total_latency_ms: float,
         market_context: dict,
-        rounds: List[dict],   # each: {round_num, bull_argument, bull_conviction, bear_argument, bear_conviction}
+        rounds: List[
+            dict
+        ],  # each: {round_num, bull_argument, bull_conviction, bear_argument, bear_conviction}
     ) -> None:
         cycle_q = """
         INSERT INTO debate_cycles

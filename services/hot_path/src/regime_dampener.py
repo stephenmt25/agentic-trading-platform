@@ -1,13 +1,15 @@
 import json
+import time
 from dataclasses import dataclass
 from typing import Optional
-from libs.core.enums import Regime, EventType
+
+from libs.core.enums import EventType, Regime
 from libs.core.models import NormalisedTick
 from libs.core.schemas import AlertEvent
 from libs.observability import get_logger
+
 from .state import ProfileState
-from .strategy_eval import SignalResult, EvaluatedIndicators
-import time
+from .strategy_eval import EvaluatedIndicators, SignalResult
 
 logger = get_logger("hot-path.regime-dampener")
 
@@ -49,7 +51,11 @@ class RegimeDampener:
         self._regime_cache: dict = {}  # symbol -> (regime, timestamp)
 
     async def check(
-        self, state: ProfileState, signal: SignalResult, tick: NormalisedTick, inds: EvaluatedIndicators
+        self,
+        state: ProfileState,
+        signal: SignalResult,
+        tick: NormalisedTick,
+        inds: EvaluatedIndicators,
     ) -> DampenerResult:
         price = float(tick.price)  # float-ok: indicator library requires float
 
@@ -72,7 +78,9 @@ class RegimeDampener:
         if resolved == Regime.CRISIS:
             return DampenerResult(proceed=False, confidence_multiplier=0.0)
 
-        multiplier = _REGIME_CONFIDENCE_MULTIPLIER.get(resolved, _DEFAULT_CONFIDENCE_MULTIPLIER)
+        multiplier = _REGIME_CONFIDENCE_MULTIPLIER.get(
+            resolved, _DEFAULT_CONFIDENCE_MULTIPLIER
+        )
         return DampenerResult(proceed=True, confidence_multiplier=multiplier)
 
     async def _read_hmm_regime(self, symbol: str) -> Optional[Regime]:
@@ -98,7 +106,9 @@ class RegimeDampener:
         self._regime_cache[symbol] = (None, time.monotonic())
         return None
 
-    def _resolve_regimes(self, rule_regime: Optional[Regime], hmm_regime: Optional[Regime]) -> Optional[Regime]:
+    def _resolve_regimes(
+        self, rule_regime: Optional[Regime], hmm_regime: Optional[Regime]
+    ) -> Optional[Regime]:
         """Resolve dual regime: CRISIS wins, otherwise use the more conservative."""
         if rule_regime is None and hmm_regime is None:
             return None
@@ -117,7 +127,11 @@ class RegimeDampener:
         return rule_regime
 
     async def _emit_disagreement_alert(
-        self, state: ProfileState, tick: NormalisedTick, rule_regime: Regime, hmm_regime: Regime
+        self,
+        state: ProfileState,
+        tick: NormalisedTick,
+        rule_regime: Regime,
+        hmm_regime: Regime,
     ):
         if not self._pubsub:
             return
@@ -131,6 +145,7 @@ class RegimeDampener:
                 source_service="hot-path",
             )
             from libs.messaging.channels import PUBSUB_ALERTS
+
             await self._pubsub.publish(PUBSUB_ALERTS, alert)
             logger.info(
                 "Regime disagreement alert",

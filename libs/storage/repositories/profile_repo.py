@@ -1,8 +1,9 @@
-from typing import List, Optional
-from uuid import UUID
-from libs.core.models import TradingProfile, RiskLimits
-from ._repository_base import BaseRepository
 import json
+from typing import Optional
+from uuid import UUID
+
+from ._repository_base import BaseRepository
+
 
 class ProfileRepository(BaseRepository):
     async def get_active_profiles_for_user(self, user_id: str) -> list:
@@ -30,16 +31,24 @@ class ProfileRepository(BaseRepository):
             return dict(record)
         return None
 
-    async def get_profile_for_user(self, profile_id: str, user_id: str) -> Optional[dict]:
+    async def get_profile_for_user(
+        self, profile_id: str, user_id: str
+    ) -> Optional[dict]:
         query = "SELECT * FROM trading_profiles WHERE profile_id = $1 AND user_id = $2"
         record = await self._fetchrow(query, UUID(profile_id), UUID(user_id))
         if record:
             return dict(record)
         return None
 
-    async def create_profile(self, user_id: str, name: str, strategy_rules: dict,
-                             risk_limits: dict, allocation_pct: float,
-                             exchange_key_ref: str = "paper") -> dict:
+    async def create_profile(
+        self,
+        user_id: str,
+        name: str,
+        strategy_rules: dict,
+        risk_limits: dict,
+        allocation_pct: float,
+        exchange_key_ref: str = "paper",
+    ) -> dict:
         query = """
         INSERT INTO trading_profiles (user_id, name, strategy_rules, risk_limits, allocation_pct, exchange_key_ref, is_active)
         VALUES ($1, $2, $3, $4, $5, $6, true)
@@ -52,7 +61,7 @@ class ProfileRepository(BaseRepository):
             json.dumps(strategy_rules),
             json.dumps(risk_limits),
             allocation_pct,
-            exchange_key_ref
+            exchange_key_ref,
         )
         return dict(record) if record else {}
 
@@ -79,7 +88,9 @@ class ProfileRepository(BaseRepository):
         if risk_limits is not None:
             # JSONB merge keeps existing keys (max_drawdown_pct etc.) when only
             # one knob like max_allocation_pct changes.
-            sets.append(f"risk_limits = COALESCE(risk_limits, '{{}}'::jsonb) || ${idx}::jsonb")
+            sets.append(
+                f"risk_limits = COALESCE(risk_limits, '{{}}'::jsonb) || ${idx}::jsonb"
+            )
             args.append(json.dumps(risk_limits))
             idx += 1
 
@@ -99,7 +110,9 @@ class ProfileRepository(BaseRepository):
         record = await self._fetchrow(query, *args)
         return dict(record) if record else {}
 
-    async def toggle_active(self, profile_id: str, user_id: str, is_active: bool) -> dict:
+    async def toggle_active(
+        self, profile_id: str, user_id: str, is_active: bool
+    ) -> dict:
         query = """
         UPDATE trading_profiles SET is_active = $1, updated_at = NOW()
         WHERE profile_id = $2 AND user_id = $3

@@ -16,6 +16,7 @@ file in and get a PDF.
 Dependencies (system Python — the existing walkthrough builders use the
 same): `pip install reportlab markdown`.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -30,16 +31,7 @@ from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import (
-    KeepTogether,
-    PageBreak,
-    Paragraph,
-    SimpleDocTemplate,
-    Spacer,
-    Table,
-    TableStyle,
-)
-
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 PAGE_W, PAGE_H = LETTER
 MARGIN = 0.6 * inch
@@ -49,6 +41,7 @@ USABLE_W = PAGE_W - 2 * MARGIN
 # ---------------------------------------------------------------------------
 # Styles
 # ---------------------------------------------------------------------------
+
 
 def _build_styles() -> dict[str, ParagraphStyle]:
     base = getSampleStyleSheet()
@@ -153,15 +146,24 @@ def _build_styles() -> dict[str, ParagraphStyle]:
         textColor=colors.HexColor("#0b3d2e"),
     )
     return {
-        "body": body, "h1": h1, "h2": h2, "h3": h3, "h4": h4,
-        "bullet": bullet, "ordered": ordered, "code": code, "quote": quote,
-        "table_cell": table_cell, "table_header": table_header,
+        "body": body,
+        "h1": h1,
+        "h2": h2,
+        "h3": h3,
+        "h4": h4,
+        "bullet": bullet,
+        "ordered": ordered,
+        "code": code,
+        "quote": quote,
+        "table_cell": table_cell,
+        "table_header": table_header,
     }
 
 
 # ---------------------------------------------------------------------------
 # Inline HTML → reportlab markup
 # ---------------------------------------------------------------------------
+
 
 class _InlineConverter(HTMLParser):
     """Convert the inline HTML that python-markdown emits (<strong>, <em>,
@@ -220,11 +222,7 @@ class _InlineConverter(HTMLParser):
 
 def _esc_text(s: str) -> str:
     """Escape characters with special meaning to reportlab's mini-markup."""
-    return (
-        s.replace("&", "&amp;")
-         .replace("<", "&lt;")
-         .replace(">", "&gt;")
-    )
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def _esc_attr(s: str) -> str:
@@ -295,22 +293,28 @@ def _build_table(header: list[str], rows: list[list[str]], styles: dict) -> Tabl
         data.append([_cell(c, styles["table_cell"]) for c in r])
 
     tbl = Table(data, colWidths=[col_w] * ncols, repeatRows=1)
-    tbl.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef3ef")),
-        ("LINEBELOW", (0, 0), (-1, 0), 0.75, colors.HexColor("#0b3d2e")),
-        ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.HexColor("#dcdfe3")),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LEFTPADDING", (0, 0), (-1, -1), 4),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
+    tbl.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef3ef")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.75, colors.HexColor("#0b3d2e")),
+                ("LINEBELOW", (0, 1), (-1, -1), 0.25, colors.HexColor("#dcdfe3")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 4),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]
+        )
+    )
     return tbl
 
 
 def _hr_flowable() -> Table:
     t = Table([[""]], colWidths=[USABLE_W], rowHeights=[1])
-    t.setStyle(TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4d9"))]))
+    t.setStyle(
+        TableStyle([("LINEABOVE", (0, 0), (-1, -1), 0.5, colors.HexColor("#cfd4d9"))])
+    )
     return t
 
 
@@ -322,10 +326,12 @@ def _flush_list(story: list, items: list[tuple[int, str, bool]], styles: dict) -
     style_key = "ordered" if ordered else "bullet"
     for idx, (_indent, content, _o) in enumerate(items, start=1):
         bullet = f"{idx}." if ordered else "&bull;"
-        story.append(Paragraph(
-            f"{bullet}&nbsp;&nbsp;{_render_inline(content)}",
-            styles[style_key],
-        ))
+        story.append(
+            Paragraph(
+                f"{bullet}&nbsp;&nbsp;{_render_inline(content)}",
+                styles[style_key],
+            )
+        )
     items.clear()
 
 
@@ -369,7 +375,9 @@ def parse_markdown_to_flowables(md_text: str, styles: dict) -> list:
                 buf.append(lines[i])
                 i += 1
             i += 1  # consume closing fence (if present)
-            code_text = _esc_text("\n".join(buf)).replace("\n", "<br/>").replace(" ", "&nbsp;")
+            code_text = (
+                _esc_text("\n".join(buf)).replace("\n", "<br/>").replace(" ", "&nbsp;")
+            )
             story.append(Paragraph(code_text, styles["code"]))
             continue
 
@@ -459,6 +467,7 @@ def parse_markdown_to_flowables(md_text: str, styles: dict) -> list:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def build(md_path: Path, pdf_path: Optional[Path] = None) -> Path:
     if not md_path.exists():
         raise FileNotFoundError(f"Markdown file not found: {md_path}")
@@ -486,8 +495,13 @@ def build(md_path: Path, pdf_path: Optional[Path] = None) -> Path:
 def main() -> None:
     ap = argparse.ArgumentParser(description="Convert a markdown file to PDF.")
     ap.add_argument("md_path", type=Path, help="Path to the .md file")
-    ap.add_argument("-o", "--output", type=Path, default=None,
-                    help="Output PDF path (default: same stem, .pdf)")
+    ap.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        default=None,
+        help="Output PDF path (default: same stem, .pdf)",
+    )
     args = ap.parse_args()
 
     out = build(args.md_path, args.output)

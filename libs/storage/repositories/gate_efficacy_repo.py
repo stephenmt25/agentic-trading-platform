@@ -54,8 +54,16 @@ class GateEfficacyRepository(BaseRepository):
             UUID(profile_id),
             symbol,
             gate_name,
-            window_start if window_start.tzinfo else window_start.replace(tzinfo=timezone.utc),
-            window_end if window_end.tzinfo else window_end.replace(tzinfo=timezone.utc),
+            (
+                window_start
+                if window_start.tzinfo
+                else window_start.replace(tzinfo=timezone.utc)
+            ),
+            (
+                window_end
+                if window_end.tzinfo
+                else window_end.replace(tzinfo=timezone.utc)
+            ),
             blocked_count,
             passed_count,
             _to_numeric(blocked_would_be_win_rate),

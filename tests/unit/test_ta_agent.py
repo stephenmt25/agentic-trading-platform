@@ -1,14 +1,11 @@
 """Tests for TA Agent service: multi-timeframe confluence scoring."""
 
-import pytest
-from unittest.mock import MagicMock, patch
-
 from services.ta_agent.src.confluence import TAConfluenceScorer
-
 
 # ---------------------------------------------------------------------------
 # TAConfluenceScorer tests
 # ---------------------------------------------------------------------------
+
 
 class TestTAConfluenceScorer:
     def test_timeframes(self):

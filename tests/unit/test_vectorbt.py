@@ -4,18 +4,25 @@ Tests the vectorized runner produces valid results, matches sequential
 simulator on basic cases, and parameter sweep works correctly.
 """
 
-import pytest
 import math
 from decimal import Decimal
-from services.backtesting.src.simulator import TradingSimulator, BacktestJob, BacktestResult
-from services.backtesting.src.vectorbt_runner import (
-    VectorBTRunner, run_sweep, _compute_indicators, _evaluate_conditions_vectorized,
-)
 
+from services.backtesting.src.simulator import (
+    BacktestJob,
+    BacktestResult,
+    TradingSimulator,
+)
+from services.backtesting.src.vectorbt_runner import (
+    VectorBTRunner,
+    _compute_indicators,
+    _evaluate_conditions_vectorized,
+    run_sweep,
+)
 
 # ---------------------------------------------------------------------------
 # Test data generation
 # ---------------------------------------------------------------------------
+
 
 def _make_candles(n=100, base_price=100.0, trend=0.1):
     """Generate synthetic candle data with a slight uptrend."""
@@ -23,14 +30,16 @@ def _make_candles(n=100, base_price=100.0, trend=0.1):
     price = base_price
     for i in range(n):
         price += trend * (1 if i % 3 != 0 else -0.5)
-        candles.append({
-            "time": f"2024-01-01T00:{i // 60:02d}:{i % 60:02d}",
-            "open": price - 0.5,
-            "high": price + 1.0,
-            "low": price - 1.0,
-            "close": price,
-            "volume": 1000.0 + i * 10,
-        })
+        candles.append(
+            {
+                "time": f"2024-01-01T00:{i // 60:02d}:{i % 60:02d}",
+                "open": price - 0.5,
+                "high": price + 1.0,
+                "low": price - 1.0,
+                "close": price,
+                "volume": 1000.0 + i * 10,
+            }
+        )
     return candles
 
 
@@ -42,17 +51,24 @@ def _make_job(rules=None, slippage=Decimal("0.001")):
             "direction": "BUY",
             "base_confidence": 0.85,
         }
-    return BacktestJob(job_id="test-job", symbol="BTC/USDT", strategy_rules=rules, slippage_pct=slippage)
+    return BacktestJob(
+        job_id="test-job",
+        symbol="BTC/USDT",
+        strategy_rules=rules,
+        slippage_pct=slippage,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Indicator computation
 # ---------------------------------------------------------------------------
 
+
 class TestComputeIndicators:
     def test_returns_all_indicator_arrays(self):
         candles = _make_candles(50)
         import numpy as np
+
         closes = np.array([c["close"] for c in candles])
         highs = np.array([c["high"] for c in candles])
         lows = np.array([c["low"] for c in candles])
@@ -61,9 +77,20 @@ class TestComputeIndicators:
         inds = _compute_indicators(closes, highs, lows, volumes)
 
         expected_keys = [
-            "rsi", "macd.macd_line", "atr", "adx", "bb.pct_b", "obv", "choppiness",
-            "z_score", "vwap", "keltner.upper", "keltner.middle", "keltner.lower",
-            "rvol", "hurst",
+            "rsi",
+            "macd.macd_line",
+            "atr",
+            "adx",
+            "bb.pct_b",
+            "obv",
+            "choppiness",
+            "z_score",
+            "vwap",
+            "keltner.upper",
+            "keltner.middle",
+            "keltner.lower",
+            "rvol",
+            "hurst",
         ]
         for key in expected_keys:
             assert key in inds
@@ -74,6 +101,7 @@ class TestComputeIndicators:
         after their priming windows — otherwise the Mean Reversion template silently
         produces zero trades on the vectorbt engine."""
         import numpy as np
+
         candles = _make_candles(300)
         closes = np.array([c["close"] for c in candles])
         highs = np.array([c["high"] for c in candles])
@@ -88,6 +116,7 @@ class TestComputeIndicators:
 
     def test_rsi_primes_after_period(self):
         import numpy as np
+
         candles = _make_candles(30)
         closes = np.array([c["close"] for c in candles])
         highs = np.array([c["high"] for c in candles])
@@ -108,9 +137,11 @@ class TestComputeIndicators:
 # Vectorized condition evaluation
 # ---------------------------------------------------------------------------
 
+
 class TestEvaluateConditions:
     def test_simple_lt_condition(self):
         import numpy as np
+
         indicators = {"rsi": np.array([25.0, 35.0, 28.0, 50.0, 29.0])}
         conditions = [{"indicator": "rsi", "operator": "LT", "value": 30}]
 
@@ -119,6 +150,7 @@ class TestEvaluateConditions:
 
     def test_and_logic(self):
         import numpy as np
+
         indicators = {
             "rsi": np.array([25.0, 35.0, 28.0]),
             "atr": np.array([10.0, 5.0, 8.0]),
@@ -133,6 +165,7 @@ class TestEvaluateConditions:
 
     def test_or_logic(self):
         import numpy as np
+
         indicators = {
             "rsi": np.array([25.0, 35.0, 28.0]),
             "atr": np.array([10.0, 5.0, 3.0]),
@@ -147,6 +180,7 @@ class TestEvaluateConditions:
 
     def test_nan_treated_as_false(self):
         import numpy as np
+
         indicators = {"rsi": np.array([float("nan"), 25.0, float("nan")])}
         conditions = [{"indicator": "rsi", "operator": "LT", "value": 30}]
         result = _evaluate_conditions_vectorized(indicators, conditions, "AND")
@@ -154,6 +188,7 @@ class TestEvaluateConditions:
 
     def test_unknown_indicator_all_false(self):
         import numpy as np
+
         indicators = {"rsi": np.array([25.0, 35.0])}
         conditions = [{"indicator": "nonexistent", "operator": "LT", "value": 30}]
         result = _evaluate_conditions_vectorized(indicators, conditions, "AND")
@@ -163,6 +198,7 @@ class TestEvaluateConditions:
 # ---------------------------------------------------------------------------
 # VectorBT Runner
 # ---------------------------------------------------------------------------
+
 
 class TestVectorBTRunner:
     def test_empty_data(self):
@@ -189,7 +225,9 @@ class TestVectorBTRunner:
         # Use a strategy that will trigger (RSI < 40 is easy to hit)
         rules = {
             "conditions": [{"indicator": "rsi", "operator": "LT", "value": 40}],
-            "logic": "AND", "direction": "BUY", "base_confidence": 0.85,
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
         }
         candles = _make_candles(200)
         result = VectorBTRunner.run(_make_job(rules), candles)
@@ -202,12 +240,18 @@ class TestVectorBTRunner:
     def test_slippage_applied(self):
         rules = {
             "conditions": [{"indicator": "rsi", "operator": "LT", "value": 40}],
-            "logic": "AND", "direction": "BUY", "base_confidence": 0.85,
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
         }
         candles = _make_candles(200)
 
-        result_no_slip = VectorBTRunner.run(_make_job(rules, slippage=Decimal("0")), candles)
-        result_with_slip = VectorBTRunner.run(_make_job(rules, slippage=Decimal("0.01")), candles)
+        result_no_slip = VectorBTRunner.run(
+            _make_job(rules, slippage=Decimal("0")), candles
+        )
+        result_with_slip = VectorBTRunner.run(
+            _make_job(rules, slippage=Decimal("0.01")), candles
+        )
 
         if result_no_slip.total_trades > 0 and result_with_slip.total_trades > 0:
             # Slippage should reduce returns
@@ -218,23 +262,32 @@ class TestVectorBTRunner:
 # Cross-engine consistency
 # ---------------------------------------------------------------------------
 
+
 class TestCrossEngineConsistency:
     def test_both_engines_produce_trades_on_same_data(self):
         """Both engines should produce trades from the same strategy and data."""
         import math
+
         # Create oscillating data that will trigger RSI dips below 35
         candles = []
         for i in range(200):
             price = 100 + 10 * math.sin(i * 0.15)
-            candles.append({
-                "time": f"2024-01-01T00:{i // 60:02d}:{i % 60:02d}",
-                "open": price - 0.3, "high": price + 1.0,
-                "low": price - 1.0, "close": price, "volume": 1000.0,
-            })
+            candles.append(
+                {
+                    "time": f"2024-01-01T00:{i // 60:02d}:{i % 60:02d}",
+                    "open": price - 0.3,
+                    "high": price + 1.0,
+                    "low": price - 1.0,
+                    "close": price,
+                    "volume": 1000.0,
+                }
+            )
 
         rules = {
             "conditions": [{"indicator": "rsi", "operator": "LT", "value": 35}],
-            "logic": "AND", "direction": "BUY", "base_confidence": 0.85,
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
         }
         job = _make_job(rules)
 
@@ -255,11 +308,14 @@ class TestCrossEngineConsistency:
 # Parameter sweep
 # ---------------------------------------------------------------------------
 
+
 class TestParameterSweep:
     def test_sweep_produces_results(self):
         rules = {
             "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-            "logic": "AND", "direction": "BUY", "base_confidence": 0.85,
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
         }
         candles = _make_candles(200)
 
@@ -277,7 +333,9 @@ class TestParameterSweep:
         """Different threshold values should produce different trade counts."""
         rules = {
             "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-            "logic": "AND", "direction": "BUY", "base_confidence": 0.85,
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
         }
         candles = _make_candles(200)
 
@@ -296,7 +354,9 @@ class TestParameterSweep:
     def test_sweep_result_structure(self):
         rules = {
             "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-            "logic": "AND", "direction": "BUY", "base_confidence": 0.85,
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
         }
         candles = _make_candles(100)
 
@@ -322,7 +382,9 @@ class TestParameterSweep:
                 {"indicator": "rsi", "operator": "LT", "value": 30},
                 {"indicator": "atr", "operator": "GT", "value": 1.0},
             ],
-            "logic": "AND", "direction": "BUY", "base_confidence": 0.85,
+            "logic": "AND",
+            "direction": "BUY",
+            "base_confidence": 0.85,
         }
         candles = _make_candles(200)
 

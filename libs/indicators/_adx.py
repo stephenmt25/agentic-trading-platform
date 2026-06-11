@@ -9,9 +9,16 @@ class ADXCalculator:
     """
 
     __slots__ = (
-        'period', 'count', 'prev_high', 'prev_low', 'prev_close',
-        'smoothed_plus_dm', 'smoothed_minus_dm', 'smoothed_tr',
-        'dx_sum', 'adx',
+        "period",
+        "count",
+        "prev_high",
+        "prev_low",
+        "prev_close",
+        "smoothed_plus_dm",
+        "smoothed_minus_dm",
+        "smoothed_tr",
+        "dx_sum",
+        "adx",
     )
 
     def __init__(self, period: int = 14):
@@ -61,13 +68,25 @@ class ADXCalculator:
 
         # Phase 2: first Wilder smooth at bar == period + 1
         if self.count == self.period + 1:
-            self.smoothed_plus_dm = self.smoothed_plus_dm - (self.smoothed_plus_dm / self.period) + plus_dm
-            self.smoothed_minus_dm = self.smoothed_minus_dm - (self.smoothed_minus_dm / self.period) + minus_dm
+            self.smoothed_plus_dm = (
+                self.smoothed_plus_dm - (self.smoothed_plus_dm / self.period) + plus_dm
+            )
+            self.smoothed_minus_dm = (
+                self.smoothed_minus_dm
+                - (self.smoothed_minus_dm / self.period)
+                + minus_dm
+            )
             self.smoothed_tr = self.smoothed_tr - (self.smoothed_tr / self.period) + tr
         else:
             # Subsequent Wilder smoothing
-            self.smoothed_plus_dm = self.smoothed_plus_dm - (self.smoothed_plus_dm / self.period) + plus_dm
-            self.smoothed_minus_dm = self.smoothed_minus_dm - (self.smoothed_minus_dm / self.period) + minus_dm
+            self.smoothed_plus_dm = (
+                self.smoothed_plus_dm - (self.smoothed_plus_dm / self.period) + plus_dm
+            )
+            self.smoothed_minus_dm = (
+                self.smoothed_minus_dm
+                - (self.smoothed_minus_dm / self.period)
+                + minus_dm
+            )
             self.smoothed_tr = self.smoothed_tr - (self.smoothed_tr / self.period) + tr
 
         # +DI / -DI

@@ -1,12 +1,13 @@
 import asyncio
-import json
-from fastapi import FastAPI
-import uvicorn
 from contextlib import asynccontextmanager
 
+import uvicorn
+from fastapi import FastAPI
+
 from libs.config import settings
+from libs.observability import MetricsCollector, get_logger, supervised_task
 from libs.storage._redis_client import RedisClient
-from libs.observability import get_logger, MetricsCollector, supervised_task
+
 from .quota_config import EXCHANGE_QUOTAS
 
 logger = get_logger("rate-limiter")
@@ -27,7 +28,9 @@ async def lifespan(app: FastAPI):
                     total_keys = 0
                     pattern = f"rate_limit:{exchange.lower()}:*"
                     while True:
-                        cursor, keys = await redis_client.scan(cursor, match=pattern, count=100)
+                        cursor, keys = await redis_client.scan(
+                            cursor, match=pattern, count=100
+                        )
                         total_keys += len(keys)
                         if cursor == 0 or cursor == b"0":
                             break
@@ -37,7 +40,9 @@ async def lifespan(app: FastAPI):
                         tags={"exchange": exchange, "active_keys": str(total_keys)},
                     )
 
-                MetricsCollector.increment_counter("system.heartbeat", tags={"service": "rate-limiter"})
+                MetricsCollector.increment_counter(
+                    "system.heartbeat", tags={"service": "rate-limiter"}
+                )
             except Exception as e:
                 logger.error("Metrics loop error", error=str(e))
 

@@ -28,7 +28,6 @@ from dataclasses import dataclass
 from typing import Optional
 
 from libs.core.models import NormalisedTick
-
 from services.hot_path.src.abstention import AbstentionChecker
 from services.hot_path.src.blacklist import BlacklistChecker
 from services.hot_path.src.circuit_breaker import CircuitBreaker
@@ -48,6 +47,7 @@ class PipelineOutcome:
         if blocked before the dampener stage.
     `suggested_quantity`: from RiskGate when approved; None otherwise.
     """
+
     decision: str
     reason: Optional[str] = None
     final_signal: Optional[SignalResult] = None
@@ -94,7 +94,9 @@ async def run_pipeline(
     # Gate 3 — Preferred-regime membership (C.4 SHADOW path).
     if profile_state.preferred_regimes and profile_state.regime is not None:
         if profile_state.regime not in profile_state.preferred_regimes:
-            return PipelineOutcome("BLOCKED_REGIME_MISMATCH", "preferred_regime_mismatch")
+            return PipelineOutcome(
+                "BLOCKED_REGIME_MISMATCH", "preferred_regime_mismatch"
+            )
 
     # Gate 4 — Circuit Breaker (daily realised PnL pct vs threshold).
     if CircuitBreaker.check(profile_state):

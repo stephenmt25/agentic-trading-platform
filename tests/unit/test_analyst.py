@@ -1,29 +1,34 @@
 """Tests for Analyst service: sentiment scoring via keyword matching."""
 
-import json
 from unittest.mock import AsyncMock
 
 import pytest
 
-from services.analyst.src.sentiment_scorer import SentimentScorer, SentimentResult
-
+from services.analyst.src.sentiment_scorer import SentimentResult, SentimentScorer
 
 # ---------------------------------------------------------------------------
 # SentimentScorer._keyword_score tests
 # ---------------------------------------------------------------------------
 
+
 class TestKeywordScoring:
     def test_bullish_keywords_positive_score(self):
-        score, confidence = SentimentScorer._keyword_score(["Bitcoin rally continues", "Massive adoption surge"])
+        score, confidence = SentimentScorer._keyword_score(
+            ["Bitcoin rally continues", "Massive adoption surge"]
+        )
         assert score > 0.0
         assert 0.0 <= confidence <= 1.0
 
     def test_bearish_keywords_negative_score(self):
-        score, confidence = SentimentScorer._keyword_score(["Market crash imminent", "Massive fraud exposed"])
+        score, confidence = SentimentScorer._keyword_score(
+            ["Market crash imminent", "Massive fraud exposed"]
+        )
         assert score < 0.0
 
     def test_neutral_headlines_zero(self):
-        score, confidence = SentimentScorer._keyword_score(["Regular market update today"])
+        score, confidence = SentimentScorer._keyword_score(
+            ["Regular market update today"]
+        )
         assert score == 0.0
         assert confidence == 0.3  # no keyword matches → low confidence
 
@@ -39,7 +44,11 @@ class TestKeywordScoring:
 
     def test_confidence_grows_with_matches(self):
         _, conf_few = SentimentScorer._keyword_score(["rally"])
-        _, conf_many = SentimentScorer._keyword_score(["rally surge bullish adoption breakout gains soars momentum recovery growth"])
+        _, conf_many = SentimentScorer._keyword_score(
+            [
+                "rally surge bullish adoption breakout gains soars momentum recovery growth"
+            ]
+        )
         assert conf_many > conf_few
 
 
@@ -47,13 +56,18 @@ class TestKeywordScoring:
 # SentimentScorer.score integration tests
 # ---------------------------------------------------------------------------
 
+
 class TestSentimentScorer:
     @pytest.mark.asyncio
     async def test_returns_cached_result(self):
         cache = AsyncMock()
-        cache.get = AsyncMock(return_value={
-            "score": 0.5, "confidence": 0.8, "source": "keyword_rules",
-        })
+        cache.get = AsyncMock(
+            return_value={
+                "score": 0.5,
+                "confidence": 0.8,
+                "source": "keyword_rules",
+            }
+        )
         news = AsyncMock()
         scorer = SentimentScorer(cache=cache, news=news)
         result = await scorer.score("BTC/USDT")

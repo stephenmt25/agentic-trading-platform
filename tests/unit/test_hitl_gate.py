@@ -4,52 +4,69 @@ Tests trigger conditions, pass-through when disabled, timeout rejection,
 and approval flow.
 """
 
-import pytest
 import json
-from unittest.mock import AsyncMock, patch
 from decimal import Decimal
+from unittest.mock import patch
 
-from services.hot_path.src.hitl_gate import HITLGate, HITLGateResult
-from services.hot_path.src.strategy_eval import SignalResult, EvaluatedIndicators
-from services.hot_path.src.risk_gate import RiskGateResult
-from services.hot_path.src.state import ProfileState
-from services.strategy.src.compiler import CompiledRuleSet
-from libs.core.enums import SignalDirection, Regime, HITLStatus
+import pytest
+
+from libs.core.enums import Regime, SignalDirection
 from libs.core.models import NormalisedTick, RiskLimits
 from libs.indicators import create_indicator_set
-
+from services.hot_path.src.hitl_gate import HITLGate
+from services.hot_path.src.risk_gate import RiskGateResult
+from services.hot_path.src.state import ProfileState
+from services.hot_path.src.strategy_eval import EvaluatedIndicators, SignalResult
+from services.strategy.src.compiler import CompiledRuleSet
 
 # ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
 
+
 def _make_tick(symbol="BTC/USDT", price=50000.0):
     return NormalisedTick(
-        symbol=symbol, exchange="BINANCE", timestamp=1000000,
-        price=Decimal(str(price)), volume=Decimal("1.0"),
+        symbol=symbol,
+        exchange="BINANCE",
+        timestamp=1000000,
+        price=Decimal(str(price)),
+        volume=Decimal("1.0"),
     )
+
 
 def _make_signal(direction=SignalDirection.BUY, confidence=0.85):
     return SignalResult(direction=direction, confidence=confidence, rule_matched=True)
 
+
 def _make_indicators():
-    return EvaluatedIndicators(rsi=45.0, macd_line=0.5, signal_line=0.3, histogram=0.2, atr=500.0)
+    return EvaluatedIndicators(
+        rsi=45.0, macd_line=0.5, signal_line=0.3, histogram=0.2, atr=500.0
+    )
+
 
 def _make_risk_result(quantity=0.5):
     return RiskGateResult(blocked=False, suggested_quantity=quantity)
 
+
 def _make_state(regime=None, allocation_pct=0.1, drawdown_pct=0.0):
     rules = CompiledRuleSet(
-        logic="AND", direction=SignalDirection.BUY,
-        base_confidence=0.85, conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
+        logic="AND",
+        direction=SignalDirection.BUY,
+        base_confidence=0.85,
+        conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
     )
     limits = RiskLimits(
-        max_drawdown_pct=Decimal("0.05"), stop_loss_pct=Decimal("0.02"),
-        circuit_breaker_daily_loss_pct=Decimal("0.02"), max_allocation_pct=Decimal("10.0"),
+        max_drawdown_pct=Decimal("0.05"),
+        stop_loss_pct=Decimal("0.02"),
+        circuit_breaker_daily_loss_pct=Decimal("0.02"),
+        max_allocation_pct=Decimal("10.0"),
     )
     state = ProfileState(
-        profile_id="test-profile", compiled_rules=rules,
-        risk_limits=limits, blacklist=frozenset(), indicators=create_indicator_set(),
+        profile_id="test-profile",
+        compiled_rules=rules,
+        risk_limits=limits,
+        blacklist=frozenset(),
+        indicators=create_indicator_set(),
     )
     state.regime = regime
     state.current_allocation_pct = allocation_pct
@@ -114,10 +131,11 @@ class FakePubSub:
 # Tests
 # ---------------------------------------------------------------------------
 
+
 class TestHITLGate:
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_disabled_passes_through(self, mock_settings):
         """When HITL_ENABLED=False, gate is a no-op pass-through."""
         mock_settings.HITL_ENABLED = False
@@ -126,15 +144,18 @@ class TestHITLGate:
         gate = HITLGate(redis, pubsub)
 
         result = await gate.check(
-            _make_state(), _make_signal(), _make_tick(),
-            _make_indicators(), _make_risk_result(),
+            _make_state(),
+            _make_signal(),
+            _make_tick(),
+            _make_indicators(),
+            _make_risk_result(),
         )
         assert not result.blocked
         assert not result.hitl_triggered
         assert len(pubsub.published) == 0
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_no_trigger_passes_through(self, mock_settings):
         """High confidence + normal regime + small trade → no trigger."""
         mock_settings.HITL_ENABLED = True
@@ -157,7 +178,7 @@ class TestHITLGate:
         assert not result.hitl_triggered
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_low_confidence_triggers(self, mock_settings):
         """Low confidence should trigger HITL."""
         mock_settings.HITL_ENABLED = True
@@ -183,7 +204,7 @@ class TestHITLGate:
         assert len(pubsub.published) == 1  # Request was published
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_high_volatility_triggers(self, mock_settings):
         """HIGH_VOLATILITY regime should trigger HITL."""
         mock_settings.HITL_ENABLED = True
@@ -207,7 +228,7 @@ class TestHITLGate:
         assert len(pubsub.published) == 1
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_approval_unblocks(self, mock_settings):
         """When human approves, trade should pass through."""
         mock_settings.HITL_ENABLED = True
@@ -223,7 +244,10 @@ class TestHITLGate:
         # The gate uses blpop on `hitl:response:{event_id}` but we don't know
         # the event_id ahead of time. Instead, override blpop to always return approved.
         async def mock_blpop(key, timeout=0):
-            return (key, json.dumps({"status": "APPROVED", "reviewer": "test"}).encode())
+            return (
+                key,
+                json.dumps({"status": "APPROVED", "reviewer": "test"}).encode(),
+            )
 
         redis.blpop = mock_blpop
 
@@ -238,7 +262,7 @@ class TestHITLGate:
         assert result.hitl_triggered
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_rejection_blocks(self, mock_settings):
         """When human rejects, trade should be blocked."""
         mock_settings.HITL_ENABLED = True
@@ -251,7 +275,10 @@ class TestHITLGate:
         gate = HITLGate(redis, pubsub)
 
         async def mock_blpop(key, timeout=0):
-            return (key, json.dumps({"status": "REJECTED", "reason": "Too risky"}).encode())
+            return (
+                key,
+                json.dumps({"status": "REJECTED", "reason": "Too risky"}).encode(),
+            )
 
         redis.blpop = mock_blpop
 
@@ -267,7 +294,7 @@ class TestHITLGate:
         assert "rejected" in result.reason
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_timeout_rejects_failsafe(self, mock_settings):
         """Timeout should result in rejection (fail-safe)."""
         mock_settings.HITL_ENABLED = True
@@ -290,7 +317,7 @@ class TestHITLGate:
         assert "timeout" in result.reason
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_large_trade_triggers(self, mock_settings):
         """Trade size exceeding threshold should trigger HITL."""
         mock_settings.HITL_ENABLED = True
@@ -314,7 +341,7 @@ class TestHITLGate:
         assert result.hitl_triggered
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_size_check_uses_dollar_math(self, mock_settings):
         """A trade well under the dollar threshold must not trigger.
 
@@ -334,34 +361,46 @@ class TestHITLGate:
 
         # State: $10k notional, 10% max allocation cap → $1000 allocation cap.
         rules = CompiledRuleSet(
-            logic="AND", direction=SignalDirection.BUY,
-            base_confidence=0.85, conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
+            logic="AND",
+            direction=SignalDirection.BUY,
+            base_confidence=0.85,
+            conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
         )
         limits = RiskLimits(
-            max_drawdown_pct=Decimal("0.05"), stop_loss_pct=Decimal("0.02"),
+            max_drawdown_pct=Decimal("0.05"),
+            stop_loss_pct=Decimal("0.02"),
             circuit_breaker_daily_loss_pct=Decimal("0.02"),
             max_allocation_pct=Decimal("0.10"),
         )
         state = ProfileState(
-            profile_id="test-profile", compiled_rules=rules,
-            risk_limits=limits, blacklist=frozenset(), indicators=create_indicator_set(),
+            profile_id="test-profile",
+            compiled_rules=rules,
+            risk_limits=limits,
+            blacklist=frozenset(),
+            indicators=create_indicator_set(),
         )
         state.regime = Regime.TRENDING_UP
 
         # Tick at $0.50/asset, qty=10 → $5 trade. 0.5% of $1000 cap.
         tick = NormalisedTick(
-            symbol="BTC/USDT", exchange="BINANCE", timestamp=1000000,
-            price=Decimal("0.5"), volume=Decimal("1.0"),
+            symbol="BTC/USDT",
+            exchange="BINANCE",
+            timestamp=1000000,
+            price=Decimal("0.5"),
+            volume=Decimal("1.0"),
         )
         result = await gate.check(
-            state, _make_signal(confidence=0.9), tick,
-            _make_indicators(), _make_risk_result(quantity=Decimal("10.0")),
+            state,
+            _make_signal(confidence=0.9),
+            tick,
+            _make_indicators(),
+            _make_risk_result(quantity=Decimal("10.0")),
         )
         assert not result.blocked
         assert not result.hitl_triggered
 
     @pytest.mark.asyncio
-    @patch('services.hot_path.src.hitl_gate.settings')
+    @patch("services.hot_path.src.hitl_gate.settings")
     async def test_size_check_triggers_on_real_dollar_excess(self, mock_settings):
         """A trade above the dollar threshold should trigger.
 
@@ -379,27 +418,39 @@ class TestHITLGate:
         gate = HITLGate(redis, pubsub)
 
         rules = CompiledRuleSet(
-            logic="AND", direction=SignalDirection.BUY,
-            base_confidence=0.85, conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
+            logic="AND",
+            direction=SignalDirection.BUY,
+            base_confidence=0.85,
+            conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
         )
         limits = RiskLimits(
-            max_drawdown_pct=Decimal("0.05"), stop_loss_pct=Decimal("0.02"),
+            max_drawdown_pct=Decimal("0.05"),
+            stop_loss_pct=Decimal("0.02"),
             circuit_breaker_daily_loss_pct=Decimal("0.02"),
             max_allocation_pct=Decimal("0.10"),
         )
         state = ProfileState(
-            profile_id="test-profile", compiled_rules=rules,
-            risk_limits=limits, blacklist=frozenset(), indicators=create_indicator_set(),
+            profile_id="test-profile",
+            compiled_rules=rules,
+            risk_limits=limits,
+            blacklist=frozenset(),
+            indicators=create_indicator_set(),
         )
         state.regime = Regime.TRENDING_UP
 
         tick = NormalisedTick(
-            symbol="ETH/USDT", exchange="BINANCE", timestamp=1000000,
-            price=Decimal("3500"), volume=Decimal("1.0"),
+            symbol="ETH/USDT",
+            exchange="BINANCE",
+            timestamp=1000000,
+            price=Decimal("3500"),
+            volume=Decimal("1.0"),
         )
         result = await gate.check(
-            state, _make_signal(confidence=0.9), tick,
-            _make_indicators(), _make_risk_result(quantity=Decimal("0.2")),  # $700 trade
+            state,
+            _make_signal(confidence=0.9),
+            tick,
+            _make_indicators(),
+            _make_risk_result(quantity=Decimal("0.2")),  # $700 trade
         )
         assert result.blocked  # Timeout → reject
         assert result.hitl_triggered

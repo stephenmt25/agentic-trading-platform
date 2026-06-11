@@ -1,10 +1,12 @@
 from dataclasses import dataclass
 from typing import Optional
 
+
 @dataclass
 class CheckResult:
     passed: bool
     reason: Optional[str] = None
+
 
 class StrategyRecheck:
     def __init__(self, market_repo, redis_client):
@@ -29,7 +31,9 @@ class StrategyRecheck:
                 symbol=request.symbol, timeframe="5m", limit=20
             )
             if candles and len(candles) >= 14:
-                closes = [float(c["close"]) for c in candles]  # float-ok: RSI computation requires float
+                closes = [
+                    float(c["close"]) for c in candles
+                ]  # float-ok: RSI computation requires float
                 wide_rsi = self._compute_rsi(closes, period=14)
             else:
                 # Not enough data for independent RSI, trust hot value
@@ -41,8 +45,12 @@ class StrategyRecheck:
         diff_pct = abs(wide_rsi - hot_rsi) / max(hot_rsi, 1.0)
 
         passed = diff_pct <= 0.25
-        reason = f"RSI diverged by {diff_pct*100:.2f}% (hot={hot_rsi:.1f}, wide={wide_rsi:.1f})" if not passed else None
-        
+        reason = (
+            f"RSI diverged by {diff_pct*100:.2f}% (hot={hot_rsi:.1f}, wide={wide_rsi:.1f})"
+            if not passed
+            else None
+        )
+
         # Cache for burst protection (sub-second)
         await self._redis.set(cache_key, "PASS" if passed else "FAIL", ex=1)
 

@@ -1,18 +1,23 @@
-from fastapi import APIRouter, Depends, HTTPException
-from typing import Optional, Tuple
 from datetime import datetime, timezone
 from decimal import Decimal
-from ..deps import get_pnl_repo, get_redis, get_current_user, get_profile_repo
+from typing import Optional, Tuple
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from libs.storage._redis_client import RedisClient
 from libs.storage.repositories import PnlRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
-from libs.storage._redis_client import RedisClient
+
+from ..deps import get_current_user, get_pnl_repo, get_profile_repo, get_redis
 
 router = APIRouter(tags=["pnl"])
 
 _MICRO = Decimal("1000000")
 
 
-async def _read_daily_loss(redis: RedisClient, profile_id: str) -> Tuple[float, Optional[str]]:
+async def _read_daily_loss(
+    redis: RedisClient, profile_id: str
+) -> Tuple[float, Optional[str]]:
     """Read the per-profile daily-loss counter written by services/pnl/src/closer.py.
 
     The key `pnl:daily:{profile_id}` is a Redis HASH with fields
@@ -56,7 +61,9 @@ def _snapshot_to_dict(row) -> Optional[dict]:
         "cost_basis": float(row["cost_basis"]),
         "pct_return": float(row["pct_return"]),
         "symbol": row["symbol"],
-        "snapshot_at": row["snapshot_at"].isoformat() if row.get("snapshot_at") else None,
+        "snapshot_at": (
+            row["snapshot_at"].isoformat() if row.get("snapshot_at") else None
+        ),
     }
 
 
@@ -87,13 +94,15 @@ async def get_pnl_summary(
 
         daily_loss_pct, daily_date = await _read_daily_loss(redis, pid)
         snap = _snapshot_to_dict(latest)
-        positions.append({
-            "profile_id": pid,
-            "net_pnl": float(net_pnl),
-            "snapshot": snap,
-            "daily_loss_pct": daily_loss_pct,
-            "daily_date": daily_date,
-        })
+        positions.append(
+            {
+                "profile_id": pid,
+                "net_pnl": float(net_pnl),
+                "snapshot": snap,
+                "daily_loss_pct": daily_loss_pct,
+                "daily_date": daily_date,
+            }
+        )
 
     return {
         "status": "active",

@@ -1,9 +1,9 @@
-import asyncio
 from datetime import datetime, timedelta
 from decimal import Decimal
-from typing import Dict, Any
+from typing import Any, Dict
+
 from .check_1_strategy import CheckResult
-from libs.core.enums import ValidationVerdict
+
 
 class HallucinationCheck:
     def __init__(self, validation_repo, market_repo):
@@ -36,8 +36,7 @@ class HallucinationCheck:
                 window_start = signal_time
                 window_end = signal_time + timedelta(minutes=30)
                 candles = await self._market_repo.get_candles_by_range(
-                    symbol=symbol, timeframe="5m",
-                    start=window_start, end=window_end
+                    symbol=symbol, timeframe="5m", start=window_start, end=window_end
                 )
                 if candles and len(candles) >= 2:
                     price_at_signal = Decimal(str(candles[0]["close"]))
@@ -53,13 +52,16 @@ class HallucinationCheck:
                 was_correct = True
 
         hits.append(was_correct)
-        
-        if len(hits) > 20: # keeping recent 20
+
+        if len(hits) > 20:  # keeping recent 20
             hits.pop(0)
-            
+
         if len(hits) == 20:
             misaligned_pct = sum(not h for h in hits) / 20.0
             if misaligned_pct > 0.60:
-                return CheckResult(passed=False, reason=f"LLM hallucination > 60% ({misaligned_pct*100:.1f}%)")
-                
+                return CheckResult(
+                    passed=False,
+                    reason=f"LLM hallucination > 60% ({misaligned_pct*100:.1f}%)",
+                )
+
         return CheckResult(passed=True)

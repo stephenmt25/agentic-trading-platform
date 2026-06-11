@@ -20,6 +20,7 @@ market_data_ohlcv concurrently.
 
 Usage: poetry run python scripts/refetch_pre_fix_candles.py
 """
+
 import asyncio
 import os
 import sys
@@ -30,6 +31,7 @@ from decimal import Decimal
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import ccxt
+
 from libs.config import settings
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.market_data_repo import MarketDataRepository
@@ -38,10 +40,10 @@ SYMBOLS = ["BTC/USDT", "ETH/USDT"]
 
 # (timeframe, start_date) — earliest contaminated row per timeframe.
 JOBS = [
-    ("1m",  datetime(2026, 4, 18, tzinfo=timezone.utc)),
-    ("5m",  datetime(2026, 4, 13, tzinfo=timezone.utc)),
+    ("1m", datetime(2026, 4, 18, tzinfo=timezone.utc)),
+    ("5m", datetime(2026, 4, 13, tzinfo=timezone.utc)),
     ("15m", datetime(2026, 4, 13, tzinfo=timezone.utc)),
-    ("1h",  datetime(2026, 4, 1,  tzinfo=timezone.utc)),
+    ("1h", datetime(2026, 4, 1, tzinfo=timezone.utc)),
 ]
 
 PAGE_LIMIT = 1000
@@ -49,7 +51,9 @@ PAGE_LIMIT = 1000
 TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
 
 
-async def refetch_range(repo, exchange, symbol: str, timeframe: str, since_dt: datetime):
+async def refetch_range(
+    repo, exchange, symbol: str, timeframe: str, since_dt: datetime
+):
     interval_ms = TIMEFRAME_SECONDS[timeframe] * 1000
     since_ms = int(since_dt.timestamp() * 1000)
     now_ms = int(time.time() * 1000)
@@ -59,9 +63,13 @@ async def refetch_range(repo, exchange, symbol: str, timeframe: str, since_dt: d
 
     while since_ms < now_ms:
         try:
-            bars = exchange.fetch_ohlcv(symbol, timeframe, since=since_ms, limit=PAGE_LIMIT)
+            bars = exchange.fetch_ohlcv(
+                symbol, timeframe, since=since_ms, limit=PAGE_LIMIT
+            )
         except Exception as e:
-            print(f"  ERROR fetch {symbol} {timeframe} since={since_ms}: {e}", flush=True)
+            print(
+                f"  ERROR fetch {symbol} {timeframe} since={since_ms}: {e}", flush=True
+            )
             return total_written
         fetches += 1
 
@@ -75,12 +83,15 @@ async def refetch_range(repo, exchange, symbol: str, timeframe: str, since_dt: d
                 continue  # in-progress bucket
             bucket = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
             await repo.write_candle(
-                symbol, timeframe,
-                {"open":   Decimal(str(o)),
-                 "high":   Decimal(str(h)),
-                 "low":    Decimal(str(l)),
-                 "close":  Decimal(str(c)),
-                 "volume": Decimal(str(v))},
+                symbol,
+                timeframe,
+                {
+                    "open": Decimal(str(o)),
+                    "high": Decimal(str(h)),
+                    "low": Decimal(str(l)),
+                    "close": Decimal(str(c)),
+                    "volume": Decimal(str(v)),
+                },
                 bucket,
             )
             total_written += 1
@@ -92,7 +103,10 @@ async def refetch_range(repo, exchange, symbol: str, timeframe: str, since_dt: d
             break  # protection against infinite loop on stalled cursor
         since_ms = new_since
 
-    print(f"  {symbol} {timeframe}: wrote {total_written} rows over {fetches} fetches", flush=True)
+    print(
+        f"  {symbol} {timeframe}: wrote {total_written} rows over {fetches} fetches",
+        flush=True,
+    )
     return total_written
 
 
@@ -108,7 +122,9 @@ async def refetch():
     for symbol in SYMBOLS:
         for timeframe, since_dt in JOBS:
             print(f"Refetch {symbol} {timeframe} from {since_dt.date()}...", flush=True)
-            grand_total += await refetch_range(repo, exchange, symbol, timeframe, since_dt)
+            grand_total += await refetch_range(
+                repo, exchange, symbol, timeframe, since_dt
+            )
 
     await client.close()
     print(f"Refetch complete. Total rows written: {grand_total}")

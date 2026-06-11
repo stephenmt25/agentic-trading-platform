@@ -1,20 +1,21 @@
 import asyncio
-from fastapi import FastAPI
-import uvicorn
 from contextlib import asynccontextmanager
 
+import uvicorn
+from fastapi import FastAPI
+
 from libs.config import settings
-from libs.storage import RedisClient, TimescaleClient, MarketDataRepository
-from libs.storage.repositories.backtest_repo import BacktestRepository
 from libs.messaging import StreamConsumer, StreamPublisher
 from libs.observability import get_logger, supervised_task
+from libs.storage import MarketDataRepository, RedisClient, TimescaleClient
+from libs.storage.repositories.backtest_repo import BacktestRepository
 
-from .simulator import TradingSimulator
-from .vectorbt_runner import VectorBTRunner, run_sweep
 from .data_loader import BacktestDataLoader
 from .job_runner import JobRunner
+from .vectorbt_runner import run_sweep
 
 logger = get_logger("backtesting")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -23,7 +24,9 @@ async def lifespan(app: FastAPI):
     # Job-runner xreadgroup uses block=5000 — right at the default pool's
     # socket_timeout boundary, which produces spurious TimeoutErrors. Give
     # the worker its own no-socket-timeout pool.
-    job_redis = RedisClient.get_long_blocking_instance(settings.REDIS_URL).get_connection()
+    job_redis = RedisClient.get_long_blocking_instance(
+        settings.REDIS_URL
+    ).get_connection()
     timescale_client = TimescaleClient(settings.DATABASE_URL)
     await timescale_client.init_pool()
 
@@ -36,7 +39,9 @@ async def lifespan(app: FastAPI):
     loader = BacktestDataLoader(market_repo)
     _app_state["loader"] = loader
     runner = JobRunner(
-        consumer, publisher, loader,
+        consumer,
+        publisher,
+        loader,
         backtest_repo=backtest_repo,
         redis_client=job_redis,
     )
@@ -67,7 +72,7 @@ def health():
 
 from datetime import datetime
 
-from libs.core.schemas import SweepRequest, BacktestSweepResponse
+from libs.core.schemas import BacktestSweepResponse, SweepRequest
 
 
 @app.post("/backtest/sweep", response_model=BacktestSweepResponse)
@@ -77,7 +82,9 @@ async def backtest_sweep(req: SweepRequest):
     if not loader:
         return {"error": "Service not initialized"}
 
-    start = datetime.fromisoformat(req.start_date) if req.start_date else datetime.utcnow()
+    start = (
+        datetime.fromisoformat(req.start_date) if req.start_date else datetime.utcnow()
+    )
     end = datetime.fromisoformat(req.end_date) if req.end_date else datetime.utcnow()
 
     data = await loader.load(req.symbol, start, end)
@@ -94,6 +101,7 @@ async def backtest_sweep(req: SweepRequest):
         "num_combinations": len(result.param_results),
         "results": result.param_results,
     }
+
 
 if __name__ == "__main__":
     uvicorn.run("services.backtesting.src.main:app", host="0.0.0.0", port=8086)

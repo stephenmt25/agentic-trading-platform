@@ -60,7 +60,9 @@ def _truncate(s: Optional[str], n: int = 200) -> str:
 
 
 async def smoke_debate(symbol: str, rounds: int) -> bool:
-    print(f"\n=== DEBATE smoke ({symbol}, {rounds} round(s), backend={settings.LLM_BACKEND}) ===")
+    print(
+        f"\n=== DEBATE smoke ({symbol}, {rounds} round(s), backend={settings.LLM_BACKEND}) ==="
+    )
     backends = create_backend(settings.LLM_API_KEY)
     if not backends:
         print("FAIL  no LLM backends available")
@@ -77,7 +79,9 @@ async def smoke_debate(symbol: str, rounds: int) -> bool:
         traceback.print_exc()
         return False
 
-    print(f"score={result.score:.3f} confidence={result.confidence:.3f} latency_ms={result.total_latency_ms}")
+    print(
+        f"score={result.score:.3f} confidence={result.confidence:.3f} latency_ms={result.total_latency_ms}"
+    )
     print(f"reasoning: {_truncate(result.reasoning, 240)}")
 
     placeholder_count = 0
@@ -86,14 +90,20 @@ async def smoke_debate(symbol: str, rounds: int) -> bool:
         bear_placeholder = r.bear_argument.startswith("Failed")
         if bull_placeholder or bear_placeholder:
             placeholder_count += int(bull_placeholder) + int(bear_placeholder)
-        print(textwrap.dedent(f"""
+        print(
+            textwrap.dedent(
+                f"""
         round {r.round_num}:
           bull (conv {r.bull_conviction:.2f}): {_truncate(r.bull_argument)}
           bear (conv {r.bear_conviction:.2f}): {_truncate(r.bear_argument)}
-        """).strip())
+        """
+            ).strip()
+        )
 
     if placeholder_count:
-        print(f"FAIL  {placeholder_count} placeholder argument(s) — parser or backend rejected the response")
+        print(
+            f"FAIL  {placeholder_count} placeholder argument(s) — parser or backend rejected the response"
+        )
         return False
 
     judge_failed = result.reasoning.startswith("Judge failed")
@@ -125,7 +135,9 @@ async def smoke_sentiment(symbol: str) -> bool:
         traceback.print_exc()
         return False
 
-    print(f"score={result.score:.3f} confidence={result.confidence:.3f} source={result.source}")
+    print(
+        f"score={result.score:.3f} confidence={result.confidence:.3f} source={result.source}"
+    )
     if result.source == "llm_error":
         print("FAIL  every backend failed — see logs above")
         return False
@@ -148,9 +160,13 @@ async def _main(args: argparse.Namespace) -> int:
 
 
 def parse_args(argv: Optional[list] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="LLM round-trip smoke test for debate + sentiment.")
+    p = argparse.ArgumentParser(
+        description="LLM round-trip smoke test for debate + sentiment."
+    )
     p.add_argument("--symbol", default="BTC/USDT")
-    p.add_argument("--rounds", type=int, default=1, help="Debate rounds (1 keeps cost low)")
+    p.add_argument(
+        "--rounds", type=int, default=1, help="Debate rounds (1 keeps cost low)"
+    )
     p.add_argument("--skip-sentiment", action="store_true")
     return p.parse_args(argv)
 

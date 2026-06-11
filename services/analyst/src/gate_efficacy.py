@@ -12,9 +12,8 @@ running database.
 
 from __future__ import annotations
 
-import math
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, Iterable, List, Optional, Sequence
 
@@ -61,6 +60,7 @@ class GateEfficacyReport:
 # Pure helpers
 # ---------------------------------------------------------------------------
 
+
 def _to_float(v) -> float:
     if v is None:
         return 0.0
@@ -83,6 +83,7 @@ def _decision_side(decision: Dict[str, Any]) -> str:
     if isinstance(strat, str):
         try:
             import json
+
             strat = json.loads(strat)
         except Exception:
             strat = {}
@@ -93,6 +94,7 @@ def _decision_side(decision: Dict[str, Any]) -> str:
     if isinstance(rules, str):
         try:
             import json
+
             rules = json.loads(rules)
         except Exception:
             rules = {}
@@ -136,9 +138,19 @@ def simulate_exit(
             high = _to_float(c.get("high"))
             low = _to_float(c.get("low"))
             if low <= stop_price:
-                return SimulatedExit(pnl_pct=-stop_loss_pct, is_win=False, bars_held=i, reason="stop_loss")
+                return SimulatedExit(
+                    pnl_pct=-stop_loss_pct,
+                    is_win=False,
+                    bars_held=i,
+                    reason="stop_loss",
+                )
             if high >= target_price:
-                return SimulatedExit(pnl_pct=take_profit_pct, is_win=True, bars_held=i, reason="take_profit")
+                return SimulatedExit(
+                    pnl_pct=take_profit_pct,
+                    is_win=True,
+                    bars_held=i,
+                    reason="take_profit",
+                )
         last_close = _to_float(capped[-1].get("close")) if capped else entry_price
         pnl = (last_close - entry_price) / entry_price if entry_price else 0.0
         return SimulatedExit(
@@ -154,9 +166,19 @@ def simulate_exit(
             high = _to_float(c.get("high"))
             low = _to_float(c.get("low"))
             if high >= stop_price:
-                return SimulatedExit(pnl_pct=-stop_loss_pct, is_win=False, bars_held=i, reason="stop_loss")
+                return SimulatedExit(
+                    pnl_pct=-stop_loss_pct,
+                    is_win=False,
+                    bars_held=i,
+                    reason="stop_loss",
+                )
             if low <= target_price:
-                return SimulatedExit(pnl_pct=take_profit_pct, is_win=True, bars_held=i, reason="take_profit")
+                return SimulatedExit(
+                    pnl_pct=take_profit_pct,
+                    is_win=True,
+                    bars_held=i,
+                    reason="take_profit",
+                )
         last_close = _to_float(capped[-1].get("close")) if capped else entry_price
         pnl = (entry_price - last_close) / entry_price if entry_price else 0.0
         return SimulatedExit(
@@ -178,10 +200,12 @@ def _classify_block_gate(decision: Dict[str, Any]) -> Optional[str]:
     outcome = (decision.get("outcome") or "").upper()
     if not outcome.startswith("BLOCKED_"):
         return None
-    return outcome[len("BLOCKED_"):].lower() or None
+    return outcome[len("BLOCKED_") :].lower() or None
 
 
-def _bootstrap_ci(values: Sequence[float], n_iter: int = 200, seed: int = 42) -> Optional[float]:
+def _bootstrap_ci(
+    values: Sequence[float], n_iter: int = 200, seed: int = 42
+) -> Optional[float]:
     """Return the half-width of a 95% bootstrap confidence interval on the mean.
 
     Returns None when the sample is too small for a meaningful estimate;
@@ -208,6 +232,7 @@ def _bootstrap_ci(values: Sequence[float], n_iter: int = 200, seed: int = 42) ->
 # ---------------------------------------------------------------------------
 # Report builder
 # ---------------------------------------------------------------------------
+
 
 def compute_gate_report(
     profile_id: str,
@@ -286,7 +311,9 @@ def compute_gate_report(
             if sim.is_win:
                 blocked_wins += 1
 
-    def _summary(samples: List[float], wins: int) -> tuple[Optional[float], Optional[float]]:
+    def _summary(
+        samples: List[float], wins: int
+    ) -> tuple[Optional[float], Optional[float]]:
         n = len(samples)
         if n < min_sample:
             return None, None
@@ -296,8 +323,13 @@ def compute_gate_report(
     passed_wr, passed_pnl_pct = _summary(passed_pnls, passed_wins)
 
     if blocked_pnl_pct is not None and passed_pnl_pct is not None:
-        diffs = [b - p for b, p in zip(blocked_pnls[: min(len(blocked_pnls), len(passed_pnls))],
-                                        passed_pnls[: min(len(blocked_pnls), len(passed_pnls))])]
+        diffs = [
+            b - p
+            for b, p in zip(
+                blocked_pnls[: min(len(blocked_pnls), len(passed_pnls))],
+                passed_pnls[: min(len(blocked_pnls), len(passed_pnls))],
+            )
+        ]
         confidence_band = _bootstrap_ci(diffs)
     else:
         confidence_band = None
@@ -306,8 +338,14 @@ def compute_gate_report(
         profile_id=str(profile_id),
         symbol=symbol,
         gate_name=gate_name,
-        window_start=window_start if window_start.tzinfo else window_start.replace(tzinfo=timezone.utc),
-        window_end=window_end if window_end.tzinfo else window_end.replace(tzinfo=timezone.utc),
+        window_start=(
+            window_start
+            if window_start.tzinfo
+            else window_start.replace(tzinfo=timezone.utc)
+        ),
+        window_end=(
+            window_end if window_end.tzinfo else window_end.replace(tzinfo=timezone.utc)
+        ),
         blocked_count=blocked_count,
         passed_count=passed_count,
         sample_size_blocked=len(blocked_pnls),

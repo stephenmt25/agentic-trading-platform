@@ -8,7 +8,7 @@ Weights are stored in Redis hash `agent:weights:{symbol}` for hot-path consumpti
 import json
 import time
 from dataclasses import dataclass
-from typing import Optional, Dict, List
+from typing import Dict, List
 
 # Default weight constants
 DEFAULT_WEIGHT_TA = 0.20
@@ -17,7 +17,7 @@ DEFAULT_WEIGHT_DEBATE = 0.25
 MIN_WEIGHT = 0.05
 MAX_WEIGHT = 1.0
 EWMA_ALPHA = 0.1  # Lower = slower adaptation, more stable weights
-MIN_SAMPLES = 10   # Minimum outcome samples before overriding defaults
+MIN_SAMPLES = 10  # Minimum outcome samples before overriding defaults
 
 AGENT_DEFAULTS = {
     "ta": DEFAULT_WEIGHT_TA,
@@ -26,10 +26,14 @@ AGENT_DEFAULTS = {
 }
 
 # Redis key patterns
-WEIGHTS_KEY = "agent:weights:{symbol}"          # Hash: agent_name -> weight (float)
-OUTCOMES_KEY = "agent:outcomes:{symbol}"         # Stream: {agent, direction, score, timestamp}
-CLOSED_KEY = "agent:closed:{symbol}"             # Stream: {position_id, outcome, pnl_pct, agents_json}
-TRACKER_KEY = "agent:tracker:{symbol}:{agent}"   # Hash: ewma_accuracy, sample_count, last_updated
+WEIGHTS_KEY = "agent:weights:{symbol}"  # Hash: agent_name -> weight (float)
+OUTCOMES_KEY = "agent:outcomes:{symbol}"  # Stream: {agent, direction, score, timestamp}
+CLOSED_KEY = (
+    "agent:closed:{symbol}"  # Stream: {position_id, outcome, pnl_pct, agents_json}
+)
+TRACKER_KEY = (
+    "agent:tracker:{symbol}:{agent}"  # Hash: ewma_accuracy, sample_count, last_updated
+)
 
 
 def _decode_hash(d):
@@ -43,8 +47,9 @@ def _decode_hash(d):
     if not d:
         return {}
     return {
-        (k.decode() if isinstance(k, (bytes, bytearray)) else k):
-        (v.decode() if isinstance(v, (bytes, bytearray)) else v)
+        (k.decode() if isinstance(k, (bytes, bytearray)) else k): (
+            v.decode() if isinstance(v, (bytes, bytearray)) else v
+        )
         for k, v in d.items()
     }
 
@@ -52,8 +57,8 @@ def _decode_hash(d):
 @dataclass
 class AgentOutcome:
     agent_name: str
-    predicted_direction: str   # "BUY" or "SELL"
-    score_at_signal: float     # agent's score at time of signal
+    predicted_direction: str  # "BUY" or "SELL"
+    score_at_signal: float  # agent's score at time of signal
     entry_price: float
     timestamp: float
 
@@ -62,7 +67,7 @@ class AgentOutcome:
 class ClosedPositionOutcome:
     position_id: str
     symbol: str
-    outcome: str       # "win" or "loss"
+    outcome: str  # "win" or "loss"
     pnl_pct: float
     agents: Dict[str, AgentOutcome]
 
@@ -99,9 +104,14 @@ class AgentPerformanceTracker:
                 OUTCOMES_KEY.format(symbol=symbol), entry, maxlen=1000
             )
 
-    async def record_position_close(self, symbol: str, position_id: str,
-                                     outcome: str, pnl_pct: float,
-                                     agent_scores: Dict[str, dict]):
+    async def record_position_close(
+        self,
+        symbol: str,
+        position_id: str,
+        outcome: str,
+        pnl_pct: float,
+        agent_scores: Dict[str, dict],
+    ):
         """Record a closed position outcome for weight feedback."""
         entry = {
             "position_id": position_id,
@@ -110,9 +120,7 @@ class AgentPerformanceTracker:
             "agents_json": json.dumps(agent_scores),
             "timestamp": str(time.time()),
         }
-        await self._redis.xadd(
-            CLOSED_KEY.format(symbol=symbol), entry, maxlen=5000
-        )
+        await self._redis.xadd(CLOSED_KEY.format(symbol=symbol), entry, maxlen=5000)
 
     # ------------------------------------------------------------------
     # Weight computation
@@ -161,10 +169,10 @@ class AgentPerformanceTracker:
                 if isinstance(outcome, bytes):
                     outcome = outcome.decode()
 
-                agent_data = agents[agent_name]
-                direction = agent_data.get("direction", "")
-
-                # Score: did the agent's direction align with the outcome?
+                # Score: 1.0 for a winning trade, else 0.0. NOTE: this credits the
+                # agent for the trade outcome regardless of whether its own voted
+                # direction matched — direction-aware scoring is unimplemented
+                # (see TECH-DEBT-REGISTRY 2026-06-10).
                 if outcome == "win":
                     hit = 1.0
                 else:
@@ -176,11 +184,14 @@ class AgentPerformanceTracker:
 
             if new_outcomes > 0:
                 # Update tracker state
-                await self._redis.hset(tracker_key, mapping={
-                    "ewma_accuracy": str(ewma),
-                    "sample_count": str(sample_count),
-                    "last_updated": str(time.time()),
-                })
+                await self._redis.hset(
+                    tracker_key,
+                    mapping={
+                        "ewma_accuracy": str(ewma),
+                        "sample_count": str(sample_count),
+                        "last_updated": str(time.time()),
+                    },
+                )
 
             # Compute weight from EWMA accuracy
             if sample_count >= MIN_SAMPLES:

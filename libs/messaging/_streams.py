@@ -1,13 +1,19 @@
 from typing import List
+
 import redis.asyncio as redis
+
 from libs.core.schemas import BaseEvent
-from ._serialisation import encode_event, decode_event
+
+from ._serialisation import decode_event, encode_event
+
 
 class StreamPublisher:
     def __init__(self, redis_client: redis.Redis):
         self._redis = redis_client
 
-    async def publish(self, channel: str, event: BaseEvent, maxlen: int | None = None) -> str:
+    async def publish(
+        self, channel: str, event: BaseEvent, maxlen: int | None = None
+    ) -> str:
         """Publish an event to a Redis stream.
 
         When `maxlen` is set the stream is capped to ~maxlen entries
@@ -22,6 +28,7 @@ class StreamPublisher:
         else:
             message_id = await self._redis.xadd(channel, {"payload": data})
         return message_id
+
 
 class StreamConsumer:
     def __init__(self, redis_client: redis.Redis):
@@ -39,11 +46,20 @@ class StreamConsumer:
                 raise
         self._known_groups.add(key)
 
-    async def consume(self, channel: str, group: str, consumer: str, count: int = 10, block_ms: int = 100) -> List[tuple[str, BaseEvent]]:
+    async def consume(
+        self,
+        channel: str,
+        group: str,
+        consumer: str,
+        count: int = 10,
+        block_ms: int = 100,
+    ) -> List[tuple[str, BaseEvent]]:
         await self._ensure_group(channel, group)
         streams = {channel: ">"}
-        results = await self._redis.xreadgroup(group, consumer, streams, count=count, block=block_ms)
-        
+        results = await self._redis.xreadgroup(
+            group, consumer, streams, count=count, block=block_ms
+        )
+
         events = []
         for stream_name, messages in results:
             for message_id, data in messages:
@@ -52,7 +68,7 @@ class StreamConsumer:
                     events.append((message_id, event))
                 except Exception:
                     # Logging missing here but schema errors can be sent to DLQ
-                    events.append((message_id, None)) 
+                    events.append((message_id, None))
         return events
 
     async def ack(self, channel: str, group: str, message_ids: List[str]):

@@ -10,13 +10,13 @@ from decimal import Decimal
 import pytest
 
 from libs.core.enums import Regime
+from libs.core.models import RiskLimits
 from libs.core.schemas import (
     StrategyRulesInput,
-    strategy_rules_to_canonical,
     strategy_rules_from_canonical,
+    strategy_rules_to_canonical,
 )
 from libs.indicators import create_indicator_set
-from libs.core.models import RiskLimits
 from services.hot_path.src.state import ProfileState
 from services.strategy.src.compiler import RuleCompiler
 
@@ -68,12 +68,14 @@ class TestCanonicalRoundtrip:
 
 class TestProfileStateDefaults:
     def _state(self, preferred=None) -> ProfileState:
-        compiled = RuleCompiler.compile({
-            "logic": "AND",
-            "direction": "BUY",
-            "base_confidence": 0.7,
-            "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
-        })
+        compiled = RuleCompiler.compile(
+            {
+                "logic": "AND",
+                "direction": "BUY",
+                "base_confidence": 0.7,
+                "conditions": [{"indicator": "rsi", "operator": "LT", "value": 30}],
+            }
+        )
         return ProfileState(
             profile_id="abc",
             compiled_rules=compiled,

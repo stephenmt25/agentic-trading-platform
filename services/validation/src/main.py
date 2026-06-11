@@ -1,29 +1,37 @@
 import asyncio
-from fastapi import FastAPI
-import uvicorn
 from contextlib import asynccontextmanager
 
+import uvicorn
+from fastapi import FastAPI
+
 from libs.config import settings
-from libs.storage import RedisClient, TimescaleClient, MarketDataRepository, ProfileRepository, ValidationRepository, PnlRepository
-from libs.storage.repositories import BacktestRepository
-from libs.messaging import StreamConsumer, StreamPublisher, PubSubBroadcaster
-from libs.messaging.channels import VALIDATION_STREAM, VALIDATION_RESPONSE_STREAM
+from libs.messaging import PubSubBroadcaster, StreamConsumer, StreamPublisher
 from libs.messaging._serialisation import encode_event
+from libs.messaging.channels import VALIDATION_RESPONSE_STREAM, VALIDATION_STREAM
 from libs.observability import get_logger, supervised_task
 from libs.observability.telemetry import TelemetryPublisher
+from libs.storage import (
+    MarketDataRepository,
+    PnlRepository,
+    ProfileRepository,
+    RedisClient,
+    TimescaleClient,
+    ValidationRepository,
+)
+from libs.storage.repositories import BacktestRepository
 
+from .async_audit import AsyncAuditHandler
 from .check_1_strategy import StrategyRecheck
-from .check_6_risk_level import RiskLevelRecheck
-from .fast_gate import FastGateHandler
-
 from .check_2_hallucination import HallucinationCheck
 from .check_3_bias import BiasCheck
 from .check_4_drift import DriftCheck
 from .check_5_escalation import EscalationCheck
-from .async_audit import AsyncAuditHandler
+from .check_6_risk_level import RiskLevelRecheck
+from .fast_gate import FastGateHandler
 from .learning_loop import LearningLoop
 
 logger = get_logger("validation")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -31,7 +39,7 @@ async def lifespan(app: FastAPI):
     redis_instance = RedisClient.get_instance(settings.REDIS_URL).get_connection()
     timescale_client = TimescaleClient(settings.DATABASE_URL)
     await timescale_client.init_pool()
-    
+
     # Initialize Dependencies
     publisher = StreamPublisher(redis_instance)
     # Stream consumers issue blocking XREADGROUP reads. Use the long-blocking
@@ -40,46 +48,56 @@ async def lifespan(app: FastAPI):
     # socket_timeout and crash-loop fast_gate/async_auditor under the
     # supervisor. The default redis_instance (with socket_timeout, required by
     # the kill-switch fail-safe) stays for every non-blocking op below.
-    consumer_redis = RedisClient.get_long_blocking_instance(settings.REDIS_URL).get_connection()
+    consumer_redis = RedisClient.get_long_blocking_instance(
+        settings.REDIS_URL
+    ).get_connection()
     consumer = StreamConsumer(consumer_redis)
     pubsub = PubSubBroadcaster(redis_instance)
-    
+
     market_repo = MarketDataRepository(timescale_client)
     profile_repo = ProfileRepository(timescale_client)
     validation_repo = ValidationRepository(timescale_client)
     pnl_repo = PnlRepository(timescale_client)
-    
+
     # Fast Gate
     check1 = StrategyRecheck(market_repo, redis_instance)
     check6 = RiskLevelRecheck(profile_repo)
     fast_gate = FastGateHandler(check1, check6)
-    
+
     # Async Audit
     check2 = HallucinationCheck(validation_repo, market_repo)
     check3 = BiasCheck()
     backtest_repo = BacktestRepository(timescale_client)
     check4 = DriftCheck(pnl_repo, backtest_repo=backtest_repo)
     check5 = EscalationCheck(validation_repo, pubsub)
-    async_auditor = AsyncAuditHandler(consumer, validation_repo, check2, check3, check4, check5, VALIDATION_STREAM)
-    
+    async_auditor = AsyncAuditHandler(
+        consumer, validation_repo, check2, check3, check4, check5, VALIDATION_STREAM
+    )
+
     telemetry = TelemetryPublisher(redis_instance, "validation", "risk")
     await telemetry.start_health_loop()
 
     learning_loop = LearningLoop(validation_repo, publisher)
 
-    # Note: FastGate typically responds via streams matching request IDs, handled inside hot_path request block 
-    # To implement exactly, FastGate would consume VALIDATION_STREAM in a loop natively here and publish 
+    # Note: FastGate typically responds via streams matching request IDs, handled inside hot_path request block
+    # To implement exactly, FastGate would consume VALIDATION_STREAM in a loop natively here and publish
     # to VALIDATION_RESPONSE_STREAM. In this mockup, we only start the async auditor loop.
     # In production, FastGate is a separate high-priority loop. Let's add it basic:
-    
+
     async def fast_gate_loop():
         # High priority loop
         g_name = "fastgate_group"
         while True:
-            events = await consumer.consume(VALIDATION_STREAM, g_name, "gate_1", count=100, block_ms=5)
+            events = await consumer.consume(
+                VALIDATION_STREAM, g_name, "gate_1", count=100, block_ms=5
+            )
             for msg_id, ev in events:
                 if ev:
-                    await telemetry.emit("input_received", {"message_type": "validation_request"}, source_agent="hot_path")
+                    await telemetry.emit(
+                        "input_received",
+                        {"message_type": "validation_request"},
+                        source_agent="hot_path",
+                    )
                     resp = await fast_gate.handle(ev)
                     await publisher.publish(VALIDATION_RESPONSE_STREAM, resp)
                     # LPUSH response to per-request key for BLPOP RPC pickup
@@ -90,9 +108,15 @@ async def lifespan(app: FastAPI):
                     await telemetry.emit(
                         "output_emitted",
                         {
-                            "verdict": resp.verdict.value if hasattr(resp.verdict, 'value') else str(resp.verdict),
-                            "checks": resp.checks if hasattr(resp, 'checks') else [],
-                            "profile_id": str(ev.profile_id) if hasattr(ev, 'profile_id') else "",
+                            "verdict": (
+                                resp.verdict.value
+                                if hasattr(resp.verdict, "value")
+                                else str(resp.verdict)
+                            ),
+                            "checks": resp.checks if hasattr(resp, "checks") else [],
+                            "profile_id": (
+                                str(ev.profile_id) if hasattr(ev, "profile_id") else ""
+                            ),
                         },
                         source_agent="hot_path",
                     )
@@ -106,10 +130,12 @@ async def lifespan(app: FastAPI):
     logger.info("Starting FastGate & Auditor Loops")
     gate_task = supervised_task(fast_gate_loop, name="validation.fast_gate")
     audit_task = supervised_task(async_auditor.run, name="validation.async_auditor")
-    learn_task = supervised_task(learning_loop.run_hourly_scan, name="validation.learning")
-    
+    learn_task = supervised_task(
+        learning_loop.run_hourly_scan, name="validation.learning"
+    )
+
     yield
-    
+
     # Teardown
     gate_task.cancel()
     audit_task.cancel()
@@ -119,11 +145,14 @@ async def lifespan(app: FastAPI):
     await timescale_client.close()
     logger.info("Validation Agent shutdown gracefully")
 
+
 app = FastAPI(title="Validation Agent", lifespan=lifespan)
+
 
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
 
 if __name__ == "__main__":
     uvicorn.run("services.validation.src.main:app", host="0.0.0.0", port=8081)

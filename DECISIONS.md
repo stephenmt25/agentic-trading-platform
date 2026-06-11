@@ -1,7 +1,10 @@
-# Decisions Log
+# Decisions Log — moved
 
-Architectural decisions and deviations from the spec are logged here for human audit.
-Referenced by CLAUDE.md Sections 3B (Dark Factory), 6C (Architectural Constraints), and 7 (Nonfunctional Requirements).
+> **The canonical, append-only decision log lives at [`docs/DECISIONS.md`](docs/DECISIONS.md).**
 
-| Date | Decision | Rationale | Approved By |
-|------|----------|-----------|-------------|
+This root file was a stale empty template (it referenced CLAUDE.md sections that
+no longer exist). It is kept only as a pointer so links here don't dead-end.
+
+**Log all architectural decisions and deviations from spec in
+[`docs/DECISIONS.md`](docs/DECISIONS.md)** — newest entries at the bottom,
+history preserved.

@@ -1,5 +1,5 @@
 import redis.asyncio as redis
-from typing import Any, Dict
+
 
 class DeadLetterQueue:
     def __init__(self, redis_client: redis.Redis, dlq_channel: str = "stream:dlq"):
@@ -10,7 +10,7 @@ class DeadLetterQueue:
         payload = {
             "original_channel": original_channel,
             "error": error,
-            "payload": event_data
+            "payload": event_data,
         }
         await self._redis.xadd(self._dlq_channel, payload)
 

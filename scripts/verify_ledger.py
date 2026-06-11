@@ -7,6 +7,7 @@ Checks:
   4. Coverage: what fraction of orders/positions/closed_trades have the linkage columns populated.
   5. Debate transcript sanity: count + structure of latest row.
 """
+
 import asyncio
 from pathlib import Path
 
@@ -44,9 +45,13 @@ async def main() -> None:
 
         print("\n=== row counts ===")
         tables = [
-            "trade_decisions", "orders", "positions",
-            "closed_trades", "debate_transcripts",
-            "agent_score_history", "agent_weight_history",
+            "trade_decisions",
+            "orders",
+            "positions",
+            "closed_trades",
+            "debate_transcripts",
+            "agent_score_history",
+            "agent_weight_history",
         ]
         for t in tables:
             n = await c.fetchval(f"SELECT COUNT(*) FROM {t}")

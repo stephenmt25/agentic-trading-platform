@@ -1,7 +1,8 @@
 from typing import Optional
 
+
 class ATRCalculator:
-    __slots__ = ('period', 'count', 'sum_tr', 'atr', 'prev_close')
+    __slots__ = ("period", "count", "sum_tr", "atr", "prev_close")
 
     def __init__(self, period: int = 14):
         self.period = period
@@ -18,11 +19,7 @@ class ATRCalculator:
             self.count += 1
             return None
 
-        tr = max(
-            high - low,
-            abs(high - self.prev_close),
-            abs(low - self.prev_close)
-        )
+        tr = max(high - low, abs(high - self.prev_close), abs(low - self.prev_close))
         self.prev_close = close
 
         if self.count < self.period:

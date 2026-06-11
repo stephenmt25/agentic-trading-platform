@@ -1,6 +1,8 @@
-from typing import Optional
 from dataclasses import dataclass
+from typing import Optional
+
 from ._ema import EMACalculator
+
 
 @dataclass(frozen=True, slots=True)
 class MACDResult:
@@ -8,8 +10,9 @@ class MACDResult:
     signal_line: float
     histogram: float
 
+
 class MACDCalculator:
-    __slots__ = ('fast_ema', 'slow_ema', 'signal_ema')
+    __slots__ = ("fast_ema", "slow_ema", "signal_ema")
 
     def __init__(self, fast: int = 12, slow: int = 26, signal: int = 9):
         self.fast_ema = EMACalculator(fast)
@@ -32,5 +35,5 @@ class MACDCalculator:
         return MACDResult(
             macd_line=macd_line,
             signal_line=signal_line,
-            histogram=macd_line - signal_line
+            histogram=macd_line - signal_line,
         )

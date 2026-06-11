@@ -18,16 +18,16 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from services.api_gateway.src.routes.pnl import router as pnl_router
 from services.api_gateway.src.deps import (
     get_current_user,
     get_pnl_repo,
     get_profile_repo,
     get_redis,
 )
+from services.api_gateway.src.routes.pnl import router as pnl_router
 
 
 def _make_app(user_id: str, overrides: dict) -> TestClient:
@@ -85,18 +85,23 @@ class TestPnlSummaryWrongTypeSafety:
         pnl_repo.get_latest = AsyncMock(return_value=_seeded_snapshot())
 
         # Hash exists: previously caused WRONGTYPE on redis.get
-        redis = _HashRedis({
-            f"pnl:daily:{pid}": {
-                "date": "2026-05-05",
-                "total_pct_micro": "-25000",  # -2.5%
+        redis = _HashRedis(
+            {
+                f"pnl:daily:{pid}": {
+                    "date": "2026-05-05",
+                    "total_pct_micro": "-25000",  # -2.5%
+                }
             }
-        })
+        )
 
-        client = _make_app(user_id, {
-            get_profile_repo: lambda: profile_repo,
-            get_pnl_repo: lambda: pnl_repo,
-            get_redis: lambda: redis,
-        })
+        client = _make_app(
+            user_id,
+            {
+                get_profile_repo: lambda: profile_repo,
+                get_pnl_repo: lambda: pnl_repo,
+                get_redis: lambda: redis,
+            },
+        )
 
         resp = client.get("/pnl/summary")
         assert resp.status_code == 200, resp.text
@@ -123,11 +128,14 @@ class TestPnlSummaryWrongTypeSafety:
         pnl_repo.get_latest = AsyncMock(return_value=None)
         redis = _HashRedis({})  # no hash
 
-        client = _make_app(user_id, {
-            get_profile_repo: lambda: profile_repo,
-            get_pnl_repo: lambda: pnl_repo,
-            get_redis: lambda: redis,
-        })
+        client = _make_app(
+            user_id,
+            {
+                get_profile_repo: lambda: profile_repo,
+                get_pnl_repo: lambda: pnl_repo,
+                get_redis: lambda: redis,
+            },
+        )
 
         resp = client.get("/pnl/summary")
         assert resp.status_code == 200, resp.text
@@ -148,18 +156,23 @@ class TestProfilePnlWrongTypeSafety:
         )
         pnl_repo = AsyncMock()
         pnl_repo.get_latest = AsyncMock(return_value=_seeded_snapshot())
-        redis = _HashRedis({
-            f"pnl:daily:{pid}": {
-                "date": "2026-05-05",
-                "total_pct_micro": b"-12500",  # bytes shape from real redis-py
+        redis = _HashRedis(
+            {
+                f"pnl:daily:{pid}": {
+                    "date": "2026-05-05",
+                    "total_pct_micro": b"-12500",  # bytes shape from real redis-py
+                }
             }
-        })
+        )
 
-        client = _make_app(user_id, {
-            get_profile_repo: lambda: profile_repo,
-            get_pnl_repo: lambda: pnl_repo,
-            get_redis: lambda: redis,
-        })
+        client = _make_app(
+            user_id,
+            {
+                get_profile_repo: lambda: profile_repo,
+                get_pnl_repo: lambda: pnl_repo,
+                get_redis: lambda: redis,
+            },
+        )
 
         resp = client.get(f"/pnl/{pid}")
         assert resp.status_code == 200, resp.text
@@ -175,11 +188,14 @@ class TestProfilePnlWrongTypeSafety:
         pnl_repo = AsyncMock()
         redis = _HashRedis({})
 
-        client = _make_app("user-1", {
-            get_profile_repo: lambda: profile_repo,
-            get_pnl_repo: lambda: pnl_repo,
-            get_redis: lambda: redis,
-        })
+        client = _make_app(
+            "user-1",
+            {
+                get_profile_repo: lambda: profile_repo,
+                get_pnl_repo: lambda: pnl_repo,
+                get_redis: lambda: redis,
+            },
+        )
 
         resp = client.get(f"/pnl/{pid}")
         assert resp.status_code == 404

@@ -20,13 +20,12 @@ import asyncio
 import json
 import time
 from datetime import datetime, timezone
-from typing import Optional
 
 from libs.core.enums import EventType
 from libs.core.schemas import AlertEvent
-from libs.messaging.channels import PUBSUB_AGENT_TELEMETRY, PUBSUB_SYSTEM_ALERTS
 from libs.messaging import PubSubBroadcaster
 from libs.messaging._pubsub import PubSubSubscriber
+from libs.messaging.channels import PUBSUB_AGENT_TELEMETRY, PUBSUB_SYSTEM_ALERTS
 from libs.observability import get_logger
 
 logger = get_logger("logger.heartbeat_watcher")

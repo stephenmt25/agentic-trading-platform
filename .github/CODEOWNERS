@@ -1,0 +1,28 @@
+# CODEOWNERS — auto-requests review from owners when matching paths change.
+# Requires branch protection ("Require review from Code Owners") to be enforcing.
+#
+# NOTE: @praxis-architect is a placeholder — replace with the architect's real
+# GitHub handle (or a team like @org/architects) before enabling enforcement,
+# or GitHub will silently fail to request the review.
+
+# Default owner for everything not matched below.
+*                           @stephenmt25
+
+# --- Money-at-risk paths: require architect review (CLAUDE.md §5) ---
+/services/execution/**      @stephenmt25 @praxis-architect
+/services/pnl/**            @stephenmt25 @praxis-architect
+/services/risk/**           @stephenmt25 @praxis-architect
+/services/strategy/**       @stephenmt25 @praxis-architect
+/libs/core/**               @stephenmt25 @praxis-architect
+
+# --- Contracts that bind every service: architect review ---
+/libs/messaging/channels.py @stephenmt25 @praxis-architect
+/libs/core/enums.py         @stephenmt25 @praxis-architect
+/libs/core/schemas.py       @stephenmt25 @praxis-architect
+/migrations/**              @stephenmt25 @praxis-architect
+
+# --- Process & decision log ---
+/DECISIONS.md               @stephenmt25 @praxis-architect
+/docs/DECISIONS.md          @stephenmt25 @praxis-architect
+/.github/**                 @stephenmt25
+/CLAUDE.md                  @stephenmt25 @praxis-architect

@@ -1,27 +1,37 @@
 import asyncio
 import json
 from collections import defaultdict
-from decimal import Decimal
 from datetime import datetime, timezone
-from libs.exchange import get_adapter
-from libs.core.secrets import SecretManager
-from libs.core.schemas import AlertEvent
-from libs.core.enums import EventType
-from libs.messaging.channels import PUBSUB_SYSTEM_ALERTS
-from libs.storage.repositories import PositionRepository, ProfileRepository
+from decimal import Decimal
+
 from libs.config import settings
+from libs.core.enums import EventType
+from libs.core.schemas import AlertEvent
+from libs.core.secrets import SecretManager
+from libs.exchange import get_adapter
+from libs.messaging.channels import PUBSUB_SYSTEM_ALERTS
 from libs.observability import get_logger
+from libs.storage.repositories import PositionRepository, ProfileRepository
 
 logger = get_logger("execution.reconciler")
 
 
 class BalanceReconciler:
-    def __init__(self, position_repo: PositionRepository, profile_repo: ProfileRepository = None,
-                 pubsub=None, secret_manager: SecretManager = None):
+    def __init__(
+        self,
+        position_repo: PositionRepository,
+        profile_repo: ProfileRepository = None,
+        pubsub=None,
+        secret_manager: SecretManager = None,
+        redis_client=None,
+    ):
         self._position_repo = position_repo
         self._profile_repo = profile_repo
         self._pubsub = pubsub
-        self._secret_manager = secret_manager or SecretManager(gcp_project_id=settings.GCP_PROJECT_ID)
+        self._redis = redis_client
+        self._secret_manager = secret_manager or SecretManager(
+            gcp_project_id=settings.GCP_PROJECT_ID
+        )
 
     async def run_cron(self, interval_seconds: int = 300):
         """Runs every 5 minutes comparing exchange balances against DB ledger for drift > 0.1%"""
@@ -50,7 +60,11 @@ class BalanceReconciler:
             try:
                 await self._reconcile_profile(profile_id, key_ref)
             except Exception as e:
-                logger.error("Reconciliation failed for profile", profile_id=profile_id, error=str(e))
+                logger.error(
+                    "Reconciliation failed for profile",
+                    profile_id=profile_id,
+                    error=str(e),
+                )
 
     async def _reconcile_profile(self, profile_id: str, key_ref: str):
         """Compare exchange positions with DB positions for a single profile."""
@@ -68,11 +82,19 @@ class BalanceReconciler:
             api_key = creds.get("apiKey", "")
             api_secret = creds.get("secret", "")
         except FileNotFoundError:
-            logger.warning("Exchange keys not found for reconciliation", profile_id=profile_id)
+            logger.warning(
+                "Exchange keys not found for reconciliation", profile_id=profile_id
+            )
             return
 
-        testnet = settings.BINANCE_TESTNET if exchange_name == "BINANCE" else settings.COINBASE_SANDBOX
-        adapter = get_adapter(exchange_name, api_key=api_key, secret=api_secret, testnet=testnet)
+        testnet = (
+            settings.BINANCE_TESTNET
+            if exchange_name == "BINANCE"
+            else settings.COINBASE_SANDBOX
+        )
+        adapter = get_adapter(
+            exchange_name, api_key=api_key, secret=api_secret, testnet=testnet
+        )
 
         try:
             # 1. Fetch balances from exchange
@@ -86,8 +108,14 @@ class BalanceReconciler:
                         if total > 0:
                             exchange_totals[currency] = total
 
-            # 2. Fetch open positions from DB and aggregate by base currency
-            open_positions = await self._position_repo.get_open_positions(profile_id)
+            # 2. Fetch the positions the exchange should still be holding and
+            # aggregate by base currency. Uses get_unsettled_positions (OPEN +
+            # PENDING_CLOSE) not get_open_positions: a position mid-close still
+            # sits on the exchange until its reduce-only order fills, so counting
+            # it avoids a false drift alarm during the close window (PR1).
+            open_positions = await self._position_repo.get_unsettled_positions(
+                profile_id
+            )
             db_totals: dict[str, Decimal] = defaultdict(lambda: Decimal("0"))
             for pos in open_positions:
                 pos_dict = dict(pos) if not isinstance(pos, dict) else pos
@@ -110,7 +138,11 @@ class BalanceReconciler:
                 if abs(db_qty) < _EPSILON:
                     continue
                 drift = abs(exchange_qty - db_qty) / abs(db_qty)
-                drift_details[currency] = {"db": str(db_qty), "exchange": str(exchange_qty), "drift_pct": str(drift)}
+                drift_details[currency] = {
+                    "db": str(db_qty),
+                    "exchange": str(exchange_qty),
+                    "drift_pct": str(drift),
+                }
                 max_drift = max(max_drift, drift)
 
             # 4. Alert if drift exceeds threshold
@@ -121,18 +153,32 @@ class BalanceReconciler:
                     drift=max_drift,
                     details=drift_details,
                 )
+                # Set the drift trigger flag (PR3) so the HaltController's
+                # flatten-authority gate can count it as a severe trigger. Short
+                # TTL (2 reconcile cycles) so it self-clears once drift resolves.
+                if self._redis is not None:
+                    try:
+                        await self._redis.set("praxis:halt_trigger:drift", "1", ex=600)
+                    except Exception:
+                        logger.warning("failed to set drift trigger flag")
                 # Publish system alert for trading halt consideration
                 if self._pubsub:
                     alert = AlertEvent(
                         event_type=EventType.ALERT_RED,
-                        timestamp_us=int(datetime.now(timezone.utc).timestamp() * 1_000_000),
+                        timestamp_us=int(
+                            datetime.now(timezone.utc).timestamp() * 1_000_000
+                        ),
                         source_service="reconciler",
-                        message=f"Reconciliation drift {float(max_drift)*100:.2f}% for {profile_id}",
+                        message=f"Reconciliation drift {float(max_drift)*100:.2f}% for {profile_id}",  # float-ok: alert display only
                         level="RED",
                         profile_id=profile_id,
                     )
                     await self._pubsub.publish(PUBSUB_SYSTEM_ALERTS, alert)
             else:
-                logger.info("Reconciliation passed", profile_id=profile_id, max_drift=float(max_drift))
+                logger.info(
+                    "Reconciliation passed",
+                    profile_id=profile_id,
+                    max_drift=float(max_drift),  # float-ok: log field display
+                )
         finally:
             await adapter.close()

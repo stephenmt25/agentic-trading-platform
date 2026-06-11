@@ -1,15 +1,20 @@
 import time
+
 import redis.asyncio as redis
-from typing import Optional
-from .quota_config import EXCHANGE_QUOTAS
-from libs.exchange import RateLimitResult
+
 from libs.core.types import ProfileId
+from libs.exchange import RateLimitResult
+
+from .quota_config import EXCHANGE_QUOTAS
+
 
 class RateLimiter:
     def __init__(self, redis_client: redis.Redis):
         self._redis = redis_client
 
-    async def check_and_reserve(self, exchange: str, profile_id: ProfileId) -> RateLimitResult:
+    async def check_and_reserve(
+        self, exchange: str, profile_id: ProfileId
+    ) -> RateLimitResult:
         quota = EXCHANGE_QUOTAS.get(exchange.upper())
         if not quota:
             return RateLimitResult(allowed=True)

@@ -1,8 +1,10 @@
 import json
 from decimal import Decimal
-from .check_1_strategy import CheckResult
+
 from libs.core.notional import profile_notional
 from libs.observability import get_logger
+
+from .check_1_strategy import CheckResult
 
 logger = get_logger("validation.risk_level")
 
@@ -30,7 +32,9 @@ class RiskLevelRecheck:
             profile = None
 
         if not profile:
-            return CheckResult(passed=False, reason="Profile not found — cannot verify risk limits")
+            return CheckResult(
+                passed=False, reason="Profile not found — cannot verify risk limits"
+            )
 
         # Parse risk_limits from the profile record
         raw_limits = profile.get("risk_limits", "{}")
@@ -51,7 +55,7 @@ class RiskLevelRecheck:
                 return CheckResult(
                     passed=False,
                     reason=f"Order value ${float(order_value):.2f} exceeds max allocation "
-                           f"({float(max_allocation_pct)*100:.0f}% of profile budget)"
+                    f"({float(max_allocation_pct)*100:.0f}% of profile budget)",
                 )
 
         # (b) Stop-loss tolerance check
@@ -60,7 +64,7 @@ class RiskLevelRecheck:
         if order_stop_loss > 0 and order_stop_loss > stop_loss_pct:
             return CheckResult(
                 passed=False,
-                reason=f"Stop-loss {float(order_stop_loss)*100:.1f}% exceeds profile limit of {float(stop_loss_pct)*100:.1f}%"
+                reason=f"Stop-loss {float(order_stop_loss)*100:.1f}% exceeds profile limit of {float(stop_loss_pct)*100:.1f}%",
             )
 
         # (c) Max drawdown circuit breaker
@@ -69,14 +73,14 @@ class RiskLevelRecheck:
         if current_drawdown >= max_drawdown_pct:
             return CheckResult(
                 passed=False,
-                reason=f"Current drawdown {float(current_drawdown)*100:.1f}% at/above max allowed {float(max_drawdown_pct)*100:.1f}%"
+                reason=f"Current drawdown {float(current_drawdown)*100:.1f}% at/above max allowed {float(max_drawdown_pct)*100:.1f}%",
             )
 
         # (d) Hard safety cap — absolute quantity guard
         if quantity > 10_000:
             return CheckResult(
                 passed=False,
-                reason="Absolute quantity guard: order qty exceeds 10,000 unit hard cap"
+                reason="Absolute quantity guard: order qty exceeds 10,000 unit hard cap",
             )
 
         return CheckResult(passed=True)

@@ -1,16 +1,17 @@
 import asyncio
 import time
-from fastapi import FastAPI
-import uvicorn
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
 
+import uvicorn
+from fastapi import FastAPI
+
 from libs.config import settings
-from libs.storage import RedisClient, TimescaleClient, AuditRepository
-from libs.messaging import StreamConsumer, PubSubBroadcaster
+from libs.messaging import PubSubBroadcaster, StreamConsumer
 from libs.messaging._pubsub import PubSubSubscriber
 from libs.observability import get_logger, supervised_task
 from libs.observability.redis_invariants import scan as scan_invariants
+from libs.storage import AuditRepository, RedisClient, TimescaleClient
 
 from .alerter import Alerter
 from .event_subscriber import EventSubscriber
@@ -41,8 +42,12 @@ async def redis_invariants_loop(redis, alerter: Alerter):
                     "redis_invariants: violations found",
                     count=len(violations),
                     samples=[
-                        {"key": v.key, "expected": v.expected, "actual": v.actual,
-                         "severity": v.severity}
+                        {
+                            "key": v.key,
+                            "expected": v.expected,
+                            "actual": v.actual,
+                            "severity": v.severity,
+                        }
                         for v in violations[:5]
                     ],
                 )
@@ -60,7 +65,9 @@ async def redis_invariants_loop(redis, alerter: Alerter):
                     try:
                         await alerter.send_alert(event)
                     except Exception:
-                        logger.exception("Failed to dispatch invariant alert", key=v.key)
+                        logger.exception(
+                            "Failed to dispatch invariant alert", key=v.key
+                        )
         except Exception:
             logger.exception("redis_invariants scan raised — continuing loop")
         await asyncio.sleep(interval)
@@ -78,7 +85,9 @@ async def lifespan(app: FastAPI):
     # so idle streams don't trip the default 5s socket_timeout and crash-loop
     # logger.stream_subscriber under the supervisor. redis_instance (default,
     # with socket_timeout) stays for pubsub + invariants + audit writes.
-    consumer_redis = RedisClient.get_long_blocking_instance(settings.REDIS_URL).get_connection()
+    consumer_redis = RedisClient.get_long_blocking_instance(
+        settings.REDIS_URL
+    ).get_connection()
     consumer = StreamConsumer(consumer_redis)
     pubsub = PubSubBroadcaster(redis_instance)
     audit_repo = AuditRepository(timescale_client)
@@ -88,7 +97,9 @@ async def lifespan(app: FastAPI):
         slack_webhook=settings.SLACK_WEBHOOK or None,
     )
     event_pubsub_subscriber = PubSubSubscriber(redis_instance)
-    subscriber = EventSubscriber(consumer, pubsub, audit_repo, alerter, event_pubsub_subscriber)
+    subscriber = EventSubscriber(
+        consumer, pubsub, audit_repo, alerter, event_pubsub_subscriber
+    )
 
     # Layer 2 heartbeat watcher — detects services whose health_check
     # loop has stopped emitting (silent fail). Uses a dedicated
@@ -104,8 +115,12 @@ async def lifespan(app: FastAPI):
 
     # Background Tasks
     logger.info("Starting Event Subscriber Loops")
-    stream_task = supervised_task(subscriber.run_streams, name="logger.stream_subscriber")
-    pubsub_task = supervised_task(subscriber.run_pubsub, name="logger.pubsub_subscriber")
+    stream_task = supervised_task(
+        subscriber.run_streams, name="logger.stream_subscriber"
+    )
+    pubsub_task = supervised_task(
+        subscriber.run_pubsub, name="logger.pubsub_subscriber"
+    )
     invariants_task = supervised_task(
         lambda: redis_invariants_loop(redis_instance, alerter),
         name="logger.invariants",
@@ -123,6 +138,7 @@ async def lifespan(app: FastAPI):
         exc = t.exception()
         if exc is not None:
             import traceback as _tb
+
             tb = "".join(_tb.format_exception(type(exc), exc, exc.__traceback__))
             logger.error(
                 "heartbeat_watcher_task_crashed",
@@ -174,6 +190,7 @@ async def lifespan(app: FastAPI):
     )
     await timescale_client.close()
     logger.info("Logger Agent shutdown safely")
+
 
 app = FastAPI(title="Logger Agent", lifespan=lifespan)
 

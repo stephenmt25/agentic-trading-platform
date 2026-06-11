@@ -14,13 +14,7 @@ harness should boot `run_all.sh` and call into the real consumer loop.
 import pytest
 
 from ._pipeline import run_pipeline
-from .scenarios import (
-    SCENARIOS,
-    make_indicators,
-    make_signal,
-    make_state,
-    make_tick,
-)
+from .scenarios import SCENARIOS, make_indicators, make_signal, make_state, make_tick
 
 
 @pytest.mark.asyncio

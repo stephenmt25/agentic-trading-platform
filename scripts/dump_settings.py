@@ -1,4 +1,5 @@
 from libs.config import settings
+
 print(f"HITL_ENABLED:              {settings.HITL_ENABLED}")
 print(f"HITL_CONFIDENCE_THRESHOLD: {settings.HITL_CONFIDENCE_THRESHOLD}")
 print(f"HITL_SIZE_THRESHOLD_PCT:   {settings.HITL_SIZE_THRESHOLD_PCT}")

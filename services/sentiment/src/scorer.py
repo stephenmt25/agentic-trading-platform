@@ -2,21 +2,24 @@ import asyncio
 import json
 import re
 import time
-import httpx
 from dataclasses import dataclass
 from typing import Optional, Protocol, runtime_checkable
+
+import httpx
 
 from libs.config import settings
 from libs.observability import get_logger
 
 logger = get_logger("sentiment.scorer")
 
-_JSON_OBJECT_RE = re.compile(r'\{[^{}]*"score"\s*:\s*[-\d.]+[^{}]*"confidence"\s*:\s*[-\d.]+[^{}]*\}')
+_JSON_OBJECT_RE = re.compile(
+    r'\{[^{}]*"score"\s*:\s*[-\d.]+[^{}]*"confidence"\s*:\s*[-\d.]+[^{}]*\}'
+)
 
 
 @dataclass
 class SentimentResult:
-    score: float       # -1.0 (bearish) to 1.0 (bullish)
+    score: float  # -1.0 (bearish) to 1.0 (bullish)
     confidence: float  # 0.0 to 1.0
     source: str
 
@@ -25,9 +28,12 @@ class SentimentResult:
 # LLM Backend Protocol
 # ---------------------------------------------------------------------------
 
+
 @runtime_checkable
 class LLMBackend(Protocol):
-    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
+    async def complete(
+        self, prompt: str, grammar: Optional[str] = None
+    ) -> Optional[str]:
         """Send a prompt to the LLM and return the response text, or None on failure.
 
         If grammar (GBNF) is provided, the local backend constrains output to match
@@ -46,7 +52,9 @@ class CloudLLMBackend:
         self._api_key = api_key
         self._last_call_time: float = 0.0
 
-    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
+    async def complete(
+        self, prompt: str, grammar: Optional[str] = None
+    ) -> Optional[str]:
         # grammar is ignored — Anthropic API doesn't support GBNF.
         if not self._api_key:
             return None
@@ -81,7 +89,9 @@ class CloudLLMBackend:
             except Exception as e:
                 last_error = str(e)
 
-            logger.warning("Cloud LLM attempt failed", attempt=attempt + 1, error=last_error)
+            logger.warning(
+                "Cloud LLM attempt failed", attempt=attempt + 1, error=last_error
+            )
 
         return None
 
@@ -92,10 +102,16 @@ class LocalLLMBackend:
     def __init__(self, base_url: str = None):
         self._base_url = base_url or settings.SLM_INFERENCE_URL
 
-    async def complete(self, prompt: str, grammar: Optional[str] = None) -> Optional[str]:
+    async def complete(
+        self, prompt: str, grammar: Optional[str] = None
+    ) -> Optional[str]:
         try:
             async with httpx.AsyncClient() as client:
-                payload: dict = {"prompt": prompt, "max_tokens": 100, "temperature": 0.1}
+                payload: dict = {
+                    "prompt": prompt,
+                    "max_tokens": 100,
+                    "temperature": 0.1,
+                }
                 if grammar:
                     payload["grammar"] = grammar
                 res = await client.post(
@@ -115,6 +131,7 @@ class LocalLLMBackend:
 # ---------------------------------------------------------------------------
 # Backend factory
 # ---------------------------------------------------------------------------
+
 
 def create_backend(llm_key: str = "") -> list[LLMBackend]:
     """Create ordered list of backends based on config. First success wins."""
@@ -140,11 +157,17 @@ def create_backend(llm_key: str = "") -> list[LLMBackend]:
 # Scorer
 # ---------------------------------------------------------------------------
 
+
 class LLMSentimentScorer:
     """LLM-based sentiment scoring with configurable backend and fallback chain."""
 
-    def __init__(self, llm_key: str = "", cache_client=None, cache_ttl: int = 900,
-                 backends: list[LLMBackend] = None):
+    def __init__(
+        self,
+        llm_key: str = "",
+        cache_client=None,
+        cache_ttl: int = 900,
+        backends: list[LLMBackend] = None,
+    ):
         self._cache = cache_client
         self._cache_ttl = cache_ttl
         self._backends = backends or create_backend(llm_key)
@@ -154,7 +177,9 @@ class LLMSentimentScorer:
         if self._cache:
             cached = await self._cache.get(f"sentiment:{symbol}:latest")
             if cached:
-                data = json.loads(cached) if isinstance(cached, (str, bytes)) else cached
+                data = (
+                    json.loads(cached) if isinstance(cached, (str, bytes)) else cached
+                )
                 return SentimentResult(
                     score=data["score"],
                     confidence=data["confidence"],
@@ -181,7 +206,9 @@ class LLMSentimentScorer:
             if text is not None:
                 parsed = self._extract_json(text)
                 if parsed is not None:
-                    source = "local" if isinstance(backend, LocalLLMBackend) else "cloud"
+                    source = (
+                        "local" if isinstance(backend, LocalLLMBackend) else "cloud"
+                    )
                     result = SentimentResult(
                         score=max(-1.0, min(1.0, float(parsed["score"]))),
                         confidence=max(0.0, min(1.0, float(parsed["confidence"]))),
@@ -199,11 +226,13 @@ class LLMSentimentScorer:
         # a real neutral sentiment. See agent:closed:{symbol} stream
         # contamination logged in the tech-debt registry (2026-05-05).
         if self._cache and result.source not in ("llm_error", "fallback"):
-            cache_data = json.dumps({
-                "score": result.score,
-                "confidence": result.confidence,
-                "source": result.source,
-            })
+            cache_data = json.dumps(
+                {
+                    "score": result.score,
+                    "confidence": result.confidence,
+                    "source": result.source,
+                }
+            )
             await self._cache.set(
                 f"sentiment:{symbol}:latest", cache_data, ex=self._cache_ttl
             )

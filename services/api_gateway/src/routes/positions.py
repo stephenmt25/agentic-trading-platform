@@ -1,11 +1,22 @@
 """Positions API — open and recently-closed positions for the user-facing dashboard."""
+
 import json
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
+
+from libs.config import settings
+from libs.core.enums import OrderSide, PositionStatus
+from libs.core.models import Position
+from libs.core.notional import profile_notional
+from libs.messaging import StreamPublisher
+from libs.storage._redis_client import RedisClient
+from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
+from libs.storage.repositories.position_repo import PositionRepository
+from libs.storage.repositories.profile_repo import ProfileRepository
 
 from ..deps import (
     get_closed_trade_repo,
@@ -14,14 +25,6 @@ from ..deps import (
     get_profile_repo,
     get_redis,
 )
-from libs.config import settings
-from libs.core.enums import OrderSide, PositionStatus
-from libs.core.models import Position
-from libs.core.notional import profile_notional
-from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
-from libs.storage.repositories.position_repo import PositionRepository
-from libs.storage.repositories.profile_repo import ProfileRepository
-from libs.storage._redis_client import RedisClient
 
 router = APIRouter(tags=["positions"])
 
@@ -95,7 +98,9 @@ def _parse_risk_limits(raw) -> dict:
     return {}
 
 
-def _enrich_with_profile_context(rows: list[dict], profiles: dict[str, dict]) -> list[dict]:
+def _enrich_with_profile_context(
+    rows: list[dict], profiles: dict[str, dict]
+) -> list[dict]:
     """Add notional, allocation %, mark price, and SL/TP price levels to each row.
 
     Math:
@@ -127,18 +132,31 @@ def _enrich_with_profile_context(rows: list[dict], profiles: dict[str, dict]) ->
             sl_pct = _to_decimal(risk.get("stop_loss_pct"))
             tp_pct = _to_decimal(risk.get("take_profit_pct"))
             if entry is not None and sl_pct is not None and sl_pct > _ZERO:
-                sl = entry * (Decimal("1") - sl_pct) if is_long else entry * (Decimal("1") + sl_pct)
+                sl = (
+                    entry * (Decimal("1") - sl_pct)
+                    if is_long
+                    else entry * (Decimal("1") + sl_pct)
+                )
                 r["stop_loss_price"] = str(sl)
                 r["stop_loss_pct"] = str(sl_pct)
             if entry is not None and tp_pct is not None and tp_pct > _ZERO:
-                tp = entry * (Decimal("1") + tp_pct) if is_long else entry * (Decimal("1") - tp_pct)
+                tp = (
+                    entry * (Decimal("1") + tp_pct)
+                    if is_long
+                    else entry * (Decimal("1") - tp_pct)
+                )
                 r["take_profit_price"] = str(tp)
                 r["take_profit_pct"] = str(tp_pct)
 
         # Derive mark price from gross pnl when available
         gross = r.get("unrealized_gross_pnl")
         gross_dec = _to_decimal(gross)
-        if entry is not None and qty is not None and qty > _ZERO and gross_dec is not None:
+        if (
+            entry is not None
+            and qty is not None
+            and qty > _ZERO
+            and gross_dec is not None
+        ):
             delta = gross_dec / qty
             mark = entry + delta if is_long else entry - delta
             r["mark_price"] = str(mark)
@@ -170,7 +188,9 @@ async def list_positions(
             query = "SELECT * FROM positions WHERE profile_id = $1 ORDER BY opened_at DESC LIMIT 200"
             rows = await repo._fetch(query, profile_id)
         else:
-            rows = await repo._fetch("SELECT * FROM positions ORDER BY opened_at DESC LIMIT 200")
+            rows = await repo._fetch(
+                "SELECT * FROM positions ORDER BY opened_at DESC LIMIT 200"
+            )
 
     serialised = [_serialise(dict(r)) for r in rows]
     serialised = await _attach_unrealized_pnl(serialised, redis)
@@ -193,9 +213,14 @@ async def list_positions(
 # Manual close
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 async def _latest_mark_price(
-    redis: RedisClient, profile_id: str, position_id: str, entry_price: Decimal,
-    quantity: Decimal, is_long: bool,
+    redis: RedisClient,
+    profile_id: str,
+    position_id: str,
+    entry_price: Decimal,
+    quantity: Decimal,
+    is_long: bool,
 ) -> tuple[Decimal, bool]:
     """Reconstruct the latest mark from the pnl service's Redis snapshot.
 
@@ -218,28 +243,34 @@ async def _latest_mark_price(
 @router.post("/{position_id}/close")
 async def close_position(
     position_id: str,
+    response: Response,
     user_id: str = Depends(get_current_user),
     repo: PositionRepository = Depends(get_position_repo),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
     closed_trade_repo: ClosedTradeRepository = Depends(get_closed_trade_repo),
     redis: RedisClient = Depends(get_redis),
 ):
-    """Manually close an OPEN position at the latest mark price.
+    """Manually close an OPEN position.
 
-    Behaviour matches the existing exit_monitor close path: marks the
-    position CLOSED in DB, computes final PnL, writes a closed_trades audit
-    row tagged with `close_reason='manual'`, and updates agent EWMA weights.
+    Default path (PRAXIS_EXCHANGE_CLOSE_ENABLED): routes the close through the
+    execution OMS as a reduce-only order — the same path stop-loss/take-profit/
+    time exits now use. The position transitions OPEN -> PENDING_CLOSE and a
+    reduce-only order is published to stream:orders; the DB close (CLOSED,
+    closed_trades audit, agent EWMA) is finalised asynchronously by the pnl
+    close consumer on fill confirmation, using the real exchange fill price.
+    Returns HTTP 202 with close_status='pending' and the close order id; poll
+    the position / recently-closed list to observe completion.
 
-    Caveat: this does NOT submit a closing order to the exchange — same
-    limitation as stop_loss/take_profit/exit_monitor today. In paper/sim
-    mode this is the correct behaviour; in live mode the real position on
-    the exchange remains open and must be flattened separately. Tracked as
-    pre-existing tech debt outside this endpoint's scope.
+    Fallback path (flag off): the legacy synchronous DB-only close (does not
+    reach the exchange) — retained only as an emergency rollback.
     """
     try:
         pid = UUID(position_id)
     except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail=f"Invalid position_id: '{position_id}' is not a UUID")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid position_id: '{position_id}' is not a UUID",
+        )
 
     row = await repo._fetchrow("SELECT * FROM positions WHERE position_id = $1", pid)
     if not row:
@@ -247,12 +278,17 @@ async def close_position(
     row = dict(row)
 
     if str(row.get("status", "")).upper() != PositionStatus.OPEN.value:
-        raise HTTPException(status_code=409, detail=f"Position {pid} is not open (status={row.get('status')})")
+        raise HTTPException(
+            status_code=409,
+            detail=f"Position {pid} is not open (status={row.get('status')})",
+        )
 
     # Ownership check
     profile = await profile_repo.get_profile_for_user(str(row["profile_id"]), user_id)
     if not profile:
-        raise HTTPException(status_code=403, detail="Position does not belong to this user")
+        raise HTTPException(
+            status_code=403, detail="Position does not belong to this user"
+        )
 
     # Build a Position model for PositionCloser
     side = OrderSide.BUY if str(row["side"]).upper() == "BUY" else OrderSide.SELL
@@ -276,8 +312,12 @@ async def close_position(
     )
 
     mark_price, fresh = await _latest_mark_price(
-        redis, str(row["profile_id"]), str(row["position_id"]),
-        entry_price, quantity, is_long,
+        redis,
+        str(row["profile_id"]),
+        str(row["position_id"]),
+        entry_price,
+        quantity,
+        is_long,
     )
 
     # Taker rate by exchange. Profile.exchange_key_ref is "BINANCE:user:1" etc.
@@ -287,6 +327,51 @@ async def close_position(
         exchange_name = ref.split(":", 1)[0].upper()
     taker_rate = _TAKER_RATES.get(exchange_name, _DEFAULT_TAKER_RATE)
 
+    trading_mode = (
+        "PAPER"
+        if settings.PAPER_TRADING_MODE
+        else (
+            "TESTNET"
+            if (settings.BINANCE_TESTNET or settings.COINBASE_SANDBOX)
+            else "LIVE"
+        )
+    )
+
+    # Default: route the close through the OMS as a reduce-only order. The DB
+    # close is finalised asynchronously on fill confirmation by the pnl close
+    # consumer (services/pnl/src/executed_consumer.py), at the real fill price.
+    if settings.EXCHANGE_CLOSE_ENABLED:
+        # Import here to avoid module-load coupling between api_gateway and pnl
+        # service code paths during cold start.
+        from services.pnl.src.close_requester import PositionCloseRequester
+
+        requester = PositionCloseRequester(repo, StreamPublisher(redis))
+        close_order_id = await requester.request_close(
+            pos, mark_price, close_reason="manual"
+        )
+        if close_order_id is None:
+            # Lost the OPEN->PENDING_CLOSE CAS — another path already owns the close.
+            raise HTTPException(
+                status_code=409, detail=f"Position {pid} is already closing or closed"
+            )
+
+        response.status_code = 202
+        return {
+            "status": "closing",
+            "close_status": "pending",
+            "position_id": str(pid),
+            "close_order_id": str(close_order_id),
+            "symbol": row["symbol"],
+            "side": side.value,
+            "entry_price": str(entry_price),
+            "estimated_exit_price": str(mark_price),
+            "mark_price_was_fresh": fresh,
+            "quantity": str(quantity),
+            "trading_mode": trading_mode,
+        }
+
+    # Fallback (PRAXIS_EXCHANGE_CLOSE_ENABLED off): legacy synchronous DB-only
+    # close — does NOT reach the exchange. Retained only as an emergency rollback.
     # Import here to avoid module-load coupling between api_gateway and pnl
     # service code paths during cold start.
     from services.pnl.src.closer import PositionCloser
@@ -299,7 +384,9 @@ async def close_position(
     )
 
     try:
-        snapshot = await closer.close(pos, mark_price, taker_rate, close_reason="manual")
+        snapshot = await closer.close(
+            pos, mark_price, taker_rate, close_reason="manual"
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Close failed: {e}") from e
 
@@ -316,7 +403,5 @@ async def close_position(
         "net_pnl_pre_tax": str(snapshot.net_pre_tax),
         "pct_return": float(snapshot.pct_return),
         "closed_at": datetime.now(timezone.utc).isoformat(),
-        "trading_mode": "PAPER" if settings.PAPER_TRADING_MODE else (
-            "TESTNET" if (settings.BINANCE_TESTNET or settings.COINBASE_SANDBOX) else "LIVE"
-        ),
+        "trading_mode": trading_mode,
     }

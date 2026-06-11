@@ -1,6 +1,8 @@
-from typing import Dict, Any, List
+from typing import Any, Dict, List
+
 from pydantic import ValidationError
-from libs.core.schemas import RuleCondition, RuleSchema
+
+from libs.core.schemas import RuleSchema
 
 
 class ValidationResult:
@@ -16,5 +18,5 @@ class RuleValidator:
             RuleSchema(**rules_json)
             return ValidationResult(is_valid=True)
         except ValidationError as e:
-            errors = [str(err['msg']) for err in e.errors()]
+            errors = [str(err["msg"]) for err in e.errors()]
             return ValidationResult(is_valid=False, errors=errors)

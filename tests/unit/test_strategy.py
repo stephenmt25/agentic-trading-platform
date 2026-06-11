@@ -1,18 +1,15 @@
 """Tests for Strategy service: rule compilation, validation, and hydration."""
 
-import json
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
 
 from libs.core.enums import SignalDirection
-from services.strategy.src.compiler import RuleCompiler, CompiledRuleSet
+from services.strategy.src.compiler import CompiledRuleSet, RuleCompiler
 from services.strategy.src.rule_validator import RuleValidator
-
 
 # ---------------------------------------------------------------------------
 # RuleCompiler tests
 # ---------------------------------------------------------------------------
+
 
 class TestRuleCompiler:
     def _valid_rules(self, **overrides):
@@ -50,26 +47,35 @@ class TestRuleCompiler:
 # CompiledRuleSet.evaluate tests
 # ---------------------------------------------------------------------------
 
+
 class TestCompiledRuleSetEvaluate:
-    def _make(self, conditions, logic="AND", direction=SignalDirection.BUY, confidence=0.9):
+    def _make(
+        self, conditions, logic="AND", direction=SignalDirection.BUY, confidence=0.9
+    ):
         return CompiledRuleSet(
-            logic=logic, direction=direction,
-            base_confidence=confidence, conditions=conditions,
+            logic=logic,
+            direction=direction,
+            base_confidence=confidence,
+            conditions=conditions,
         )
 
     def test_and_all_true(self):
-        rs = self._make([
-            {"indicator": "rsi", "operator": "LT", "value": 30},
-            {"indicator": "macd", "operator": "GT", "value": 0},
-        ])
+        rs = self._make(
+            [
+                {"indicator": "rsi", "operator": "LT", "value": 30},
+                {"indicator": "macd", "operator": "GT", "value": 0},
+            ]
+        )
         result = rs.evaluate({"rsi": 25.0, "macd": 0.5})
         assert result == (SignalDirection.BUY, 0.9)
 
     def test_and_one_false(self):
-        rs = self._make([
-            {"indicator": "rsi", "operator": "LT", "value": 30},
-            {"indicator": "macd", "operator": "GT", "value": 0},
-        ])
+        rs = self._make(
+            [
+                {"indicator": "rsi", "operator": "LT", "value": 30},
+                {"indicator": "macd", "operator": "GT", "value": 0},
+            ]
+        )
         assert rs.evaluate({"rsi": 35.0, "macd": 0.5}) is None
 
     def test_or_one_true(self):
@@ -116,8 +122,10 @@ class TestCompiledRuleSetEvaluate:
 
     def test_unsupported_logic_returns_none(self):
         rs = CompiledRuleSet(
-            logic="XOR", direction=SignalDirection.BUY,
-            base_confidence=0.5, conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
+            logic="XOR",
+            direction=SignalDirection.BUY,
+            base_confidence=0.5,
+            conditions=[{"indicator": "rsi", "operator": "LT", "value": 30}],
         )
         assert rs.evaluate({"rsi": 25.0}) is None
 
@@ -129,6 +137,7 @@ class TestCompiledRuleSetEvaluate:
 # ---------------------------------------------------------------------------
 # RuleValidator tests
 # ---------------------------------------------------------------------------
+
 
 class TestRuleValidator:
     def test_valid_rule_passes(self):

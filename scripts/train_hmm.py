@@ -32,7 +32,9 @@ if str(ROOT) not in sys.path:
 from libs.config import settings  # noqa: E402
 from libs.observability import get_logger  # noqa: E402
 from libs.storage._timescale_client import TimescaleClient  # noqa: E402
-from libs.storage.repositories.market_data_repo import MarketDataRepository  # noqa: E402
+from libs.storage.repositories.market_data_repo import (  # noqa: E402
+    MarketDataRepository,
+)
 from services.regime_hmm.src.checkpoint import (  # noqa: E402
     CHECKPOINT_VERSION,
     HMMCheckpoint,
@@ -70,7 +72,9 @@ async def _train_one(
             )
             return None
 
-        prices: List[float] = [float(c["close"]) for c in candles]  # float-ok: hmmlearn requires float
+        prices: List[float] = [
+            float(c["close"]) for c in candles
+        ]  # float-ok: hmmlearn requires float
         window_start = candles[0]["time"]
         window_end = candles[-1]["time"]
 
@@ -90,7 +94,9 @@ async def _train_one(
             return None
 
         # Sanity-check the state→regime map covers all states.
-        coverage = {map_state_to_regime(model, i) for i in range(HMMRegimeModel.N_STATES)}
+        coverage = {
+            map_state_to_regime(model, i) for i in range(HMMRegimeModel.N_STATES)
+        }
         coverage.discard(None)
         logger.info(
             "Trained HMM regime coverage",
@@ -105,7 +111,9 @@ async def _train_one(
             symbol=symbol,
             timeframe=timeframe,
             trained_at=datetime.now(timezone.utc),
-            training_window_start=window_start if hasattr(window_start, "tzinfo") else None,
+            training_window_start=(
+                window_start if hasattr(window_start, "tzinfo") else None
+            ),
             training_window_end=window_end if hasattr(window_end, "tzinfo") else None,
             n_train=len(prices),
             model=model,
@@ -116,10 +124,14 @@ async def _train_one(
 
 
 def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train per-symbol regime HMM checkpoints.")
+    parser = argparse.ArgumentParser(
+        description="Train per-symbol regime HMM checkpoints."
+    )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--symbol", help="One symbol (e.g. BTC/USDT)")
-    group.add_argument("--all", action="store_true", help="Train all settings.TRADING_SYMBOLS")
+    group.add_argument(
+        "--all", action="store_true", help="Train all settings.TRADING_SYMBOLS"
+    )
     parser.add_argument("--timeframe", default=DEFAULT_TIMEFRAME)
     parser.add_argument("--limit", type=int, default=DEFAULT_LIMIT)
     parser.add_argument("--models-dir", default="models", help="Output directory")

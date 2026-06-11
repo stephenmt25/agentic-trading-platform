@@ -1,23 +1,26 @@
 """API routes for agent performance evaluation, score history, and gate analytics."""
+
 import json
-from typing import List, Optional
 from datetime import datetime
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Query
 
-from ..deps import (
-    get_redis,
-    get_agent_score_repo,
-    get_closed_trade_repo,
-    get_decision_repo,
-    get_weight_history_repo,
-    get_gate_efficacy_repo,
-)
 from libs.core.agent_registry import AGENT_DEFAULTS
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
 from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
 from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
+
+from ..deps import (
+    get_agent_score_repo,
+    get_closed_trade_repo,
+    get_decision_repo,
+    get_gate_efficacy_repo,
+    get_redis,
+    get_weight_history_repo,
+)
 
 router = APIRouter()
 
@@ -30,7 +33,10 @@ def _clean_symbol(symbol: str) -> str:
 @router.get("/scores/{symbol:path}")
 async def get_score_history(
     symbol: str,
-    agents: Optional[str] = Query(default=None, description="Comma-separated agent names: ta,sentiment,debate,regime_hmm"),
+    agents: Optional[str] = Query(
+        default=None,
+        description="Comma-separated agent names: ta,sentiment,debate,regime_hmm",
+    ),
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
     limit: int = Query(default=500, ge=1, le=5000),
@@ -155,14 +161,20 @@ async def get_trade_attribution(
         agents_data = d.get("agents")
         if agents_data and isinstance(agents_data, str):
             agents_data = json.loads(agents_data)
-        results.append({
-            "event_id": str(d.get("event_id", "")),
-            "symbol": d.get("symbol"),
-            "outcome": d.get("outcome"),
-            "input_price": float(d["input_price"]) if d.get("input_price") else None,
-            "agents": agents_data,
-            "created_at": d["created_at"].isoformat() if d.get("created_at") else None,
-        })
+        results.append(
+            {
+                "event_id": str(d.get("event_id", "")),
+                "symbol": d.get("symbol"),
+                "outcome": d.get("outcome"),
+                "input_price": (
+                    float(d["input_price"]) if d.get("input_price") else None
+                ),
+                "agents": agents_data,
+                "created_at": (
+                    d["created_at"].isoformat() if d.get("created_at") else None
+                ),
+            }
+        )
     return results
 
 
@@ -209,7 +221,9 @@ async def get_gate_analytics(
     a single profile via the profile_id query param.
     """
     symbol = _clean_symbol(symbol)
-    decisions = await repo.get_decisions(symbol=symbol, profile_id=profile_id, limit=limit)
+    decisions = await repo.get_decisions(
+        symbol=symbol, profile_id=profile_id, limit=limit
+    )
 
     outcome_counts: dict = {}
     gate_details: dict = {}
@@ -247,7 +261,9 @@ async def get_gate_analytics(
 @router.get("/approved-attribute/{symbol:path}")
 async def get_approved_attribute_aggregate(
     symbol: str,
-    dimension: str = Query(..., description="One of: symbol | direction | hour | day_of_week | regime"),
+    dimension: str = Query(
+        ..., description="One of: symbol | direction | hour | day_of_week | regime"
+    ),
     profile_id: Optional[str] = Query(default=None),
     window_hours: int = Query(default=168, ge=1, le=8760),
     limit: int = Query(default=50, ge=1, le=200),
@@ -261,14 +277,18 @@ async def get_approved_attribute_aggregate(
     Closed Trades tab for outcome-conditioned views.
     """
     from uuid import UUID
+
     from fastapi import HTTPException
+
     symbol = _clean_symbol(symbol)
     pid: Optional[UUID] = None
     if profile_id:
         try:
             pid = UUID(profile_id)
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="Invalid profile_id (expected UUID)")
+            raise HTTPException(
+                status_code=400, detail="Invalid profile_id (expected UUID)"
+            )
     try:
         return await repo.aggregate_approved_by_attribute(
             dimension=dimension,
@@ -284,7 +304,9 @@ async def get_approved_attribute_aggregate(
 @router.get("/trade-attribute/{symbol:path}")
 async def get_trade_attribute_aggregate(
     symbol: str,
-    dimension: str = Query(..., description="One of: side | regime | hold_duration | hour | day_of_week"),
+    dimension: str = Query(
+        ..., description="One of: side | regime | hold_duration | hour | day_of_week"
+    ),
     profile_id: Optional[str] = Query(default=None),
     window_hours: int = Query(default=168, ge=1, le=8760),
     limit: int = Query(default=50, ge=1, le=200),
@@ -299,14 +321,18 @@ async def get_trade_attribute_aggregate(
     per row.
     """
     from uuid import UUID
+
     from fastapi import HTTPException
+
     symbol = _clean_symbol(symbol)
     pid: Optional[UUID] = None
     if profile_id:
         try:
             pid = UUID(profile_id)
         except (ValueError, TypeError):
-            raise HTTPException(status_code=400, detail="Invalid profile_id (expected UUID)")
+            raise HTTPException(
+                status_code=400, detail="Invalid profile_id (expected UUID)"
+            )
     try:
         return await repo.aggregate_by_attribute(
             dimension=dimension,
@@ -337,6 +363,7 @@ async def get_rule_heatmap(
     fingerprints that aren't actionable yet.
     """
     from uuid import UUID
+
     symbol = _clean_symbol(symbol)
     pid: Optional[UUID] = None
     if profile_id:
@@ -344,7 +371,10 @@ async def get_rule_heatmap(
             pid = UUID(profile_id)
         except (ValueError, TypeError):
             from fastapi import HTTPException
-            raise HTTPException(status_code=400, detail="Invalid profile_id (expected UUID)")
+
+            raise HTTPException(
+                status_code=400, detail="Invalid profile_id (expected UUID)"
+            )
     return await repo.aggregate_rule_heatmap(
         profile_id=pid,
         symbol=symbol,
@@ -372,6 +402,7 @@ async def get_agent_attribution_summary(
     is per-trade; this one is the realized-outcome aggregate.
     """
     from uuid import UUID
+
     symbol = _clean_symbol(symbol)
     pid: Optional[UUID] = None
     if profile_id:
@@ -379,7 +410,10 @@ async def get_agent_attribution_summary(
             pid = UUID(profile_id)
         except (ValueError, TypeError):
             from fastapi import HTTPException
-            raise HTTPException(status_code=400, detail="Invalid profile_id (expected UUID)")
+
+            raise HTTPException(
+                status_code=400, detail="Invalid profile_id (expected UUID)"
+            )
     return await repo.aggregate_agent_attribution(
         profile_id=pid,
         symbol=symbol,

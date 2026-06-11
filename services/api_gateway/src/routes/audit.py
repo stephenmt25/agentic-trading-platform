@@ -43,6 +43,7 @@ router = APIRouter()
 # JSON helpers
 # ---------------------------------------------------------------------------
 
+
 def _to_jsonable(value: Any) -> Any:
     """Convert DB values (Decimal, UUID, datetime) into JSON-safe primitives."""
     if value is None:
@@ -69,9 +70,16 @@ def _serialize_row(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         return None
     out: Dict[str, Any] = {}
     for k, v in row.items():
-        if isinstance(v, str) and k in ("indicators", "strategy", "regime", "agents",
-                                        "gates", "profile_rules", "entry_agent_scores",
-                                        "market_context"):
+        if isinstance(v, str) and k in (
+            "indicators",
+            "strategy",
+            "regime",
+            "agents",
+            "gates",
+            "profile_rules",
+            "entry_agent_scores",
+            "market_context",
+        ):
             try:
                 out[k] = json.loads(v)
                 continue
@@ -91,6 +99,7 @@ def _parse_uuid(value: str, name: str) -> UUID:
 # ---------------------------------------------------------------------------
 # Closed trades
 # ---------------------------------------------------------------------------
+
 
 @router.get("/closed-trades")
 async def list_closed_trades(
@@ -138,7 +147,9 @@ async def get_closed_trade_by_position(
     pid = _parse_uuid(position_id, "position_id")
     row = await repo.get_by_position(pid)
     if not row:
-        raise HTTPException(status_code=404, detail="Closed trade not found for this position")
+        raise HTTPException(
+            status_code=404, detail="Closed trade not found for this position"
+        )
     return _serialize_row(row)
 
 
@@ -157,6 +168,7 @@ async def get_closed_trade_by_decision(
 # ---------------------------------------------------------------------------
 # Debate transcripts
 # ---------------------------------------------------------------------------
+
 
 @router.get("/debate")
 async def list_debate_cycles(
@@ -188,6 +200,7 @@ async def get_debate_cycle(
 # ---------------------------------------------------------------------------
 # Full chain
 # ---------------------------------------------------------------------------
+
 
 @router.get("/chain/{decision_event_id}")
 async def get_decision_chain(
@@ -269,8 +282,12 @@ def _kill_switch_log_to_events(raw_entries: List[Any]) -> List[Dict[str, Any]]:
 @router.get("/user-events")
 async def list_user_audit_events(
     event_type: Optional[str] = Query(default=None, description="Filter by type tag"),
-    from_ts: Optional[int] = Query(default=None, alias="from", description="ms epoch lower bound (inclusive)"),
-    to_ts: Optional[int] = Query(default=None, alias="to", description="ms epoch upper bound (inclusive)"),
+    from_ts: Optional[int] = Query(
+        default=None, alias="from", description="ms epoch lower bound (inclusive)"
+    ),
+    to_ts: Optional[int] = Query(
+        default=None, alias="to", description="ms epoch upper bound (inclusive)"
+    ),
     limit: int = Query(default=200, ge=1, le=1000),
     redis=Depends(get_redis),
 ):

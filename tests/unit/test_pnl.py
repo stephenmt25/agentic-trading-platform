@@ -6,17 +6,16 @@ and position closer with agent outcome tagging.
 
 import json
 from decimal import Decimal
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from libs.core.enums import OrderSide, PositionStatus
-from services.pnl.src.stop_loss_monitor import StopLossMonitor, _DEFAULT_STOP_LOSS
-
+from services.pnl.src.stop_loss_monitor import _DEFAULT_STOP_LOSS, StopLossMonitor
 
 # ---------------------------------------------------------------------------
 # StopLossMonitor tests
 # ---------------------------------------------------------------------------
+
 
 class TestStopLossMonitor:
     def _make_monitor(self, mock_profile_repo):
@@ -49,7 +48,9 @@ class TestStopLossMonitor:
         closer.close.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_trigger_on_loss_exceeding_threshold(self, mock_profile_repo, sample_position):
+    async def test_trigger_on_loss_exceeding_threshold(
+        self, mock_profile_repo, sample_position
+    ):
         """Stop-loss should trigger when loss exceeds the profile's threshold."""
         monitor, closer = self._make_monitor(mock_profile_repo)
         position = sample_position()
@@ -85,7 +86,9 @@ class TestStopLossMonitor:
         closer.close.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_cache_avoids_repeated_db_lookups(self, mock_profile_repo, sample_position):
+    async def test_cache_avoids_repeated_db_lookups(
+        self, mock_profile_repo, sample_position
+    ):
         """Stop-loss threshold should be cached after first lookup."""
         monitor, closer = self._make_monitor(mock_profile_repo)
         pos = sample_position()
@@ -103,7 +106,9 @@ class TestStopLossMonitor:
         assert mock_profile_repo.get_profile.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_invalidate_cache_forces_reload(self, mock_profile_repo, sample_position):
+    async def test_invalidate_cache_forces_reload(
+        self, mock_profile_repo, sample_position
+    ):
         """invalidate_cache() should force a DB reload on next check."""
         monitor, closer = self._make_monitor(mock_profile_repo)
         pos = sample_position()
@@ -121,7 +126,9 @@ class TestStopLossMonitor:
         assert mock_profile_repo.get_profile.await_count == 2
 
     @pytest.mark.asyncio
-    async def test_closer_failure_does_not_crash(self, mock_profile_repo, sample_position):
+    async def test_closer_failure_does_not_crash(
+        self, mock_profile_repo, sample_position
+    ):
         """If PositionCloser.close() fails, check() returns False without crashing."""
         monitor, closer = self._make_monitor(mock_profile_repo)
         closer.close = AsyncMock(side_effect=Exception("Exchange unreachable"))
@@ -143,6 +150,7 @@ class TestStopLossMonitor:
 # PnL Publisher Decimal safety tests
 # ---------------------------------------------------------------------------
 
+
 class TestPnLPublisherDecimalSafety:
     """Verify that PnL publisher handles Decimal values correctly.
 
@@ -154,6 +162,7 @@ class TestPnLPublisherDecimalSafety:
     def test_decimal_encoder_converts_decimal_to_float(self):
         """_DecimalEncoder should handle Decimal values."""
         from services.pnl.src.publisher import _DecimalEncoder
+
         result = json.dumps({"value": Decimal("1.23456789")}, cls=_DecimalEncoder)
         parsed = json.loads(result)
         assert isinstance(parsed["value"], float)
@@ -161,6 +170,7 @@ class TestPnLPublisherDecimalSafety:
     def test_decimal_zero_serializes_correctly(self):
         """Decimal("0") should serialize without error."""
         from services.pnl.src.publisher import _DecimalEncoder
+
         result = json.dumps({"value": Decimal("0")}, cls=_DecimalEncoder)
         parsed = json.loads(result)
         assert parsed["value"] == 0.0

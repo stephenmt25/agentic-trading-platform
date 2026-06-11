@@ -1,3 +1,7 @@
+from ._dlq import DeadLetterQueue
+from ._pubsub import PubSubBroadcaster, PubSubSubscriber
+from ._serialisation import decode_event, encode_event
+from ._streams import StreamConsumer, StreamPublisher
 from .channels import (
     DLQ_STREAM,
     MARKET_DATA_STREAM,
@@ -11,10 +15,6 @@ from .channels import (
     VALIDATION_RESPONSE_STREAM,
     VALIDATION_STREAM,
 )
-from ._serialisation import decode_event, encode_event
-from ._streams import StreamConsumer, StreamPublisher
-from ._pubsub import PubSubBroadcaster, PubSubSubscriber
-from ._dlq import DeadLetterQueue
 
 __all__ = [
     "MARKET_DATA_STREAM",
@@ -28,12 +28,11 @@ __all__ = [
     "PUBSUB_ORDERBOOK",
     "PUBSUB_THRESHOLD_PROXIMITY",
     "PUBSUB_TRADES",
-    
     "decode_event",
     "encode_event",
     "StreamPublisher",
     "StreamConsumer",
     "PubSubBroadcaster",
     "PubSubSubscriber",
-    "DeadLetterQueue"
+    "DeadLetterQueue",
 ]

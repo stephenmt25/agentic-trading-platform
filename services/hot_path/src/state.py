@@ -1,29 +1,32 @@
 from __future__ import annotations
+
 from decimal import Decimal
 from typing import Dict, Optional
+
 from libs.core.enums import Regime
 from libs.core.models import RiskLimits
 from libs.core.notional import DEFAULT_NOTIONAL_USD
 from libs.indicators import IndicatorSet
 from services.strategy.src.compiler import CompiledRuleSet
 
+
 class ProfileState:
     __slots__ = (
-        'profile_id',
-        'compiled_rules',
-        'risk_limits',
-        'blacklist',
-        'indicators',
-        'regime',
-        'preferred_regimes',
-        'daily_realised_pnl_pct',
-        'current_drawdown_pct',
-        'current_allocation_pct',
-        'notional',
-        'open_exposure_dollars',
-        'open_position_symbols',
-        'open_position_symbols_optimistic_ts',
-        'is_active'
+        "profile_id",
+        "compiled_rules",
+        "risk_limits",
+        "blacklist",
+        "indicators",
+        "regime",
+        "preferred_regimes",
+        "daily_realised_pnl_pct",
+        "current_drawdown_pct",
+        "current_allocation_pct",
+        "notional",
+        "open_exposure_dollars",
+        "open_position_symbols",
+        "open_position_symbols_optimistic_ts",
+        "is_active",
     )
 
     def __init__(
@@ -71,9 +74,10 @@ class ProfileState:
         self.open_position_symbols_optimistic_ts: dict = {}
         self.is_active = True
 
+
 class ProfileStateCache:
-    __slots__ = ('_profiles',)
-    
+    __slots__ = ("_profiles",)
+
     def __init__(self):
         self._profiles: Dict[str, ProfileState] = {}
 

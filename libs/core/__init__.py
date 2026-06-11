@@ -27,7 +27,6 @@ from .enums import (
     ValidationVerdict,
 )
 from .exceptions import (
-    PraxisBaseError,
     BlacklistBlockedError,
     CircuitBreakerTriggeredError,
     ConfigurationError,
@@ -35,6 +34,7 @@ from .exceptions import (
     ExchangeRateLimitError,
     ExchangeTimeoutError,
     OrderExecutionError,
+    PraxisBaseError,
     ReconciliationDriftError,
     RiskGateBlockedError,
     SchemaVersionMismatchError,
@@ -55,7 +55,15 @@ from .schemas import (
     ValidationRequestEvent,
     ValidationResponseEvent,
 )
-from .types import ExchangeName, Percentage, Price, ProfileId, Quantity, SymbolPair, Timestamp
+from .types import (
+    ExchangeName,
+    Percentage,
+    Price,
+    ProfileId,
+    Quantity,
+    SymbolPair,
+    Timestamp,
+)
 
 __all__ = [
     # constants

@@ -1,5 +1,6 @@
 """Regenerate today's daily report and print the resulting summary +
 trade count, end-to-end against the live API."""
+
 import asyncio
 import sys
 from datetime import datetime, timedelta, timezone
@@ -21,7 +22,9 @@ async def first_user_id() -> str:
     db_url = settings.DATABASE_URL.replace("postgresql+asyncpg://", "postgresql://")
     conn = await asyncpg.connect(db_url)
     try:
-        row = await conn.fetchrow("SELECT user_id FROM users ORDER BY created_at LIMIT 1")
+        row = await conn.fetchrow(
+            "SELECT user_id FROM users ORDER BY created_at LIMIT 1"
+        )
         return str(row["user_id"]) if row else "00000000-0000-0000-0000-000000000001"
     finally:
         await conn.close()
@@ -39,7 +42,11 @@ async def main() -> int:
     today = datetime.now(timezone.utc).date().isoformat()
 
     async with httpx.AsyncClient(timeout=30.0) as c:
-        r = await c.post(f"{API}/paper-trading/reports/generate", headers=headers, json={"date": today})
+        r = await c.post(
+            f"{API}/paper-trading/reports/generate",
+            headers=headers,
+            json={"date": today},
+        )
         print(f"POST generate -> HTTP {r.status_code}")
         body = r.json()
         print(f"  wrote: {body.get('wrote')}")
@@ -47,7 +54,9 @@ async def main() -> int:
 
         r = await c.get(f"{API}/paper-trading/reports/{today}/detail", headers=headers)
         body = r.json()
-        print(f"GET detail   -> HTTP {r.status_code}, trades.length={len(body.get('trades', []))}, summary.total_trades={body.get('summary', {}).get('total_trades')}")
+        print(
+            f"GET detail   -> HTTP {r.status_code}, trades.length={len(body.get('trades', []))}, summary.total_trades={body.get('summary', {}).get('total_trades')}"
+        )
     return 0
 
 

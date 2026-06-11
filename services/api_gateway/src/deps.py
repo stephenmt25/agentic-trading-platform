@@ -1,20 +1,22 @@
-from fastapi import Depends, HTTPException, Request
+from fastapi import HTTPException, Request
+from fastapi.security import HTTPBearer
+
 from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient
-from libs.storage.repositories.profile_repo import ProfileRepository
-from libs.storage.repositories.order_repo import OrderRepository
-from libs.storage.repositories.position_repo import PositionRepository
-from libs.storage.repositories.pnl_repo import PnlRepository
-from libs.storage.repositories.decision_repo import DecisionRepository
-from libs.storage.repositories.market_data_repo import MarketDataRepository
 from libs.storage.repositories.agent_score_repo import AgentScoreRepository
-from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
+from libs.storage.repositories.backtest_repo import BacktestRepository
 from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.debate_repo import DebateRepository
+from libs.storage.repositories.decision_repo import DecisionRepository
 from libs.storage.repositories.gate_efficacy_repo import GateEfficacyRepository
-from libs.storage.repositories.backtest_repo import BacktestRepository
+from libs.storage.repositories.market_data_repo import MarketDataRepository
+from libs.storage.repositories.order_repo import OrderRepository
+from libs.storage.repositories.pnl_repo import PnlRepository
+from libs.storage.repositories.position_repo import PositionRepository
+from libs.storage.repositories.profile_repo import ProfileRepository
 from libs.storage.repositories.user_session_repo import UserSessionRepository
-from fastapi.security import HTTPBearer
+from libs.storage.repositories.weight_history_repo import WeightHistoryRepository
+
 from .middleware.auth import verify_jwt
 
 security = HTTPBearer()

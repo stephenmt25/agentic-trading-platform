@@ -18,17 +18,16 @@ import random
 import time
 import uuid
 from datetime import datetime, timezone
-from decimal import Decimal
 
 from libs.config import settings
-from libs.storage import RedisClient
 from libs.messaging.channels import (
     MARKET_DATA_STREAM,
-    PUBSUB_PNL_UPDATES,
-    PUBSUB_SYSTEM_ALERTS,
     PUBSUB_AGENT_TELEMETRY,
     PUBSUB_HITL_PENDING,
+    PUBSUB_PNL_UPDATES,
+    PUBSUB_SYSTEM_ALERTS,
 )
+from libs.storage import RedisClient
 
 # ── Price simulation ──────────────────────────────────────────────
 
@@ -96,6 +95,7 @@ class PriceSimulator:
 
 # ── Publishers ────────────────────────────────────────────────────
 
+
 class MockDataPump:
     def __init__(self):
         self._redis = RedisClient.get_instance(settings.REDIS_URL).get_connection()
@@ -157,82 +157,105 @@ class MockDataPump:
                 last_health = now
                 for agent_id, agent_type in AGENTS:
                     uptime = int(now - self._start)
-                    await self._pub(PUBSUB_AGENT_TELEMETRY, {
-                        "id": str(uuid.uuid4()),
-                        "timestamp": self._now_iso(),
-                        "agent_id": agent_id,
-                        "agent_type": agent_type,
-                        "event_type": "health_check",
-                        "payload": {
-                            "status": "healthy",
-                            "uptime_s": uptime,
-                            "memory_mb": round(random.uniform(4.0, 25.0), 1),
-                            "cpu_pct": round(random.uniform(0.0, 5.0), 1),
-                            "messages_processed": self._msg_count,
-                            "error_count_1h": 0,
+                    await self._pub(
+                        PUBSUB_AGENT_TELEMETRY,
+                        {
+                            "id": str(uuid.uuid4()),
+                            "timestamp": self._now_iso(),
+                            "agent_id": agent_id,
+                            "agent_type": agent_type,
+                            "event_type": "health_check",
+                            "payload": {
+                                "status": "healthy",
+                                "uptime_s": uptime,
+                                "memory_mb": round(random.uniform(4.0, 25.0), 1),
+                                "cpu_pct": round(random.uniform(0.0, 5.0), 1),
+                                "messages_processed": self._msg_count,
+                                "error_count_1h": 0,
+                            },
                         },
-                    })
+                    )
 
             # Data flow events
             sym = random.choice(list(SYMBOLS.keys()))
             price = self._sims[sym].price
 
             # ingestion → hot_path
-            await self._pub(PUBSUB_AGENT_TELEMETRY, {
-                "id": str(uuid.uuid4()),
-                "timestamp": self._now_iso(),
-                "agent_id": "ingestion",
-                "agent_type": "market_data",
-                "event_type": "input_received",
-                "payload": {"symbol": sym, "exchange": "BINANCE", "message_type": "exchange_tick"},
-                "source_agent": "external",
-            })
-            await self._pub(PUBSUB_AGENT_TELEMETRY, {
-                "id": str(uuid.uuid4()),
-                "timestamp": self._now_iso(),
-                "agent_id": "ingestion",
-                "agent_type": "market_data",
-                "event_type": "output_emitted",
-                "payload": {"symbol": sym, "price": str(round(price, 2)), "exchange": "BINANCE"},
-                "target_agent": "hot_path",
-            })
+            await self._pub(
+                PUBSUB_AGENT_TELEMETRY,
+                {
+                    "id": str(uuid.uuid4()),
+                    "timestamp": self._now_iso(),
+                    "agent_id": "ingestion",
+                    "agent_type": "market_data",
+                    "event_type": "input_received",
+                    "payload": {
+                        "symbol": sym,
+                        "exchange": "BINANCE",
+                        "message_type": "exchange_tick",
+                    },
+                    "source_agent": "external",
+                },
+            )
+            await self._pub(
+                PUBSUB_AGENT_TELEMETRY,
+                {
+                    "id": str(uuid.uuid4()),
+                    "timestamp": self._now_iso(),
+                    "agent_id": "ingestion",
+                    "agent_type": "market_data",
+                    "event_type": "output_emitted",
+                    "payload": {
+                        "symbol": sym,
+                        "price": str(round(price, 2)),
+                        "exchange": "BINANCE",
+                    },
+                    "target_agent": "hot_path",
+                },
+            )
 
             # Occasional decision traces
             if random.random() < 0.3:
                 direction = random.choice(DIRECTIONS)
                 confidence = round(random.uniform(0.3, 0.9), 4)
-                await self._pub(PUBSUB_AGENT_TELEMETRY, {
-                    "id": str(uuid.uuid4()),
-                    "timestamp": self._now_iso(),
-                    "agent_id": "hot_path",
-                    "agent_type": "orchestrator",
-                    "event_type": "decision_trace",
-                    "payload": {
-                        "profile_id": self._profile_id,
-                        "symbol": sym,
-                        "direction": direction,
-                        "confidence": confidence,
-                        "rule_matched": True,
+                await self._pub(
+                    PUBSUB_AGENT_TELEMETRY,
+                    {
+                        "id": str(uuid.uuid4()),
+                        "timestamp": self._now_iso(),
+                        "agent_id": "hot_path",
+                        "agent_type": "orchestrator",
+                        "event_type": "decision_trace",
+                        "payload": {
+                            "profile_id": self._profile_id,
+                            "symbol": sym,
+                            "direction": direction,
+                            "confidence": confidence,
+                            "rule_matched": True,
+                        },
+                        "source_agent": "ta_agent",
+                        "target_agent": "validation",
                     },
-                    "source_agent": "ta_agent",
-                    "target_agent": "validation",
-                })
+                )
 
             # Occasional execution events
             if random.random() < 0.15:
-                await self._pub(PUBSUB_AGENT_TELEMETRY, {
-                    "id": str(uuid.uuid4()),
-                    "timestamp": self._now_iso(),
-                    "agent_id": "execution",
-                    "agent_type": "execution",
-                    "event_type": "output_emitted",
-                    "payload": {
-                        "order_id": str(uuid.uuid4()),
-                        "status": "FILLED",
-                        "symbol": sym,
-                        "fill_price": str(round(price, 2)),
+                await self._pub(
+                    PUBSUB_AGENT_TELEMETRY,
+                    {
+                        "id": str(uuid.uuid4()),
+                        "timestamp": self._now_iso(),
+                        "agent_id": "execution",
+                        "agent_type": "execution",
+                        "event_type": "output_emitted",
+                        "payload": {
+                            "order_id": str(uuid.uuid4()),
+                            "status": "FILLED",
+                            "symbol": sym,
+                            "fill_price": str(round(price, 2)),
+                        },
                     },
-                })
+                )
 
             await asyncio.sleep(event_interval)
 
@@ -244,15 +267,18 @@ class MockDataPump:
                 # Random walk the P&L
                 self._position_pnl[sym] += random.gauss(0, 50)
                 pnl = self._position_pnl[sym]
-                await self._pub(PUBSUB_PNL_UPDATES, {
-                    "profile_id": self._profile_id,
-                    "position_id": str(uuid.uuid4()),
-                    "symbol": sym,
-                    "net_post_tax": round(pnl, 2),
-                    "net_pre_tax": round(pnl * 1.15, 2),
-                    "roi_pct": round(pnl / 10000 * 100, 4),
-                    "timestamp_us": self._now_us(),
-                })
+                await self._pub(
+                    PUBSUB_PNL_UPDATES,
+                    {
+                        "profile_id": self._profile_id,
+                        "position_id": str(uuid.uuid4()),
+                        "symbol": sym,
+                        "net_post_tax": round(pnl, 2),
+                        "net_pre_tax": round(pnl * 1.15, 2),
+                        "roi_pct": round(pnl / 10000 * 100, 4),
+                        "timestamp_us": self._now_us(),
+                    },
+                )
             await asyncio.sleep(5.0)
 
     # ── System alerts (every 30-60s) ───
@@ -261,16 +287,21 @@ class MockDataPump:
         while True:
             await asyncio.sleep(random.uniform(30, 60))
             level = random.choice(["AMBER", "AMBER", "RED"])
-            await self._pub(PUBSUB_SYSTEM_ALERTS, {
-                "level": level,
-                "reason": random.choice([
-                    "Drawdown approaching 4.2% limit",
-                    "Regime disagreement: HMM=TREND_UP, Sentiment=bearish",
-                    "Circuit breaker proximity: daily loss at -1.8%",
-                    "Validation CHECK_3 flagged potential bias",
-                    "Rate limit 80% consumed for BINANCE",
-                ]),
-            })
+            await self._pub(
+                PUBSUB_SYSTEM_ALERTS,
+                {
+                    "level": level,
+                    "reason": random.choice(
+                        [
+                            "Drawdown approaching 4.2% limit",
+                            "Regime disagreement: HMM=TREND_UP, Sentiment=bearish",
+                            "Circuit breaker proximity: daily loss at -1.8%",
+                            "Validation CHECK_3 flagged potential bias",
+                            "Rate limit 80% consumed for BINANCE",
+                        ]
+                    ),
+                },
+            )
 
     # ── HITL requests (every 60-90s) ───
 
@@ -279,29 +310,38 @@ class MockDataPump:
             await asyncio.sleep(random.uniform(60, 90))
             sym = random.choice(list(SYMBOLS.keys()))
             price = self._sims[sym].price
-            await self._pub(PUBSUB_HITL_PENDING, {
-                "event_id": str(uuid.uuid4()),
-                "profile_id": self._profile_id,
-                "symbol": sym,
-                "side": random.choice(DIRECTIONS),
-                "quantity": round(random.uniform(0.01, 0.5), 4),
-                "price": round(price, 2),
-                "confidence": round(random.uniform(0.25, 0.55), 4),
-                "trigger_reason": random.choice(TRIGGER_REASONS),
-                "agent_scores": {
-                    "ta": {"score": round(random.uniform(0.2, 0.8), 2)},
-                    "sentiment": {"score": round(random.uniform(-0.5, 0.5), 2), "confidence": round(random.uniform(0.5, 0.9), 2)},
-                    "debate": {"score": round(random.uniform(0.3, 0.7), 2), "confidence": round(random.uniform(0.6, 0.95), 2)},
+            await self._pub(
+                PUBSUB_HITL_PENDING,
+                {
+                    "event_id": str(uuid.uuid4()),
+                    "profile_id": self._profile_id,
+                    "symbol": sym,
+                    "side": random.choice(DIRECTIONS),
+                    "quantity": round(random.uniform(0.01, 0.5), 4),
+                    "price": round(price, 2),
+                    "confidence": round(random.uniform(0.25, 0.55), 4),
+                    "trigger_reason": random.choice(TRIGGER_REASONS),
+                    "agent_scores": {
+                        "ta": {"score": round(random.uniform(0.2, 0.8), 2)},
+                        "sentiment": {
+                            "score": round(random.uniform(-0.5, 0.5), 2),
+                            "confidence": round(random.uniform(0.5, 0.9), 2),
+                        },
+                        "debate": {
+                            "score": round(random.uniform(0.3, 0.7), 2),
+                            "confidence": round(random.uniform(0.6, 0.95), 2),
+                        },
+                    },
+                    "risk_metrics": {
+                        "allocation_pct": round(random.uniform(0.02, 0.08), 4),
+                        "drawdown_pct": round(random.uniform(0.005, 0.04), 4),
+                        "regime": random.choice(REGIMES),
+                        "rsi": round(random.uniform(25, 75), 2),
+                        "atr": round(random.uniform(100, 600), 2),
+                    },
+                    "timestamp_us": self._now_us(),
                 },
-                "risk_metrics": {
-                    "allocation_pct": round(random.uniform(0.02, 0.08), 4),
-                    "drawdown_pct": round(random.uniform(0.005, 0.04), 4),
-                    "regime": random.choice(REGIMES),
-                    "rsi": round(random.uniform(25, 75), 2),
-                    "atr": round(random.uniform(100, 600), 2),
-                },
-                "timestamp_us": self._now_us(),
-            })
+            )
 
     # ── Agent score keys (every 30s) ───
 
@@ -315,30 +355,36 @@ class MockDataPump:
                 )
                 await self._redis.set(
                     f"agent:sentiment:{sym}",
-                    json.dumps({
-                        "score": round(random.uniform(-0.5, 0.5), 4),
-                        "confidence": round(random.uniform(0.5, 0.95), 4),
-                        "source": random.choice(["claude", "local-slm"]),
-                    }),
+                    json.dumps(
+                        {
+                            "score": round(random.uniform(-0.5, 0.5), 4),
+                            "confidence": round(random.uniform(0.5, 0.95), 4),
+                            "source": random.choice(["claude", "local-slm"]),
+                        }
+                    ),
                     ex=900,
                 )
                 await self._redis.set(
                     f"agent:regime_hmm:{sym}",
-                    json.dumps({
-                        "regime": random.choice(REGIMES),
-                        "state_index": random.randint(0, 2),
-                    }),
+                    json.dumps(
+                        {
+                            "regime": random.choice(REGIMES),
+                            "state_index": random.randint(0, 2),
+                        }
+                    ),
                     ex=600,
                 )
                 await self._redis.set(
                     f"agent:debate:{sym}",
-                    json.dumps({
-                        "score": round(random.uniform(0.3, 0.7), 4),
-                        "confidence": round(random.uniform(0.6, 0.95), 4),
-                        "reasoning": random.choice(HEADLINES),
-                        "num_rounds": 2,
-                        "latency_ms": random.randint(800, 3000),
-                    }),
+                    json.dumps(
+                        {
+                            "score": round(random.uniform(0.3, 0.7), 4),
+                            "confidence": round(random.uniform(0.6, 0.95), 4),
+                            "reasoning": random.choice(HEADLINES),
+                            "num_rounds": 2,
+                            "latency_ms": random.randint(800, 3000),
+                        }
+                    ),
                     ex=600,
                 )
             await asyncio.sleep(30.0)

@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from ._ema import EMACalculator
 from ._atr import ATRCalculator
+from ._ema import EMACalculator
 
 
 @dataclass(frozen=True, slots=True)

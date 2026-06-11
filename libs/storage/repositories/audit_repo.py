@@ -1,6 +1,9 @@
 import json
+
 from libs.core.schemas import BaseEvent
+
 from ._repository_base import BaseRepository
+
 
 class AuditRepository(BaseRepository):
     async def write_audit_event(self, event: BaseEvent, payload: dict):
@@ -16,5 +19,5 @@ class AuditRepository(BaseRepository):
             # Handle optionals internally if base event provides
             payload.get("profile_id", None),
             json.dumps(payload),
-            event.timestamp_us / 1000000.0
+            event.timestamp_us / 1000000.0,
         )

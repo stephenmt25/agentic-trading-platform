@@ -9,6 +9,7 @@ Removes (in dependency order, single transaction):
   - paper_trading_reports id=2 (the 2026-04-29 daily aggregate;
     100% of its 777 trades were from Permissive Test)
 """
+
 import asyncio
 from pathlib import Path
 
@@ -31,12 +32,30 @@ async def main() -> None:
     try:
         async with c.transaction():
             steps = [
-                ("closed_trades",   f"DELETE FROM closed_trades   WHERE profile_id = '{PROFILE_ID}'"),
-                ("trade_decisions", f"DELETE FROM trade_decisions WHERE profile_id = '{PROFILE_ID}'"),
-                ("positions",       f"DELETE FROM positions       WHERE profile_id = '{PROFILE_ID}'"),
-                ("orders",          f"DELETE FROM orders          WHERE profile_id = '{PROFILE_ID}'"),
-                ("trading_profiles",f"DELETE FROM trading_profiles WHERE profile_id = '{PROFILE_ID}'"),
-                ("paper_trading_reports", f"DELETE FROM paper_trading_reports WHERE id = {REPORT_ID}"),
+                (
+                    "closed_trades",
+                    f"DELETE FROM closed_trades   WHERE profile_id = '{PROFILE_ID}'",
+                ),
+                (
+                    "trade_decisions",
+                    f"DELETE FROM trade_decisions WHERE profile_id = '{PROFILE_ID}'",
+                ),
+                (
+                    "positions",
+                    f"DELETE FROM positions       WHERE profile_id = '{PROFILE_ID}'",
+                ),
+                (
+                    "orders",
+                    f"DELETE FROM orders          WHERE profile_id = '{PROFILE_ID}'",
+                ),
+                (
+                    "trading_profiles",
+                    f"DELETE FROM trading_profiles WHERE profile_id = '{PROFILE_ID}'",
+                ),
+                (
+                    "paper_trading_reports",
+                    f"DELETE FROM paper_trading_reports WHERE id = {REPORT_ID}",
+                ),
             ]
             for label, sql in steps:
                 result = await c.execute(sql)

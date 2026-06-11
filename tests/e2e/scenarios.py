@@ -16,7 +16,6 @@ from unittest.mock import MagicMock
 
 from libs.core.enums import Regime, SignalDirection
 from libs.core.models import NormalisedTick, RiskLimits
-
 from services.hot_path.src.strategy_eval import EvaluatedIndicators, SignalResult
 
 
@@ -28,7 +27,7 @@ class Scenario:
     signal_confidence: float
     atr: float
     price: float
-    expected_decision: str          # one of: APPROVED, BLOCKED_<GATE>
+    expected_decision: str  # one of: APPROVED, BLOCKED_<GATE>
     expected_reason_substring: Optional[str] = None
     daily_realised_pnl_pct: Decimal = Decimal("0")
     open_exposure_dollars: Decimal = Decimal("0")
@@ -76,7 +75,10 @@ def make_signal(scenario: Scenario) -> SignalResult:
 
 def make_indicators(scenario: Scenario) -> EvaluatedIndicators:
     return EvaluatedIndicators(
-        rsi=28.0, macd_line=0.5, signal_line=0.3, histogram=0.2,
+        rsi=28.0,
+        macd_line=0.5,
+        signal_line=0.3,
+        histogram=0.2,
         atr=scenario.atr,
     )
 
@@ -110,7 +112,6 @@ SCENARIOS = [
         expected_decision="BLOCKED_ABSTENTION",
         expected_reason_substring="crisis_regime",
     ),
-
     # Whipsaw protection: low ATR triggers abstention before regime checks.
     Scenario(
         name="low-atr-abstain",
@@ -122,7 +123,6 @@ SCENARIOS = [
         expected_decision="BLOCKED_ABSTENTION",
         expected_reason_substring="low_atr",
     ),
-
     # ABSTAIN signal direction — even with healthy regime/ATR.
     Scenario(
         name="signal-abstain-direction",
@@ -134,7 +134,6 @@ SCENARIOS = [
         expected_decision="BLOCKED_ABSTENTION",
         expected_reason_substring="signal_abstain",
     ),
-
     # Daily loss past circuit-breaker threshold (-2% configured) → block.
     Scenario(
         name="circuit-breaker-trip",
@@ -146,7 +145,6 @@ SCENARIOS = [
         daily_realised_pnl_pct=Decimal("-0.03"),
         expected_decision="BLOCKED_CIRCUIT_BREAKER",
     ),
-
     # Symbol on the profile blacklist.
     Scenario(
         name="blacklist-block",
@@ -158,7 +156,6 @@ SCENARIOS = [
         blacklist=("BTC/USDT",),
         expected_decision="BLOCKED_BLACKLIST",
     ),
-
     # Open exposure already saturates notional → RiskGate blocks.
     Scenario(
         name="exposure-saturated",
@@ -171,7 +168,6 @@ SCENARIOS = [
         expected_decision="BLOCKED_RISK",
         expected_reason_substring="exposure_at_notional",
     ),
-
     # Happy path: healthy regime, healthy ATR, BUY signal, room to size.
     Scenario(
         name="bull-buy-approved",

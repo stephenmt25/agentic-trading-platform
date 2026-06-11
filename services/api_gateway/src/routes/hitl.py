@@ -4,9 +4,10 @@ from typing import Any, List, Literal, Optional
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from ..deps import get_current_user
-from libs.storage import RedisClient
 from libs.config import settings
+from libs.storage import RedisClient
+
+from ..deps import get_current_user
 
 router = APIRouter(tags=["hitl"])
 
@@ -71,10 +72,12 @@ async def respond_to_hitl(
     """
     redis = _get_redis()
     response_key = f"hitl:response:{body.request_id}"
-    payload = json.dumps({
-        "status": body.status,
-        "reason": body.reason or "",
-        "reviewer": user_id,
-    })
+    payload = json.dumps(
+        {
+            "status": body.status,
+            "reason": body.reason or "",
+            "reviewer": user_id,
+        }
+    )
     await redis.lpush(response_key, payload)
     return {"ok": True, "request_id": body.request_id, "status": body.status}

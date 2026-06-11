@@ -6,9 +6,13 @@ Provides position size limits, concentration limits, and portfolio-level guards.
 import json
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Dict, Any, Optional
+from typing import Optional
+
+from libs.config import settings
 from libs.core.notional import profile_notional
 from libs.observability import get_logger
+
+from .portfolio import PortfolioExposure, check_order_against_budget
 
 logger = get_logger("risk")
 
@@ -33,9 +37,14 @@ class RiskService:
         self._position_repo = position_repo
         self._redis = redis_client
 
-    async def check_order(self, profile_id: str, symbol: str,
-                          quantity: Decimal, price: Decimal,
-                          side: str = "BUY") -> RiskCheckResult:
+    async def check_order(
+        self,
+        profile_id: str,
+        symbol: str,
+        quantity: Decimal,
+        price: Decimal,
+        side: str = "BUY",
+    ) -> RiskCheckResult:
         """Run all risk checks against a proposed order. Returns RiskCheckResult."""
         quantity = Decimal(str(quantity))
         price = Decimal(str(price))
@@ -46,7 +55,7 @@ class RiskService:
         if order_value > self.MAX_SINGLE_ORDER_USD:
             return RiskCheckResult(
                 allowed=False,
-                reason=f"Order value ${order_value:,.2f} exceeds system-wide cap of ${self.MAX_SINGLE_ORDER_USD:,.2f}"
+                reason=f"Order value ${order_value:,.2f} exceeds system-wide cap of ${self.MAX_SINGLE_ORDER_USD:,.2f}",
             )
 
         # 2. Load profile risk limits from DB
@@ -57,7 +66,9 @@ class RiskService:
                 profile = await self._profile_repo.get_profile(profile_id)
                 if profile:
                     raw = profile.get("risk_limits", "{}")
-                    risk_limits = json.loads(raw) if isinstance(raw, str) else (raw or {})
+                    risk_limits = (
+                        json.loads(raw) if isinstance(raw, str) else (raw or {})
+                    )
                     portfolio_value = profile_notional(profile)
             except Exception as e:
                 logger.error("Failed to load profile for risk check", error=str(e))
@@ -69,28 +80,49 @@ class RiskService:
             if alloc_pct > max_alloc_pct:
                 return RiskCheckResult(
                     allowed=False,
-                    reason=f"Order allocation {alloc_pct*100:.1f}% exceeds profile limit {max_alloc_pct*100:.1f}%"
+                    reason=f"Order allocation {alloc_pct*100:.1f}% exceeds profile limit {max_alloc_pct*100:.1f}%",
                 )
 
         # 4. Concentration limit — check existing positions for same symbol
         if self._position_repo:
             try:
-                open_positions = await self._position_repo.get_open_positions(profile_id)
+                open_positions = await self._position_repo.get_open_positions(
+                    profile_id
+                )
 
                 # Total open position count
                 if len(open_positions) >= self.MAX_OPEN_POSITIONS_PER_PROFILE:
                     return RiskCheckResult(
                         allowed=False,
-                        reason=f"Open position count ({len(open_positions)}) at system limit ({self.MAX_OPEN_POSITIONS_PER_PROFILE})"
+                        reason=f"Open position count ({len(open_positions)}) at system limit ({self.MAX_OPEN_POSITIONS_PER_PROFILE})",
                     )
 
                 # Symbol concentration
                 if portfolio_value > 0:
                     symbol_exposure = sum(
-                        (Decimal(str(p.get("quantity", 0) if isinstance(p, dict) else getattr(p, "quantity", 0)))
-                        * Decimal(str(p.get("entry_price", 0) if isinstance(p, dict) else getattr(p, "entry_price", 0))))
+                        (
+                            Decimal(
+                                str(
+                                    p.get("quantity", 0)
+                                    if isinstance(p, dict)
+                                    else getattr(p, "quantity", 0)
+                                )
+                            )
+                            * Decimal(
+                                str(
+                                    p.get("entry_price", 0)
+                                    if isinstance(p, dict)
+                                    else getattr(p, "entry_price", 0)
+                                )
+                            )
+                        )
                         for p in open_positions
-                        if (p.get("symbol") if isinstance(p, dict) else getattr(p, "symbol", "")) == symbol
+                        if (
+                            p.get("symbol")
+                            if isinstance(p, dict)
+                            else getattr(p, "symbol", "")
+                        )
+                        == symbol
                     )
                     new_exposure = symbol_exposure + order_value
                     concentration = new_exposure / portfolio_value
@@ -98,10 +130,33 @@ class RiskService:
                         return RiskCheckResult(
                             allowed=False,
                             reason=f"Concentration in {symbol} would be {concentration*100:.1f}%, "
-                                   f"exceeding limit of {self.MAX_POSITION_CONCENTRATION_PCT*100:.0f}%"
+                            f"exceeding limit of {self.MAX_POSITION_CONCENTRATION_PCT*100:.0f}%",
                         )
             except Exception as e:
-                logger.error("Failed to check positions for concentration limit", error=str(e))
+                logger.error(
+                    "Failed to check positions for concentration limit", error=str(e)
+                )
+
+            # 4b. Portfolio-wide gross-exposure budget + correlation-cluster cap
+            # (PR4). Cross-profile, not per-profile: bounds total book size and
+            # stops N correlated positions each sneaking under the per-symbol cap.
+            try:
+                all_positions = await self._position_repo.get_unsettled_positions()
+                exposure = PortfolioExposure.from_positions(
+                    all_positions, settings.CORRELATION_CLUSTERS
+                )
+                breach = check_order_against_budget(
+                    exposure,
+                    symbol,
+                    order_value,
+                    settings.CORRELATION_CLUSTERS,
+                    settings.PORTFOLIO_GROSS_BUDGET_USD,
+                    settings.CORRELATION_CLUSTER_CAP_PCT,
+                )
+                if breach:
+                    return RiskCheckResult(allowed=False, reason=breach)
+            except Exception as e:
+                logger.error("Failed portfolio exposure check", error=str(e))
 
         # 5. Circuit breaker — check daily loss from Redis
         if self._redis:
@@ -111,7 +166,7 @@ class RiskService:
                 if halt_reason:
                     return RiskCheckResult(
                         allowed=False,
-                        reason=f"Trading halted: {halt_reason.decode() if isinstance(halt_reason, bytes) else halt_reason}"
+                        reason=f"Trading halted: {halt_reason.decode() if isinstance(halt_reason, bytes) else halt_reason}",
                     )
             except Exception as e:
                 logger.error("Failed to check halt status in Redis", error=str(e))

@@ -2,14 +2,17 @@
 
 Usage: poetry run python scripts/backfill_candles.py
 """
+
 import asyncio
 import os
 import sys
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-import ccxt
 from datetime import datetime, timezone
+
+import ccxt
+
 from libs.config import settings
 from libs.storage._timescale_client import TimescaleClient
 from libs.storage.repositories.market_data_repo import MarketDataRepository
@@ -41,9 +44,10 @@ async def backfill():
                     ts_ms, o, h, l, c, v = candle
                     bucket = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc)
                     await repo.write_candle(
-                        symbol, timeframe,
+                        symbol,
+                        timeframe,
                         {"open": o, "high": h, "low": l, "close": c, "volume": v},
-                        bucket
+                        bucket,
                     )
                     count += 1
                 print(f"  Wrote {count} candles")

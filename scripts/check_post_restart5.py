@@ -1,14 +1,19 @@
 import asyncio
 from datetime import datetime, timezone
 from pathlib import Path
+
 import asyncpg
 
 
 def url() -> str:
     for line in Path(".env").read_text().splitlines():
         if line.startswith("PRAXIS_DATABASE_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'").replace(
-                "postgresql+asyncpg://", "postgresql://"
+            return (
+                line.split("=", 1)[1]
+                .strip()
+                .strip('"')
+                .strip("'")
+                .replace("postgresql+asyncpg://", "postgresql://")
             )
 
 
@@ -36,8 +41,12 @@ async def main() -> None:
         total = n
         for r in rows:
             print(f"  {r['outcome']:<25} {r['n']:>4}  ({100*r['n']/total:.1f}%)")
-        n_o = await c.fetchval("SELECT COUNT(*) FROM orders WHERE created_at > $1", cutoff)
-        n_p = await c.fetchval("SELECT COUNT(*) FROM positions WHERE opened_at > $1", cutoff)
+        n_o = await c.fetchval(
+            "SELECT COUNT(*) FROM orders WHERE created_at > $1", cutoff
+        )
+        n_p = await c.fetchval(
+            "SELECT COUNT(*) FROM positions WHERE opened_at > $1", cutoff
+        )
         print(f"\nfresh orders: {n_o}")
         print(f"fresh positions: {n_p}")
         rows = await c.fetch(
@@ -50,7 +59,9 @@ async def main() -> None:
         )
         print("\nlast 5:")
         for r in rows:
-            print(f"  {r['created_at']}  {r['profile_id'][:8]}  {r['symbol']}  {r['outcome']}")
+            print(
+                f"  {r['created_at']}  {r['profile_id'][:8]}  {r['symbol']}  {r['outcome']}"
+            )
     finally:
         await c.close()
 

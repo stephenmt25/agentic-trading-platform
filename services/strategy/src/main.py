@@ -1,12 +1,18 @@
 import asyncio
 import json
-from libs.config import settings
-from libs.storage import ProfileRepository, MarketDataRepository, RedisClient, TimescaleClient
-from libs.observability import get_logger, supervised_task
 
+from libs.config import settings
+from libs.observability import get_logger, supervised_task
+from libs.storage import (
+    MarketDataRepository,
+    ProfileRepository,
+    RedisClient,
+    TimescaleClient,
+)
+
+from .compiler import RuleCompiler
 from .hydrator import IndicatorHydrator
 from .rule_validator import RuleValidator
-from .compiler import RuleCompiler
 
 logger = get_logger("strategy")
 
@@ -61,24 +67,32 @@ async def _compile_and_cache_profile(profile: dict) -> bool:
 
     result = validator.validate(rules)
     if not result.is_valid:
-        logger.warning("Profile rules invalid", profile_id=str(profile_id), errors=result.errors)
+        logger.warning(
+            "Profile rules invalid", profile_id=str(profile_id), errors=result.errors
+        )
         return False
 
     try:
         compiled = compiler.compile(rules)
     except ValueError as e:
-        logger.warning("Profile rule compilation failed", profile_id=str(profile_id), error=str(e))
+        logger.warning(
+            "Profile rule compilation failed", profile_id=str(profile_id), error=str(e)
+        )
         return False
 
     # Store compiled rule set in Redis for hot-path consumption
     cache_key = f"strategy:compiled:{profile_id}"
-    payload = json.dumps({
-        "logic": compiled.logic,
-        "direction": compiled.direction.value,
-        "base_confidence": compiled.base_confidence,
-        "conditions": compiled.conditions,
-    })
-    await redis_client.set(cache_key, payload, ex=300)  # 5-minute TTL, refreshed every 60s
+    payload = json.dumps(
+        {
+            "logic": compiled.logic,
+            "direction": compiled.direction.value,
+            "base_confidence": compiled.base_confidence,
+            "conditions": compiled.conditions,
+        }
+    )
+    await redis_client.set(
+        cache_key, payload, ex=300
+    )  # 5-minute TTL, refreshed every 60s
     return True
 
 
@@ -146,6 +160,7 @@ async def main():
         logger.info("Shutting down Strategy Agent")
     finally:
         await timescale_client.close()
+
 
 if __name__ == "__main__":
     asyncio.run(main())

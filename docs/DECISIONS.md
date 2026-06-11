@@ -158,3 +158,237 @@ zero/negative/garbage values, the strictly-positive-output property.
 - The bump was explicitly marked session-bridge with revert instructions
 - The closer's daily-loss counter and the binding RiskGate were never bumped — 3,689 closed BTC trades have already accrued under effective $10k notional; preserving $10k keeps that history coherent
 - Honest paper-trading (the user's stated goal) requires the system's numbers to reflect a single, real portfolio size; $10k is the value the binding gate has always used
+
+---
+
+## 2026-06-10 — Adopt the "Risk-Truth Hardening" slice + the safe-to-go-live bar
+
+### Context
+
+`docs/RISK-TRUTH-HARDENING-DECISION-BRIEF.md` (2026-06-02) audited the
+federated-architecture taxonomy against the actual code (16 investigators, each
+finding adversarially re-checked with file:line evidence) and proposed an 8-PR
+slice that complements the Viability Plan's Phase 3. The brief asked for three
+sign-offs. This entry records the first.
+
+### Decision
+
+Adopt the §5 **Risk-Truth Hardening** slice as the complement to the Viability
+Plan (slotting into / expanding its Phase 3), with **PR 1–2 pulled earlier**
+because phantom-close and the dead-wired reconciler corrupt *paper fidelity now*,
+not just live readiness. The PR order stands:
+
+| PR | Title | Closes |
+|----|-------|--------|
+| 0 | SDLC scaffolding | — |
+| 1 | Real exchange close (kill phantom close) | 0.2 (partial), fidelity |
+| 2 | Wire `BalanceReconciler` + live drift alarms | 1.6 |
+| 3 | Tiered kill-switch verbs + record flatten-authority | 0.1, 1.9 |
+| 4 | Aggregate/portfolio risk + stress-correlation concentration | 0.4, 2.12 |
+| 5 | Funding-aware, per-strategy net-of-cost accounting | 0.5 |
+| 6 | Regime hysteresis | 2.11 |
+| 7 | Live-vs-backtest decay tracking | 3.14 |
+
+**"Safe enough to go live" bar (adopted as the exit checklist):**
+
+- [ ] Closes reach the exchange and reconcile (PR 1–2).
+- [ ] A tiered halt exists with a *documented* flatten-authority policy (PR 3 — see next entry).
+- [ ] Portfolio-level (not just per-profile) exposure + correlation limits (PR 4).
+- [ ] Realized PnL is net of fees **and** funding **and** slippage, per strategy (PR 5).
+- [ ] At least one exchange-side protective order (reduce-only / stop) as defense-in-depth (extends PR 1).
+- [ ] Live-vs-paper PnL delta measured and within tolerance (ties to Viability Plan Phase 1).
+
+### Trade-off
+
+Defers federation split (Part 2 / Tier 2.10), sub-account isolation (1.8), the
+capital allocator (3.15), and the microstructure/arb/on-chain signal families
+(Part 1 E/F/H/I/J) — all low-severity or premature for single-engine spot.
+Documented in brief §8.
+
+### Approved by
+
+Architect (partner), via Stevo, 2026-06-10.
+
+---
+
+## 2026-06-10 — Flatten authority: tiered / graduated, not binary
+
+### Context
+
+Brief Decision 2 — the most consequential architecture call for an *autonomous*
+system: should the automated layer ever flatten positions unattended, or only
+de-risk and reserve "flatten" for a human? Today the kill switch is **binary and
+stop-opening only** — it blocks new orders and never flattens (`hot_path/kill_switch.py`).
+The taxonomy doc also notes a "reliability inversion": a process-resident kill
+switch is least able to act exactly when it is most needed.
+
+### Decision
+
+Adopt **tiered / graduated authority**. Automate the cheap/reversible verbs;
+gate the single irreversible verb (full flatten) behind a human *or* a very high
+multi-signal threshold. The escalating verb ladder (each subsumes the cheaper):
+
+| Verb | Action | Authority |
+|------|--------|-----------|
+| **STOP_OPENING** | Block new entries (today's kill switch) | Fully automated |
+| **DE_RISK** | Cancel all resting/working orders; halt averaging-in | Fully automated |
+| **NEUTRALIZE** | Reduce-only trims to bring gross exposure under a reduced budget (≤ 50% of normal); close most-correlated / worst-PnL first; never flips direction | Fully automated, bounded |
+| **FLATTEN** | Close all positions to zero | **Gated** (see below) |
+
+**Auto-FLATTEN gate** — permitted *without* a human ONLY when **≥ 2 independent
+severe triggers** fire and persist through a confirmation dwell. Initial
+thresholds (tunable; owned by the architect, changeable via config not code):
+
+- Trigger set (need ≥ 2 concurrent):
+  - Portfolio intraday drawdown **≥ 15%** from day-start equity.
+  - Exchange reconciliation **drift alarm** (books vs exchange beyond tolerance) — live once PR 2 wires the reconciler.
+  - **CRISIS** regime confirmed (already the only hard-stop regime).
+- Confirmation **dwell ≥ 30s** — triggers must persist (kills single-tick spikes / false positives).
+- Below that bar, FLATTEN requires **explicit human authorization (HITL)**.
+- Every automated NEUTRALIZE/FLATTEN emits an alert and writes a full audit row.
+
+**Defense-in-depth against the reliability inversion:** because a
+process-resident halt may be unable to act when most needed, the policy is
+backed by **pre-placed exchange-side reduce-only / stop orders** (the §5 exit
+checklist item, extends PR 1) so tail protection does not depend solely on our
+process being alive.
+
+### Trade-off
+
+Pure auto-flatten gives faster 24/7 tail protection but risks false-positive
+self-harm and depends on the least-reliable-when-needed path. Human-only flatten
+is safe against our own kill switch but a true tail can outrun a human between
+check-ins. Tiered authority automates everything reversible and reserves only the
+irreversible verb for a high bar — the best fit for "safe **and** autonomous."
+
+### Implementation note
+
+The verb ladder and the auto-flatten gate land in **PR 3**. These thresholds are
+the *initial* values; PR 3 surfaces them as config so the architect can tune
+without a code change.
+
+### Approved by
+
+Architect (partner), via Stevo, 2026-06-10.
+
+---
+
+## 2026-06-10 — Branch model: integration branch + PR gates, reusable CI
+
+### Context
+
+Brief Decision 3, with the stated goal of a CI/SDLC baseline reusable on the
+next project and a clean Claude-Code workflow.
+
+### Decision
+
+Adopt the **integration-branch + PR-gates** model (over permanent `develop` /
+GitFlow-lite and over trunk-based + feature flags):
+
+- One long-lived integration branch per slice off `main` — first one is
+  **`feat/risk-truth-hardening`**.
+- Small PRs squash-merge into the integration branch; merge to `main` only when
+  the whole slice is green in CI **and** verified (paper/testnet where relevant).
+- Add a portable SDLC set, designed to be copy-pasteable into the next repo:
+  `.pre-commit-config.yaml` (mirrors the CI `lint` gates — black/isort/ruff/mypy,
+  pinned to `pyproject.toml` versions), `.github/PULL_REQUEST_TEMPLATE.md`,
+  `.github/CODEOWNERS` (architect review on money-at-risk paths + binding
+  contracts), and `CONTRIBUTING.md` (this model, written down once).
+- Consolidate the decision log: this file (`docs/DECISIONS.md`) is canonical;
+  the root `DECISIONS.md` becomes a pointer here.
+
+### Trade-off
+
+A permanent `develop` would suit many parallel efforts (incl. the redesign
+branch), but per-slice integration branches keep `main` shippable with less
+long-lived divergence. Trunk-based was rejected as premature — it leans on a
+feature-flag system we don't have yet.
+
+### Follow-ups
+
+- ✅ Done — `.github/workflows/ci.yml` trigger extended to include `feat/**`, so
+  PRs into the integration branch run CI during the slice.
+- **Deferred to end of slice** (per 2026-06-10 directive): replace the
+  `@praxis-architect` placeholder in `.github/CODEOWNERS` with the architect's
+  real GitHub handle, and enable branch protection ("Require review from Code
+  Owners" + required status checks) on `main` and the integration branch. Held
+  until the slice is otherwise complete so we don't gate our own in-progress PRs.
+
+### Approved by
+
+Architect (partner), via Stevo, 2026-06-10.
+
+---
+
+## 2026-06-11 — Cloud region: AWS Tokyo (ap-northeast-1)
+
+### Context
+
+Viability Plan §4 Decision 1 deferred the region choice (AWS Tokyo vs GCP
+asia-northeast1). Locked as decision #1 in `NEXT-SESSION-PLAN-2026-06-10.md` §2.
+
+### Decision
+
+**AWS Tokyo (`ap-northeast-1`).** One Linux VM (4–8 vCPU, 16–32 GB) running the
+existing `bash run_all.sh` under Docker Compose — same architecture as local,
+per Viability Plan §2. Secrets move from `.env` to **AWS Secrets Manager**.
+Co-located with the Binance matching engine: WS RTT <10 ms vs ~150–300 ms from
+the laptop.
+
+### Trade-off
+
+AWS over GCP per Viability §4: cheaper at scale, stronger secrets/security
+primitives; GCP's marginally simpler ops doesn't outweigh that. This VM is the
+substrate for EN-W3 (provisioning) and EN-W4 (60-day Yield Harvester soak), and
+unblocks Viability Phase 1 (cloud baseline + local↔cloud PnL delta).
+
+### Approved by
+
+Architect (partner) — locked recommendation #1, NEXT-SESSION-PLAN-2026-06-10 §2.
+
+---
+
+## 2026-06-11 — Netting & margin: horizon partitioning, no cross-horizon netting, ISOLATED perp legs
+
+### Context
+
+Decision #5 in `NEXT-SESSION-PLAN-2026-06-10.md` §2, written down NOW because it
+is binding input to the Phase-A schema (migration 025 `accounts`,
+`position_groups`) — policy before schema (EN-W0 precedes EN-W3). The Yield
+Harvester introduces perp legs alongside spot positions with different holding
+horizons.
+
+### Decision
+
+- **Partition positions across horizons.** Each strategy horizon (e.g. scalp /
+  swing / funding-harvest) owns its positions and its risk budget.
+- **Never hard-veto across horizons.** A new signal in one horizon must not be
+  vetoed because an opposing position exists in another horizon; risk responds
+  through sizing and budget, not veto.
+- **Forbid cross-horizon netting.** Opposing positions in different horizons are
+  held simultaneously, never collapsed into one net position — preserves
+  per-strategy PnL truth (PR5 net-of-cost attribution) and each horizon's exit
+  semantics.
+- **Perp-leg margin = ISOLATED, never CROSS.** A perp leg's liquidation risk is
+  confined to its own margin. Yield Harvester delta-neutral pairs (spot long +
+  perp short) are *grouped* via `position_groups` (`leg_group_id`/`leg_index`),
+  not netted.
+
+### Trade-off
+
+ISOLATED forgoes cross-margin capital efficiency and needs explicit margin
+top-up management (an EN-W3 scheduler job), but caps blast radius per leg — the
+right call at the working capital scale (**$10k @ VIP0 — FLAGGED assumption #7,
+unconfirmed**). Holding opposing positions across horizons pays double
+fees/funding vs netting, but keeps strategy-level measurement honest — the
+north-star of this slice.
+
+### Schema implications (binding for migration 025)
+
+`accounts`/`positions` carry `market_type` + `margin_mode`; `position_groups`
+groups legs; positions carry a horizon partition key; all money columns
+`NUMERIC` — never `DOUBLE PRECISION`.
+
+### Approved by
+
+Architect (partner) — locked recommendation #5, NEXT-SESSION-PLAN-2026-06-10 §2.
