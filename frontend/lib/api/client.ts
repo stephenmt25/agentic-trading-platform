@@ -246,19 +246,31 @@ export interface ProfileResponse {
   deleted_at: string | null;
 }
 
+/** One entry of the kill-switch activity log. Writers vary by era:
+ * KillSwitch.set_level writes `actor`; the legacy activate/deactivate
+ * paths wrote `activated_by`/`deactivated_by`. `timestamp` is epoch
+ * seconds (backend time.time()). */
+export interface KillSwitchLogEntry {
+  action: string;
+  reason: string | null;
+  actor?: string | null;
+  activated_by?: string | null;
+  deactivated_by?: string | null;
+  timestamp: number | null;
+}
+
 export interface KillSwitchStatus {
   active: boolean;
-  recent_log: Array<{
-    action: string;
-    reason: string;
-    by: string;
-    timestamp: string;
-  }>;
+  /** Tiered halt level — mirrors libs/core/enums.py HaltLevel. `active`
+   * stays true for STOP_OPENING and above (legacy compatibility). */
+  level: "NONE" | "STOP_OPENING" | "DE_RISK" | "NEUTRALIZE" | "FLATTEN";
+  recent_log: KillSwitchLogEntry[];
 }
 
 export interface KillSwitchToggleResponse {
   status: string;
   reason: string | null;
+  level?: string | null;
 }
 
 export interface TradingModeStatus {
@@ -403,26 +415,48 @@ export const api = {
     },
 
     // Manual close — see services/api_gateway/src/routes/positions.py.
-    // Marks the position CLOSED in DB at the latest mark price. Does NOT
-    // submit a real exchange order (matches the existing exit_monitor close
-    // path). Safe in PAPER mode; in LIVE mode the exchange position remains
-    // open until separately flattened.
+    // DEFAULT (EXCHANGE_CLOSE_ENABLED=true): submits a real reduce-only
+    // exchange order via PositionCloseRequester (the PR1 path — same OMS
+    // path stop-loss/take-profit/time exits use). Returns 202 with
+    // status="closing" / close_status="pending"; the position transitions
+    // OPEN → PENDING_CLOSE and the DB close lands asynchronously on fill
+    // confirmation. EMERGENCY FALLBACK (EXCHANGE_CLOSE_ENABLED=false):
+    // legacy synchronous DB-only close at the latest mark price — returns
+    // 200 with status="closed" and the realized PnL fields. The return
+    // type is a union of the two response shapes.
     close: (positionId: string) =>
-      apiRequest<{
-        status: string;
-        position_id: string;
-        symbol: string;
-        side: string;
-        entry_price: string;
-        exit_price: string;
-        mark_price_was_fresh: boolean;
-        quantity: string;
-        gross_pnl: string;
-        net_pnl_pre_tax: string;
-        pct_return: number;
-        closed_at: string;
-        trading_mode: "PAPER" | "TESTNET" | "LIVE";
-      }>(`/positions/${encodeURIComponent(positionId)}/close`, { method: "POST" }),
+      apiRequest<
+        | {
+            // 202 — reduce-only exchange close requested (default path)
+            status: "closing";
+            close_status: "pending";
+            position_id: string;
+            close_order_id: string;
+            symbol: string;
+            side: string;
+            entry_price: string;
+            estimated_exit_price: string;
+            mark_price_was_fresh: boolean;
+            quantity: string;
+            trading_mode: "PAPER" | "TESTNET" | "LIVE";
+          }
+        | {
+            // 200 — legacy synchronous DB-only close (emergency fallback)
+            status: "closed";
+            position_id: string;
+            symbol: string;
+            side: string;
+            entry_price: string;
+            exit_price: string;
+            mark_price_was_fresh: boolean;
+            quantity: string;
+            gross_pnl: string;
+            net_pnl_pre_tax: string;
+            pct_return: number;
+            closed_at: string;
+            trading_mode: "PAPER" | "TESTNET" | "LIVE";
+          }
+      >(`/positions/${encodeURIComponent(positionId)}/close`, { method: "POST" }),
   },
 
   orders: {
@@ -588,11 +622,98 @@ export const api = {
     killSwitchStatus: () =>
       apiRequest<KillSwitchStatus>("/commands/kill-switch"),
 
+    /**
+     * Tiered halt control (PR3 / FE-W1). The backend validates `level`
+     * against libs/core/enums.py HaltLevel and 422s on a bad value.
+     * FLATTEN via this API is an explicit human authorization — the
+     * HaltController will close ALL open positions.
+     */
+    killSwitchSetLevel: (
+      level: "NONE" | "STOP_OPENING" | "DE_RISK" | "NEUTRALIZE" | "FLATTEN",
+      reason: string
+    ) =>
+      apiRequest<KillSwitchToggleResponse>("/commands/kill-switch", {
+        method: "POST",
+        body: { level, reason },
+      }),
+
+    /** Legacy binary toggle (active=true → STOP_OPENING, false → NONE).
+     * Kept for transition; in-repo callers use killSwitchSetLevel. */
     killSwitchToggle: (active: boolean, reason?: string) =>
       apiRequest<KillSwitchToggleResponse>("/commands/kill-switch", {
         method: "POST",
         body: { active, reason },
       }),
+  },
+
+  risk: {
+    /**
+     * PR4 portfolio exposure snapshot (FE-W1). String-encoded Decimals —
+     * parse for display only, never for arithmetic that feeds back into
+     * trading. stale=true means the Redis snapshot is absent/expired
+     * (risk service down) — render the stale state, not zeros-as-truth.
+     * detail_restricted=true means the caller is not an operator: the
+     * per_cluster/per_symbol breakdown was withheld server-side (render a
+     * restricted notice, never empty-as-flat).
+     */
+    portfolio: () =>
+      apiRequest<{
+        gross_usd: string;
+        per_cluster: Record<string, string>;
+        per_symbol: Record<string, string>;
+        gross_budget_usd: string;
+        cluster_cap_pct: string;
+        stale: boolean;
+        detail_restricted?: boolean;
+      }>("/risk/portfolio"),
+
+    /** PR7 live-vs-backtest decay snapshot, filtered to the user's profiles. */
+    decay: () =>
+      apiRequest<{
+        stale: boolean;
+        profiles: Array<{
+          profile_id: string;
+          status: "no_baseline" | "insufficient_live" | "ok" | "decayed";
+          decayed: boolean;
+          reasons: string[];
+          live_win_rate: number | null;
+          backtest_win_rate: number | null;
+          live_avg_pct: number | null;
+          backtest_avg_return: number | null;
+          live_trades: number;
+          shadow_count: number;
+          shadow_share: number | null;
+        }>;
+      }>("/risk/decay"),
+  },
+
+  pnl: {
+    /**
+     * PR5 per-strategy net-of-cost rollup (FE-W1). Money fields are
+     * STRING-encoded Decimals (Decimal contract — parse for display only,
+     * same as api.risk.portfolio). gross_pnl is derived SERVER-side with
+     * Decimal as net_pnl + total_fees; slippage/funding are attribution
+     * overlays already embedded in realized PnL (migration 024) — do NOT
+     * subtract them again.
+     */
+    netOfCost: (windowHours = 168) =>
+      apiRequest<{
+        window_hours: number;
+        rows: Array<{
+          profile_id: string;
+          trade_count: number;
+          win_count: number;
+          loss_count: number;
+          net_pnl: string | null;
+          total_fees: string | null;
+          total_slippage: string | null;
+          total_funding: string | null;
+          gross_pnl: string | null;
+          avg_pnl_pct: string | null;
+          win_rate: number | null;
+          net_negative: boolean;
+        }>;
+      }>(`/pnl/net-of-cost?window_hours=${windowHours}`),
   },
 
   hitl: {

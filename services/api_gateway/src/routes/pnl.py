@@ -2,13 +2,20 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from libs.storage._redis_client import RedisClient
 from libs.storage.repositories import PnlRepository
+from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
 
-from ..deps import get_current_user, get_pnl_repo, get_profile_repo, get_redis
+from ..deps import (
+    get_closed_trade_repo,
+    get_current_user,
+    get_pnl_repo,
+    get_profile_repo,
+    get_redis,
+)
 
 router = APIRouter(tags=["pnl"])
 
@@ -129,6 +136,68 @@ async def get_pnl_history(
     end_dt = datetime.fromisoformat(end) if end else datetime.now(timezone.utc)
     snapshots = await repo.get_snapshots(profile_id, start_dt, end_dt)
     return [dict(s) for s in snapshots]
+
+
+@router.get("/net-of-cost")
+async def get_net_of_cost(
+    window_hours: int = Query(default=168),
+    user_id: str = Depends(get_current_user),
+    profile_repo: ProfileRepository = Depends(get_profile_repo),
+    closed_trade_repo: ClosedTradeRepository = Depends(get_closed_trade_repo),
+):
+    """Per-strategy (profile) net-of-cost rollup over a rolling window (PR5).
+
+    The honest number: realized net P&L with fee / slippage / funding
+    attribution per profile, filtered to the current user's profiles.
+    Row fields: profile_id, trade_count, win_count, loss_count, net_pnl,
+    total_fees, total_slippage, total_funding, gross_pnl, avg_pnl_pct,
+    win_rate, net_negative. Money fields are STRING-encoded Decimals
+    (CLAUDE.md 2A — never IEEE floats on the wire); gross_pnl is derived
+    server-side with Decimal as net_pnl + total_fees (slippage/funding are
+    attribution overlays already embedded in realized_pnl per migration 024
+    — never re-subtracted). The FE parses for display only.
+
+    NB: this route must stay registered BEFORE the `/{profile_id}` catch-all.
+    """
+    # Clamp to a sane range (1h .. 90d) instead of rejecting — display read.
+    window_hours = max(1, min(2160, window_hours))
+
+    profiles = await profile_repo.get_all_profiles_for_user(user_id)
+    owned = {str(p.get("profile_id", "")) for p in profiles}
+    rows = await closed_trade_repo.net_of_cost_by_profile(window_hours=window_hours)
+
+    # The repo converts NUMERIC(20,8) sums to float at its boundary
+    # (closed_trade_repo.net_of_cost_by_profile — pre-existing, owned by
+    # another lane); re-anchor to Decimal-as-string here so this route never
+    # serializes IEEE floats. Residual debt (repo-side float()) is registry
+    # material, not fixable from the gateway.
+    def _money(v) -> Optional[str]:
+        return None if v is None else str(Decimal(str(v)))
+
+    out_rows = []
+    for r in rows:
+        if str(r.get("profile_id", "")) not in owned:
+            continue
+        net = None if r.get("net_pnl") is None else Decimal(str(r["net_pnl"]))
+        fees = None if r.get("total_fees") is None else Decimal(str(r["total_fees"]))
+        gross = net + fees if net is not None and fees is not None else net
+        out_rows.append(
+            {
+                "profile_id": str(r.get("profile_id", "")),
+                "trade_count": r.get("trade_count"),
+                "win_count": r.get("win_count"),
+                "loss_count": r.get("loss_count"),
+                "net_pnl": None if net is None else str(net),
+                "total_fees": None if fees is None else str(fees),
+                "total_slippage": _money(r.get("total_slippage")),
+                "total_funding": _money(r.get("total_funding")),
+                "gross_pnl": None if gross is None else str(gross),
+                "avg_pnl_pct": _money(r.get("avg_pnl_pct")),
+                "win_rate": r.get("win_rate"),
+                "net_negative": bool(r.get("net_negative", False)),
+            }
+        )
+    return {"window_hours": window_hours, "rows": out_rows}
 
 
 @router.get("/{profile_id}")

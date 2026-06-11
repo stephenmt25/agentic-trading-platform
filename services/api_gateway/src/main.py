@@ -39,6 +39,7 @@ from .routes import (
     pnl,
     positions,
     profiles,
+    risk,
     risk_defaults,
     telemetry_stream,
     ws,
@@ -220,6 +221,7 @@ def create_app() -> FastAPI:
         (agent_performance.router, "/agent-performance"),
         (agent_config.router, "/agent-config"),
         (audit.router, "/audit"),
+        (risk.router, "/risk"),
         (risk_defaults.router, "/risk-defaults"),
     ]
 

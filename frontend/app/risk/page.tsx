@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -21,12 +22,15 @@ import { Button, Tag } from "@/components/primitives";
 import { Pill, StatusDot } from "@/components/data-display";
 import { RiskMeter } from "@/components/trading";
 import { ProfilesRiskMatrix } from "@/components/risk/ProfilesRiskMatrix";
+import { RiskPageSkeleton } from "@/components/risk/RiskPageSkeleton";
+import { RiskTruthPanel } from "@/components/risk/RiskTruthPanel";
 import {
   api,
+  type KillSwitchLogEntry,
   type KillSwitchStatus,
   type ProfileResponse,
 } from "@/lib/api/client";
-import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
+import { parseHaltLevel, severity, useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { cn } from "@/lib/utils";
 
 /**
@@ -74,6 +78,21 @@ interface ConcentrationEntry {
   pct: number;
 }
 
+/** Hoisted out of the useMemo/render path (master-plan perf item) — a new
+ * closure per render defeated memoization downstream. */
+function numLimit(
+  rl: Record<string, unknown>,
+  k: string
+): number | undefined {
+  const v = rl[k];
+  if (typeof v === "number" && Number.isFinite(v)) return v;
+  if (typeof v === "string") {
+    const parsed = parseFloat(v);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+  return undefined;
+}
+
 export default function RiskControlPage() {
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
@@ -91,7 +110,7 @@ export default function RiskControlPage() {
 
   const [killStatus, setKillStatus] = useState<KillSwitchStatus | null>(null);
   const [killLoading, setKillLoading] = useState(true);
-  const setKillState = useKillSwitchStore((s) => s.setState);
+  const setKillLevel = useKillSwitchStore((s) => s.setLevel);
   const openKillModal = useKillSwitchStore((s) => s.setModalOpen);
 
   const [refreshTick, setRefreshTick] = useState(0);
@@ -172,13 +191,15 @@ export default function RiskControlPage() {
     try {
       const status = await api.commands.killSwitchStatus();
       setKillStatus(status);
-      setKillState(status.active ? "soft" : "off");
+      // Write the tiered level straight through (FE-W1) — no more
+      // active→"soft" downgrade. parseHaltLevel guards older payloads.
+      setKillLevel(parseHaltLevel(status.level, status.active));
     } catch {
       setKillStatus(null);
     } finally {
       setKillLoading(false);
     }
-  }, [setKillState]);
+  }, [setKillLevel]);
 
   useEffect(() => {
     loadKillStatus();
@@ -190,15 +211,7 @@ export default function RiskControlPage() {
   const activeLimits = useMemo<ActiveLimitsRow[]>(() => {
     if (!profile) return [];
     const rl = (profile.risk_limits ?? {}) as Record<string, unknown>;
-    const num = (k: string): number | undefined => {
-      const v = rl[k];
-      if (typeof v === "number" && Number.isFinite(v)) return v;
-      if (typeof v === "string") {
-        const parsed = parseFloat(v);
-        return Number.isFinite(parsed) ? parsed : undefined;
-      }
-      return undefined;
-    };
+    const num = (k: string) => numLimit(rl, k);
     const rows: ActiveLimitsRow[] = [];
     const maxAlloc = num("max_allocation_pct");
     if (maxAlloc !== undefined) {
@@ -265,6 +278,12 @@ export default function RiskControlPage() {
     }
     return rows;
   }, [profile, riskMetrics]);
+
+  // Initial load → skeleton mirroring the page layout (FE-W1) instead of
+  // the previous empty-state pop.
+  if (profileLoading && !profile) {
+    return <RiskPageSkeleton />;
+  }
 
   return (
     <div data-mode="hot" className="flex flex-col h-full bg-bg-canvas text-fg">
@@ -349,6 +368,8 @@ export default function RiskControlPage() {
             }
           />
 
+          <RiskTruthPanel />
+
           <ActiveLimitsSection rows={activeLimits} profile={profile} />
 
           <ViolationsSection killStatus={killStatus} />
@@ -386,8 +407,11 @@ function KillSwitchSection({
   onOpenModal,
 }: KillSwitchSectionProps) {
   const isArmed = status?.active === true;
-  // "soft" vs "hard" — backend has only binary; we treat active as soft.
-  const stateLabel = isArmed ? "ARMED (soft)" : "DISARMED";
+  const level = parseHaltLevel(status?.level, status?.active);
+  // NEUTRALIZE/FLATTEN are position-destructive — the panel must show the
+  // same danger tier as StatusPills and the body overlay, not warn-yellow.
+  const isDanger = isArmed && severity(level) === "danger";
+  const stateLabel = isArmed ? `HALTED (${level})` : "TRADING NORMAL";
   const lastEvent = status?.recent_log?.[0];
 
   return (
@@ -395,11 +419,13 @@ function KillSwitchSection({
       <div
         className={cn(
           "rounded-md border-2 p-5 flex flex-col gap-4",
-          isArmed
-            ? "border-warn-500 bg-warn-500/10"
-            : "border-border-subtle bg-bg-panel"
+          isDanger
+            ? "border-danger-500 bg-danger-500/10"
+            : isArmed
+              ? "border-warn-500 bg-warn-500/10"
+              : "border-border-subtle bg-bg-panel"
         )}
-        data-state={isArmed ? "armed-soft" : "off"}
+        data-state={isArmed ? `halted-${level.toLowerCase()}` : "off"}
       >
         <div className="flex items-start gap-4 justify-between">
           <div className="flex items-center gap-3">
@@ -407,12 +433,19 @@ function KillSwitchSection({
               aria-hidden
               className={cn(
                 "w-12 h-12 rounded-full flex items-center justify-center",
-                isArmed ? "bg-warn-500/20" : "bg-bg-raised"
+                isDanger
+                  ? "bg-danger-500/20"
+                  : isArmed
+                    ? "bg-warn-500/20"
+                    : "bg-bg-raised"
               )}
             >
               {isArmed ? (
                 <ShieldAlert
-                  className="w-6 h-6 text-warn-500"
+                  className={cn(
+                    "w-6 h-6",
+                    isDanger ? "text-danger-500" : "text-warn-500"
+                  )}
                   strokeWidth={1.5}
                   aria-hidden
                 />
@@ -428,7 +461,11 @@ function KillSwitchSection({
               <p
                 className={cn(
                   "text-[20px] font-semibold tracking-tight num-tabular",
-                  isArmed ? "text-warn-500" : "text-fg"
+                  isDanger
+                    ? "text-danger-500"
+                    : isArmed
+                      ? "text-warn-500"
+                      : "text-fg"
                 )}
                 aria-live="polite"
               >
@@ -437,7 +474,7 @@ function KillSwitchSection({
               {lastEvent && (
                 <p className="text-[12px] text-fg-muted mt-0.5 num-tabular">
                   {lastEvent.action} {formatRelative(lastEvent.timestamp)} by{" "}
-                  <span className="font-mono">{lastEvent.by}</span>
+                  <span className="font-mono">{entryActor(lastEvent)}</span>
                   {lastEvent.reason && (
                     <>
                       {" "}
@@ -457,7 +494,7 @@ function KillSwitchSection({
                 onClick={onOpenModal}
                 data-testid="kill-switch-open"
               >
-                Disarm
+                Adjust / resume
               </Button>
             ) : (
               <Button
@@ -467,7 +504,7 @@ function KillSwitchSection({
                 onClick={onOpenModal}
                 data-testid="kill-switch-open"
               >
-                Arm soft
+                Halt trading…
               </Button>
             )}
           </div>
@@ -476,17 +513,17 @@ function KillSwitchSection({
           <div className="flex items-start gap-2">
             <StatusDot state="warn" size={6} />
             <span>
-              <strong className="text-fg">Soft-arm</strong>: blocks new orders. Existing
-              positions remain — you flatten manually.
+              <strong className="text-fg">STOP_OPENING / DE_RISK</strong>: block
+              new entries; DE_RISK also cancels resting orders and halts
+              averaging-in. Positions stay open.
             </span>
           </div>
           <div className="flex items-start gap-2">
             <StatusDot state="armed" size={6} />
             <span>
-              <strong className="text-fg">Hard-arm</strong>: blocks new orders AND
-              auto-flattens at market.{" "}
-              <Tag intent="warn">Pending</Tag>{" "}
-              <span className="text-fg-muted">backend distinction</span>
+              <strong className="text-fg">NEUTRALIZE / FLATTEN</strong>:
+              reduce-only trims to ≤50% gross budget; FLATTEN closes ALL
+              positions (two-step confirm in the halt control).
             </span>
           </div>
         </div>
@@ -651,7 +688,9 @@ function ActiveLimitsSection({
   );
 }
 
-function ActiveLimitRow({
+/** Memoized (FE-W1 perf item): the 10s poll re-renders the page; rows whose
+ * props are unchanged must not update. */
+const ActiveLimitRow = memo(function ActiveLimitRow({
   row,
   profile,
 }: {
@@ -705,7 +744,7 @@ function ActiveLimitRow({
       </Link>
     </li>
   );
-}
+});
 
 function formatLimit(value: number, unit: ActiveLimitsRow["unit"]): string {
   switch (unit) {
@@ -750,12 +789,18 @@ function ViolationsSection({ killStatus }: { killStatus: KillSwitchStatus | null
                   {formatTime(entry.timestamp)}
                 </span>
                 <Pill
-                  intent={entry.action.includes("activated") ? "warn" : "neutral"}
+                  intent={
+                    // Halt-engaging actions only: "DEACTIVATED" contains the
+                    // substring "ACTIVATED", so the verb must be anchored.
+                    /^(ACTIVATED$|SET_(?!NONE))/i.test(entry.action)
+                      ? "warn"
+                      : "neutral"
+                  }
                 >
                   kill-switch {entry.action}
                 </Pill>
                 <span className="text-fg-secondary truncate flex-1">
-                  by {entry.by}
+                  by {entryActor(entry)}
                   {entry.reason && (
                     <>
                       {" · "}
@@ -824,9 +869,26 @@ function Banner({
   );
 }
 
-function formatRelative(ts: string): string {
-  const t = Date.parse(ts);
-  if (!Number.isFinite(t)) return ts;
+/** Log writers vary by era: set_level writes `actor`, the legacy paths
+ * wrote `activated_by`/`deactivated_by`. */
+function entryActor(e: KillSwitchLogEntry): string {
+  return e.actor ?? e.activated_by ?? e.deactivated_by ?? "system";
+}
+
+/** Backend log timestamps are epoch SECONDS (time.time()); older shapes
+ * could be ISO strings. Returns ms or null. */
+function tsToMs(ts: number | string | null | undefined): number | null {
+  if (typeof ts === "number" && Number.isFinite(ts)) return ts * 1000;
+  if (typeof ts === "string") {
+    const t = Date.parse(ts);
+    return Number.isFinite(t) ? t : null;
+  }
+  return null;
+}
+
+function formatRelative(ts: number | string | null | undefined): string {
+  const t = tsToMs(ts);
+  if (t === null) return "—";
   const diff = Date.now() - t;
   if (diff < 60_000) return `${Math.floor(diff / 1000)}s ago`;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`;
@@ -834,9 +896,9 @@ function formatRelative(ts: string): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function formatTime(ts: string): string {
-  const t = Date.parse(ts);
-  if (!Number.isFinite(t)) return ts;
+function formatTime(ts: number | string | null | undefined): string {
+  const t = tsToMs(ts);
+  if (t === null) return "—";
   return new Date(t).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",

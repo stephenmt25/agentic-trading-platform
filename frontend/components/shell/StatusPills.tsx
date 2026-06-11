@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
-import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
+import { severity, useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { useTradingModeStore, type TradingMode } from "@/lib/stores/tradingModeStore";
 import { api } from "@/lib/api/client";
 import { Activity, Shield, FlaskConical, Beaker, AlertTriangle } from "lucide-react";
@@ -69,7 +69,7 @@ const MODE_ICON: Record<TradingMode, React.ComponentType<{ className?: string; s
  */
 export function StatusPills() {
   const backendStatus = useConnectionStore((s) => s.backendStatus);
-  const killState = useKillSwitchStore((s) => s.state);
+  const killLevel = useKillSwitchStore((s) => s.level);
   const mode = useTradingModeStore((s) => s.mode);
   const setMode = useTradingModeStore((s) => s.setMode);
 
@@ -101,9 +101,12 @@ export function StatusPills() {
         ? "degraded"
         : "offline";
 
-  const ksTone: PillTone =
-    killState === "off" ? "neutral" : killState === "soft" ? "warn" : "danger";
-  const ksValue = killState === "off" ? "armed: off" : `armed: ${killState}`;
+  // Pill shows the halt verb; tone follows severity (warn for entry-blocking
+  // levels, danger for position-closing levels).
+  const ksSeverity = severity(killLevel);
+  const ksTone: PillTone = ksSeverity === "off" ? "neutral" : ksSeverity;
+  const ksValue =
+    killLevel === "NONE" ? "halt: none" : `halt: ${killLevel.toLowerCase()}`;
 
   return (
     <div className="hidden md:flex items-center gap-1.5">

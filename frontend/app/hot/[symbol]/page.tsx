@@ -67,7 +67,7 @@ import {
 } from "@/lib/api/client";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { useShallow } from "zustand/react/shallow";
-import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
+import { parseHaltLevel, useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { useOrderBookStore } from "@/lib/stores/orderbookStore";
 import { useOrdersStore, type OptimisticOrder } from "@/lib/stores/ordersStore";
 import { usePortfolioStore } from "@/lib/stores/portfolioStore";
@@ -230,13 +230,15 @@ export default function HotTradingPage() {
 
   // ----- Data: kill switch -------------------------------------------------
   const [killStatus, setKillStatus] = useState<KillSwitchStatus | null>(null);
-  const setLocalKill = useKillSwitchStore((s) => s.setState);
+  const setLocalKill = useKillSwitchStore((s) => s.setLevel);
   const openKillModal = useKillSwitchStore((s) => s.setModalOpen);
   const loadKill = useCallback(async () => {
     try {
       const s = await api.commands.killSwitchStatus();
       setKillStatus(s);
-      setLocalKill(s.active ? "soft" : "off");
+      // Write the tiered level straight through (FE-W1) — no more
+      // active→"soft" downgrade. parseHaltLevel guards older payloads.
+      setLocalKill(parseHaltLevel(s.level, s.active));
     } catch {
       /* leave previous */
     }

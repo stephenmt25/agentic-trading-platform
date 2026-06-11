@@ -33,6 +33,9 @@ export type Candle = ApiResult<typeof api.marketData.candles>[number];
 export type ProfileRisk = ApiResult<typeof api.agents.risk>;
 export type ClosedTrade = ApiResult<typeof api.audit.closedTrades>[number];
 export type KillSwitchState = ApiResult<typeof api.commands.killSwitchStatus>;
+export type RiskPortfolio = ApiResult<typeof api.risk.portfolio>;
+export type DecaySnapshot = ApiResult<typeof api.risk.decay>;
+export type NetOfCost = ApiResult<typeof api.pnl.netOfCost>;
 
 type QueryOpts<TData> = Omit<UseQueryOptions<TData>, "queryKey" | "queryFn">;
 
@@ -54,6 +57,13 @@ export const queryKeys = {
   risk: ["risk"] as const,
   allRisk: ["risk", "all"] as const,
   riskFor: (profileId: string) => ["risk", "profile", profileId] as const,
+  /** PR4 portfolio exposure snapshot — lives under the ["risk"] umbrella
+   * prefix so a blanket risk invalidation refreshes it too. */
+  riskPortfolio: ["risk", "portfolio"] as const,
+  /** PR7 live-vs-backtest decay snapshot. */
+  decay: ["risk", "decay"] as const,
+  /** PR5 net-of-cost rollup — keyed by window so different windows coexist. */
+  netOfCost: (windowHours: number) => ["netOfCost", windowHours] as const,
   closedTrades: (symbol?: string, limit = 500) =>
     ["closedTrades", symbol ?? "all", limit] as const,
 };
@@ -137,6 +147,41 @@ export function useAllRisk(opts?: QueryOpts<ProfileRisk[]>) {
   return useQuery({
     queryKey: queryKeys.allRisk,
     queryFn: () => api.agents.allRisk(),
+    ...opts,
+  });
+}
+
+/**
+ * PR4 portfolio exposure snapshot (gross vs budget, per-cluster /
+ * per-symbol concentration). Polls at the snapshot's own write cadence
+ * (10s); pauses while the tab is hidden.
+ */
+export function useRiskPortfolio(opts?: QueryOpts<RiskPortfolio>) {
+  return useQuery({
+    queryKey: queryKeys.riskPortfolio,
+    queryFn: () => api.risk.portfolio(),
+    refetchInterval: 10_000,
+    ...opts,
+  });
+}
+
+/** PR7 per-profile decay reports. Snapshot is written hourly — 60s poll
+ * is plenty. */
+export function useDecay(opts?: QueryOpts<DecaySnapshot>) {
+  return useQuery({
+    queryKey: queryKeys.decay,
+    queryFn: () => api.risk.decay(),
+    refetchInterval: 60_000,
+    ...opts,
+  });
+}
+
+/** PR5 per-profile net-of-cost rollup over a rolling window (hours). */
+export function useNetOfCost(windowHours = 168, opts?: QueryOpts<NetOfCost>) {
+  return useQuery({
+    queryKey: queryKeys.netOfCost(windowHours),
+    queryFn: () => api.pnl.netOfCost(windowHours),
+    refetchInterval: 60_000,
     ...opts,
   });
 }

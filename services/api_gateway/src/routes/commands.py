@@ -1,7 +1,8 @@
-from typing import Optional
+import os
+from typing import FrozenSet, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from libs.config import settings
 from libs.core.enums import HaltLevel
@@ -22,13 +23,46 @@ def _get_redis():
     return RedisClient.get_instance(settings.REDIS_URL).get_connection()
 
 
+def _operator_allowlist() -> Optional[FrozenSet[str]]:
+    """Per-deployment operator allowlist for destructive halt control.
+
+    Sources, in order: `settings.KILL_SWITCH_OPERATORS` if the setting exists
+    (future home — settings.py is owned by another lane), else the raw
+    `PRAXIS_KILL_SWITCH_OPERATORS` env var (comma-separated user_ids; read
+    directly because Settings uses extra="ignore" and does not declare it).
+
+    Returns None when unconfigured — single-operator mode: every authenticated
+    user is the operator. This preserves the current single-user deployment
+    (a halt control that nobody can pull is worse than one without tiers) but
+    MUST be configured before the gateway serves more than one human.
+    """
+    raw = getattr(settings, "KILL_SWITCH_OPERATORS", None)
+    if raw is None:
+        raw = os.environ.get("PRAXIS_KILL_SWITCH_OPERATORS")
+    if raw is None or not str(raw).strip():
+        return None
+    return frozenset(x.strip() for x in str(raw).split(",") if x.strip())
+
+
+def is_operator(user_id: str) -> bool:
+    """True when `user_id` may perform destructive/clearing kill-switch actions
+    (NEUTRALIZE / FLATTEN / clearing a halt) and view the actor-attributed
+    activity log. See `_operator_allowlist` for the unconfigured default."""
+    allow = _operator_allowlist()
+    return True if allow is None else user_id in allow
+
+
 class KillSwitchRequest(BaseModel):
     active: bool = True
-    reason: Optional[str] = None
+    # Bounded: the reason is persisted verbatim to the praxis:kill_switch:log
+    # Redis list and re-served on every status poll — an unbounded string lets
+    # any authenticated user bloat the safety-critical read path (CWE-400).
+    reason: Optional[str] = Field(None, max_length=256)
     # PR3: optional tiered level (NONE/STOP_OPENING/DE_RISK/NEUTRALIZE/FLATTEN).
     # When set it takes precedence over `active`. FLATTEN here is an explicit human
     # authorization — the HaltController will close all open positions.
-    level: Optional[str] = None
+    # max_length bounds the value before it is reflected into the 422 detail.
+    level: Optional[str] = Field(None, max_length=32)
 
 
 @router.post("/")
@@ -48,9 +82,17 @@ async def handle_command(
 
 @router.get("/kill-switch", response_model=KillSwitchStatusResponse)
 async def get_kill_switch_status(user_id: str = Depends(get_current_user)):
-    """Get the current kill switch status and recent activity log."""
+    """Get the current kill switch status and recent activity log.
+
+    The activity log carries actor user_ids and free-text reasons from every
+    account — operator-only when an allowlist is configured (CWE-200);
+    non-operators still get the level/active truth they need for the UI.
+    """
     redis = _get_redis()
-    return await KillSwitch.status(redis)
+    status = await KillSwitch.status(redis)
+    if not is_operator(user_id):
+        status["recent_log"] = []
+    return status
 
 
 @router.post("/kill-switch", response_model=KillSwitchToggleResponse)
@@ -61,9 +103,25 @@ async def set_kill_switch(
     """Activate or deactivate the global kill switch.
 
     When active, ALL trading is halted immediately across all profiles.
+
+    Authorization (CWE-862 fix): the switch is platform-global, so anyone may
+    PULL the brake (STOP_OPENING / DE_RISK — non-destructive escalation), but
+    position-destructive levels (NEUTRALIZE / FLATTEN close other users'
+    positions via the HaltController) and CLEARING a halt (NONE — silently
+    resumes trading someone else stopped) require operator authorization.
     """
     redis = _get_redis()
     reason = body.reason or "manual"
+
+    def _require_operator(action: str) -> None:
+        if not is_operator(user_id):
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"Operator authorization required for {action}. "
+                    "Configure PRAXIS_KILL_SWITCH_OPERATORS."
+                ),
+            )
 
     # Tiered level takes precedence (PR3). FLATTEN via the API is an explicit
     # human authorization to close all open positions.
@@ -71,8 +129,16 @@ async def set_kill_switch(
         try:
             level = HaltLevel(body.level.strip().upper())
         except ValueError:
+            # body.level is bounded to 32 chars by the request model, so the
+            # reflection cannot bloat the response.
             raise HTTPException(
                 status_code=422, detail=f"Invalid halt level: {body.level}"
+            )
+        if level.at_least(HaltLevel.NEUTRALIZE) or level == HaltLevel.NONE:
+            _require_operator(
+                f"halt level {level.value}"
+                if level != HaltLevel.NONE
+                else "clearing the halt (NONE)"
             )
         await KillSwitch.set_level(redis, level, reason=reason, actor=user_id)
         return {"status": level.value.lower(), "reason": reason, "level": level.value}
@@ -86,6 +152,7 @@ async def set_kill_switch(
             "level": HaltLevel.STOP_OPENING.value,
         }
     else:
+        _require_operator("clearing the halt (deactivate)")
         await KillSwitch.deactivate(redis, reason=reason, deactivated_by=user_id)
         return {
             "status": "deactivated",

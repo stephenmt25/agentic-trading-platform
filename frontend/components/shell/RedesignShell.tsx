@@ -8,7 +8,12 @@ import { ChromeBar } from "./ChromeBar";
 import { CommandPalette } from "./CommandPalette";
 import { KillSwitchModal } from "./KillSwitchModal";
 import { PageLoading } from "./PageLoading";
-import { useKillSwitchStore } from "@/lib/stores/killSwitchStore";
+import { useKillSwitch } from "@/lib/api/hooks";
+import {
+  parseHaltLevel,
+  severity,
+  useKillSwitchStore,
+} from "@/lib/stores/killSwitchStore";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
 
 const IS_MOCK_DATA = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
@@ -23,13 +28,31 @@ const IS_MOCK_DATA = process.env.NEXT_PUBLIC_AGENT_VIEW_MOCK === "true";
  * lives in design-tokens.css.
  */
 export function RedesignShell({ children }: { children: React.ReactNode }) {
-  const killState = useKillSwitchStore((s) => s.state);
+  const killLevel = useKillSwitchStore((s) => s.level);
+  const setKillLevel = useKillSwitchStore((s) => s.setLevel);
   const toggleKillModal = useKillSwitchStore((s) => s.toggleModal);
   const backendStatus = useConnectionStore((s) => s.backendStatus);
   const [bannerDismissed, setBannerDismissed] = useState(false);
 
+  // Canonical kill-switch sync: the 10s useKillSwitch poll is mounted HERE,
+  // once, so the ["killSwitch"] React Query cache is live on EVERY
+  // authenticated surface — this is what makes the modal's optimistic
+  // snapshot/rollback/invalidate machinery real (the modal reconciles
+  // against this poll), including on surfaces with no page-local poller
+  // (/settings, /agents, /performance). The store mirror below keeps the
+  // chrome (StatusPills, body overlay) coherent. The page-local setInterval
+  // pollers on /hot and /risk write the same store and can be retired in
+  // FE-W2.
+  const { data: killStatus } = useKillSwitch();
   useEffect(() => {
-    if (killState === "hard") {
+    if (!killStatus) return;
+    setKillLevel(parseHaltLevel(killStatus.level, killStatus.active));
+  }, [killStatus, setKillLevel]);
+
+  // Danger severity (NEUTRALIZE / FLATTEN — position-closing verbs) fires
+  // the body overlay; warn levels (STOP_OPENING / DE_RISK) only tint chrome.
+  useEffect(() => {
+    if (severity(killLevel) === "danger") {
       document.body.setAttribute("data-kill-switch", "hard");
     } else {
       document.body.removeAttribute("data-kill-switch");
@@ -37,7 +60,7 @@ export function RedesignShell({ children }: { children: React.ReactNode }) {
     return () => {
       document.body.removeAttribute("data-kill-switch");
     };
-  }, [killState]);
+  }, [killLevel]);
 
   // Global Cmd/Ctrl+Shift+K — kill-switch modal toggle. Mounted here so
   // every authenticated surface gets it without per-page wiring (closes the
