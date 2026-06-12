@@ -483,3 +483,99 @@ already covers the org side).
 
 Claude Code (handler), executing decisions #2/#6; security posture flagged for
 architect sign-off with this session's brief.
+
+## 2026-06-12 — EN-W2 risk_limits_grid: exit-band sweep contract
+
+### Context
+
+Locked decision #3 (per-profile edge triage) needs exit bands swept per
+profile, but `run_sweep`'s `param_grid` only swept strategy-rule condition
+values. Threading a second grid dimension involved contract judgment calls.
+
+### Decision
+
+- **Allowed keys are EXACTLY the three exit bands** (`stop_loss_pct`,
+  `take_profit_pct`, `max_holding_hours`) — the keys `exit_policy` resolves.
+  Unknown keys 422 loudly rather than silently no-op (a swept
+  `max_allocation_pct` would never change an engine outcome today).
+- **A grid requires `walk_forward`**: the queue serves no plain-sweep path, so
+  a top-level `risk_limits_grid` on a single-engine run would be a silent
+  no-op — rejected at the API edge (422) and again in the worker
+  (defence in depth against direct queue injection).
+- **Precedence**: a grid embedded in the `walk_forward` dict wins over the
+  top-level `BacktestRequest` field (more specific wins); identical resolution
+  at the API edge and worker, pinned by tests on both sides.
+- **Budget composes multiplicatively**: combos = rule_combos × risk_combos ≤
+  100 (`WALK_FORWARD_MAX_PARAM_COMBOS`); windows × combos ≤ 1,000
+  (`MAX_TOTAL_RUNS`). The check now also lives INSIDE `run_sweep`, which
+  retroactively bounds the previously uncapped service-local
+  `POST /backtest/sweep` (registry row added).
+- **IS/OOS threshold identity**: the winning `(params, risk_params)` pair's
+  bands are string-merged (Decimal-safe, `DEFAULT_RISK_LIMITS` convention)
+  into the window's OOS-eval `risk_limits` — in-sample selection and
+  out-of-sample evaluation run identical thresholds by construction.
+
+### Trade-off
+
+Sweeping exit bands per window raises the overfit surface (more dimensions to
+fit in-sample). Mitigated by the OOS-only parent row (EN-W1) and the budget
+caps; the honest read of any sweep remains the OOS aggregate, never the
+in-sample winner.
+
+### Approved by
+
+Claude Code (handler), executing locked decision #3 (first half); contract
+judgment calls flagged for architect review with this session's brief.
+
+## 2026-06-12 — EN-W2 edge triage verdicts: MACD killed, no re-band rescue, sim convergence confirmed
+
+### Context
+
+Locked decision #3 (per-profile edge triage), executed with the honest
+walk-forward machinery (EN-W1) + the new exit-band sweep (EN-W2). All runs:
+1m candles (live evaluation timeframe per `services/strategy/src/hydrator.py`),
+2026-04-18 → 2026-06-12 (~57k bars), 14d train / 7d test / 7d step (4 windows),
+profiles' real `risk_limits`, coverage 99.85%. Numbers + method:
+`docs/EN-W2-EDGE-TRIAGE-2026-06-12.md`; runner: `scripts/en_w2_edge_triage.py`.
+
+### Decision 1 — KILL all three MACD profiles (no rebuild)
+
+Trend Following (MACD), Demo · Pullback Long, Oversold Uptrend: every
+symbol×profile run has negative OOS sharpe (−2.7 to −8.2), profit factor
+0.14–0.62, negative avg return. Of 24 walk-forward windows, only 3 had even
+positive IN-SAMPLE sharpe. There is no edge to rebuild or re-band. The
+profiles stay `is_active=false` permanently; closed-trade history retained;
+their honest baselines persisted (latest `backtest_results` row per profile).
+No further engineering effort goes to MACD signal families.
+
+### Decision 2 — exit-band re-banding does NOT rescue the soak strategy; bands stay
+
+The 18-combo sweep (SL {2,4}% × TP {1,2,3}% × hold {6,12,24}h) over the soak
+profile's RSI<35 rules produced OOS sharpe −5.41 — WORSE than the plain
+baseline (−4.00) — and the per-window winning bands were unstable (24h-hold
+won early windows, 12h+tight-SL won late ones). The time-exit-dominated close
+mix is a symptom of a signal with no directional edge, not of wrong bands.
+The soak profile's bands stay as-is (the soak measures instrument fidelity,
+not edge). Strategy replacement is the EN-W3/EN-W4 work, not band tuning.
+
+### Decision 3 — close-reason convergence CONFIRMED (PR7 cross-check)
+
+Live soak (30 closes): time_exit 93% / stop_loss 7%. Backtest OOS
+(101 trades, end_of_data filtered): time_exit 90% / stop_loss 5% /
+take_profit 5%. The sim's exit behavior matches live within a few points —
+the EN-W1 exit-policy unification is validated end-to-end. Decay tracking now
+runs against an honest OOS baseline (`en-w2-soak-baseline`); "no decay" going
+forward means live matches the (honestly negative) baseline.
+
+### The headline for the master plan
+
+The platform is now honest, and it honestly reports that ALL current signal
+families (RSI mean-reversion soak + 3 MACD variants) have negative
+out-of-sample edge on Apr–Jun 2026 data. Phase 4–5 work (EN-W3 Tokyo
+substrate, EN-W4 Yield Harvester) is not an enhancement — it is the path to
+the first strategy with a defensible edge. Flagged for architect prioritization.
+
+### Approved by
+
+Claude Code (handler), executing locked decision #3. Kill verdicts +
+prioritization flag for architect sign-off with this session's brief.
