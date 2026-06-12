@@ -13,10 +13,16 @@ import {
   Legend,
 } from "recharts";
 
-const AGENT_COLORS: Record<string, string> = {
-  ta: "#3b82f6",
-  sentiment: "#8b5cf6",
-  debate: "#f59e0b",
+/**
+ * Per ADR-012, agents never get chromatic identities: every series draws
+ * in the accent hue and differentiates by dash pattern + label (the
+ * tooltip and legend carry the agent name). Key order doubles as the
+ * agent list for the forward-fill below — keep ta/sentiment/debate.
+ */
+const AGENT_SERIES: Record<string, { dash?: string }> = {
+  ta: {},
+  sentiment: { dash: "6 3" },
+  debate: { dash: "2 2" },
 };
 
 interface WeightDataPoint {
@@ -51,7 +57,7 @@ function WeightEvolutionChartInner({ data }: Props) {
     // Forward-fill so each row carries every agent's most-recent prior
     // weight. Without this the recharts tooltip shows only the one
     // agent that recorded a snapshot at the hovered timestamp.
-    const agents = Object.keys(AGENT_COLORS);
+    const agents = Object.keys(AGENT_SERIES);
     const lastSeen: Record<string, number> = {};
     for (const row of merged) {
       for (const agent of agents) {
@@ -68,22 +74,22 @@ function WeightEvolutionChartInner({ data }: Props) {
 
   if (!chartData.length) {
     return (
-      <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-6 text-center text-sm text-zinc-500">
+      <div className="bg-bg-panel/50 rounded-lg border border-border-subtle p-6 text-center text-sm text-fg-muted">
         No weight history available yet. Weights are recorded every 5 minutes by the Analyst agent.
       </div>
     );
   }
 
   return (
-    <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-4">
-      <h3 className="text-sm font-medium text-zinc-300 mb-3 flex items-center gap-1.5">
+    <div className="bg-bg-panel/50 rounded-lg border border-border-subtle p-4">
+      <h3 className="text-sm font-medium text-fg-secondary mb-3 flex items-center gap-1.5">
         Weight Evolution
         <InfoTooltip text="How agent weights change over time as the Analyst learns from trade outcomes. Flat lines mean no new position outcomes to learn from." />
       </h3>
       <div className="h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={chartData} margin={{ top: 4, right: 8, bottom: 4, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" />
             <XAxis
               dataKey="timestamp"
               type="number"
@@ -92,21 +98,21 @@ function WeightEvolutionChartInner({ data }: Props) {
                 const d = new Date(ts * 1000);
                 return `${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
               }}
-              tick={{ fontSize: 10, fill: "#6b7280" }}
-              axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+              tick={{ fontSize: 10, fill: "var(--color-fg-muted)" }}
+              axisLine={{ stroke: "var(--color-border-strong)" }}
               tickLine={false}
             />
             <YAxis
               domain={[0, "auto"]}
-              tick={{ fontSize: 10, fill: "#6b7280" }}
-              axisLine={{ stroke: "rgba(255,255,255,0.1)" }}
+              tick={{ fontSize: 10, fill: "var(--color-fg-muted)" }}
+              axisLine={{ stroke: "var(--color-border-strong)" }}
               tickLine={false}
               width={36}
             />
             <Tooltip
               contentStyle={{
-                backgroundColor: "#1f2937",
-                border: "1px solid rgba(255,255,255,0.1)",
+                backgroundColor: "var(--color-bg-raised)",
+                border: "1px solid var(--color-border-strong)",
                 borderRadius: 8,
                 fontSize: 11,
               }}
@@ -114,13 +120,14 @@ function WeightEvolutionChartInner({ data }: Props) {
               formatter={(value, name) => [Number(value).toFixed(3), String(name).toUpperCase()]}
             />
             <Legend
-              formatter={(value) => <span className="text-xs text-zinc-400">{String(value).toUpperCase()}</span>}
+              formatter={(value) => <span className="text-xs text-fg-muted">{String(value).toUpperCase()}</span>}
             />
-            {Object.keys(AGENT_COLORS).map((agent) => (
+            {Object.keys(AGENT_SERIES).map((agent) => (
               <Line
                 key={agent}
                 dataKey={agent}
-                stroke={AGENT_COLORS[agent]}
+                stroke="var(--color-accent-500)"
+                strokeDasharray={AGENT_SERIES[agent].dash}
                 strokeWidth={1.5}
                 dot={false}
                 connectNulls

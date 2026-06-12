@@ -8,12 +8,6 @@ const AGENT_DEFAULTS: Record<string, number> = {
   debate: 0.25,
 };
 
-const AGENT_COLORS: Record<string, string> = {
-  ta: "bg-blue-500",
-  sentiment: "bg-violet-500",
-  debate: "bg-amber-500",
-};
-
 interface Props {
   weights: {
     weights: Record<string, number>;
@@ -24,7 +18,7 @@ interface Props {
 export function AgentAccuracyTable({ weights }: Props) {
   if (!weights) {
     return (
-      <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 p-6 text-center text-sm text-zinc-500">
+      <div className="bg-bg-panel/50 rounded-lg border border-border-subtle p-6 text-center text-sm text-fg-muted">
         No weight data available
       </div>
     );
@@ -33,16 +27,16 @@ export function AgentAccuracyTable({ weights }: Props) {
   const agents = Object.keys(AGENT_DEFAULTS);
 
   return (
-    <div className="bg-zinc-900/50 rounded-lg border border-zinc-800 overflow-hidden">
-      <div className="px-4 py-3 border-b border-zinc-800">
-        <h3 className="text-sm font-medium text-zinc-300 flex items-center gap-1.5">
-          Agent Accuracy & Weights
+    <div className="bg-bg-panel/50 rounded-lg border border-border-subtle overflow-hidden">
+      <div className="px-4 py-3 border-b border-border-subtle">
+        <h3 className="text-sm font-medium text-fg-secondary flex items-center gap-1.5">
+          Agent Accuracy &amp; Weights
           <InfoTooltip text="EWMA accuracy tracks how often each agent's direction aligned with winning trades. Weights are adjusted based on accuracy — higher accuracy = more influence." />
         </h3>
       </div>
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-zinc-800 text-zinc-500 text-xs">
+          <tr className="border-b border-border-subtle text-fg-muted text-xs">
             <th className="text-left px-4 py-2 font-medium">Agent</th>
             <th className="text-right px-4 py-2 font-medium">EWMA Accuracy</th>
             <th className="text-right px-4 py-2 font-medium">Samples</th>
@@ -62,34 +56,36 @@ export function AgentAccuracyTable({ weights }: Props) {
             const samples = tracker?.samples ?? 0;
 
             return (
-              <tr key={agent} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
+              <tr key={agent} className="border-b border-border-subtle/50 hover:bg-bg-rowhover/30">
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${AGENT_COLORS[agent]}`} />
-                    <span className="font-medium text-zinc-200 uppercase">{agent}</span>
+                    {/* ADR-012: agent identities alias to accent — differentiation
+                        is by label + row position, never by hue. */}
+                    <span className="w-2 h-2 rounded-full bg-accent-500" />
+                    <span className="font-medium text-fg uppercase">{agent}</span>
                   </div>
                 </td>
-                <td className="text-right px-4 py-3 font-mono text-zinc-300">
+                <td className="text-right px-4 py-3 num-tabular text-fg-secondary">
                   {(ewma * 100).toFixed(1)}%
                 </td>
-                <td className="text-right px-4 py-3 font-mono text-zinc-400">
+                <td className="text-right px-4 py-3 num-tabular text-fg-muted">
                   {samples}
                 </td>
-                <td className="text-right px-4 py-3 font-mono text-zinc-200">
+                <td className="text-right px-4 py-3 num-tabular text-fg">
                   {currentWeight.toFixed(3)}
                 </td>
-                <td className="text-right px-4 py-3 font-mono text-zinc-500">
+                <td className="text-right px-4 py-3 num-tabular text-fg-muted">
                   {defaultWeight.toFixed(3)}
                 </td>
-                <td className="text-right px-4 py-3 font-mono">
-                  <span className={delta > 0 ? "text-green-400" : delta < 0 ? "text-red-400" : "text-zinc-500"}>
+                <td className="text-right px-4 py-3 num-tabular">
+                  <span className={delta > 0 ? "text-bid-400" : delta < 0 ? "text-ask-400" : "text-fg-muted"}>
                     {delta > 0 ? "+" : ""}{delta.toFixed(3)}
                   </span>
                 </td>
                 <td className="px-4 py-3">
-                  <div className="w-full bg-zinc-800 rounded-full h-1.5">
+                  <div className="w-full bg-bg-raised rounded-full h-1.5">
                     <div
-                      className={`h-1.5 rounded-full transition-all ${AGENT_COLORS[agent]}`}
+                      className="h-1.5 rounded-full transition-all bg-accent-500"
                       style={{ width: `${Math.min(100, ewma * 100)}%` }}
                     />
                   </div>
