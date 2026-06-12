@@ -29,6 +29,7 @@ type ApiResult<F extends (...args: never[]) => Promise<unknown>> = Awaited<
 
 export type Profile = ApiResult<typeof api.profiles.list>[number];
 export type Position = ApiResult<typeof api.positions.list>[number];
+export type Order = ApiResult<typeof api.orders.list>[number];
 export type Candle = ApiResult<typeof api.marketData.candles>[number];
 export type ProfileRisk = ApiResult<typeof api.agents.risk>;
 export type ClosedTrade = ApiResult<typeof api.audit.closedTrades>[number];
@@ -46,6 +47,8 @@ export const queryKeys = {
   positions: (profileId?: string, status: "open" | "all" = "open") =>
     ["positions", profileId ?? "all", status] as const,
   killSwitch: ["killSwitch"] as const,
+  orders: (symbol?: string, profileId?: string, limit = 50) =>
+    ["orders", symbol ?? "all", profileId ?? "all", limit] as const,
   candles: (symbol: string, timeframe: string, limit = 500) =>
     ["candles", symbol, timeframe, limit] as const,
   /**
@@ -107,6 +110,29 @@ export function useKillSwitch(opts?: QueryOpts<KillSwitchState>) {
     queryFn: () => api.commands.killSwitchStatus(),
     refetchInterval: 10_000,
     ...opts,
+  });
+}
+
+/**
+ * Orders for a symbol (the /hot Open Orders tab read). Polls at 5s so
+ * optimistic submissions reconcile against server truth quickly; the
+ * interval pauses while the tab is hidden, and React Query stops
+ * refetching entirely once the consuming component unmounts. Enabled
+ * only when a symbol is present — the "all" slots in the key exist for
+ * cache addressing, not for live all-symbols fetches.
+ */
+export function useOrders(
+  params: { symbol?: string; profileId?: string; limit?: number },
+  opts?: QueryOpts<Order[]>
+) {
+  const { symbol, profileId, limit = 50 } = params;
+  const { enabled, ...rest } = opts ?? {};
+  return useQuery({
+    queryKey: queryKeys.orders(symbol, profileId, limit),
+    queryFn: () => api.orders.list({ symbol, profileId, limit }),
+    refetchInterval: 5_000,
+    ...rest,
+    enabled: !!symbol && (enabled ?? true),
   });
 }
 

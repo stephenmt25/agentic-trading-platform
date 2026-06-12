@@ -152,25 +152,130 @@ class TestStopLossMonitor:
 
 
 class TestPnLPublisherDecimalSafety:
-    """Verify that PnL publisher handles Decimal values correctly.
+    """Verify that PnL publisher str-encodes Decimal values (registry row 54).
 
-    The _DecimalEncoder converts Decimal → float for JSON serialization.
-    This is a known tech debt item — ideally it should convert to str.
-    These tests document the current behavior.
+    Decimals are strings on the wire — no binary-float precision loss in
+    transit. Consumers parse explicitly (frontend Number(x), hot_path
+    Decimal(str(x))).
     """
 
-    def test_decimal_encoder_converts_decimal_to_float(self):
-        """_DecimalEncoder should handle Decimal values."""
+    def test_decimal_encoder_converts_decimal_to_str(self):
+        """_DecimalEncoder must emit str for Decimal — exact value preserved."""
         from services.pnl.src.publisher import _DecimalEncoder
 
         result = json.dumps({"value": Decimal("1.23456789")}, cls=_DecimalEncoder)
         parsed = json.loads(result)
-        assert isinstance(parsed["value"], float)
+        assert isinstance(parsed["value"], str)
+        assert Decimal(parsed["value"]) == Decimal("1.23456789")
 
     def test_decimal_zero_serializes_correctly(self):
-        """Decimal("0") should serialize without error."""
+        """Decimal("0") should serialize without error, as a string."""
         from services.pnl.src.publisher import _DecimalEncoder
 
         result = json.dumps({"value": Decimal("0")}, cls=_DecimalEncoder)
         parsed = json.loads(result)
-        assert parsed["value"] == 0.0
+        assert parsed["value"] == "0"
+
+
+# ---------------------------------------------------------------------------
+# PnL Publisher wire-shape tests (FE-W2)
+# ---------------------------------------------------------------------------
+
+
+class TestPnLPublisherWireShape:
+    """publish_update must carry the full per-position breakdown the
+    dashboard reads (position_id, fees, net_pre_tax, net_post_tax,
+    tax_estimate) and str-encode Decimals in the cached JSON payload."""
+
+    def _make_snapshot(self):
+        from services.pnl.src.calculator import PnLSnapshot
+
+        return PnLSnapshot(
+            position_id="11111111-2222-4333-8444-555555555555",
+            symbol="BTC/USDT",
+            gross_pnl=Decimal("125.50"),
+            fees=Decimal("3.25"),
+            net_pre_tax=Decimal("122.25"),
+            net_post_tax=Decimal("103.91"),
+            pct_return=Decimal("0.0207"),
+            tax_estimate=Decimal("18.34"),
+        )
+
+    def _make_publisher(self):
+        from services.pnl.src.publisher import PnLPublisher
+
+        redis_client = AsyncMock()
+        redis_client.get = AsyncMock(return_value=None)
+        pubsub = AsyncMock()
+        pnl_repo = AsyncMock()
+        return PnLPublisher(redis_client, pubsub, pnl_repo), redis_client, pubsub
+
+    @pytest.mark.asyncio
+    async def test_event_published_on_canonical_channel(self):
+        """Channel must come from libs/messaging/channels.py — never invented."""
+        from libs.messaging.channels import PUBSUB_PNL_UPDATES
+
+        publisher, _, pubsub = self._make_publisher()
+        await publisher.publish_update("profile-1", self._make_snapshot())
+
+        pubsub.publish.assert_awaited_once()
+        channel = pubsub.publish.await_args.args[0]
+        assert channel == PUBSUB_PNL_UPDATES
+
+    @pytest.mark.asyncio
+    async def test_event_carries_position_breakdown(self):
+        """New FE-W2 fields are populated from the snapshot; net_pnl keeps
+        its historical semantics (PRE-tax net)."""
+        publisher, _, pubsub = self._make_publisher()
+        snapshot = self._make_snapshot()
+        await publisher.publish_update("profile-1", snapshot)
+
+        event = pubsub.publish.await_args.args[1]
+        assert event.position_id == snapshot.position_id
+        assert event.fees == snapshot.fees
+        assert event.net_pre_tax == snapshot.net_pre_tax
+        assert event.net_post_tax == snapshot.net_post_tax
+        assert event.tax_estimate == snapshot.tax_estimate
+        assert event.net_pnl == snapshot.net_pre_tax  # pre-tax, unchanged
+        # ZERO TOLERANCE: every financial field stays Decimal in-process
+        for value in (
+            event.gross_pnl,
+            event.net_pnl,
+            event.fees,
+            event.net_pre_tax,
+            event.net_post_tax,
+            event.tax_estimate,
+            event.pct_return,
+        ):
+            assert isinstance(value, Decimal)
+
+    @pytest.mark.asyncio
+    async def test_redis_latest_cache_str_encodes_decimals(self):
+        """The pnl:<profile>:<position>:latest JSON payload must carry all
+        Decimal fields as strings (registry row 54)."""
+        publisher, redis_client, _ = self._make_publisher()
+        snapshot = self._make_snapshot()
+        await publisher.publish_update("profile-1", snapshot)
+
+        latest_calls = [
+            c
+            for c in redis_client.set.await_args_list
+            if str(c.args[0]).startswith("pnl:")
+        ]
+        assert len(latest_calls) == 1
+        assert latest_calls[0].args[0] == f"pnl:profile-1:{snapshot.position_id}:latest"
+
+        payload = json.loads(latest_calls[0].args[1])
+        for field in (
+            "gross_pnl",
+            "net_pnl",
+            "fees",
+            "net_pre_tax",
+            "net_post_tax",
+            "tax_estimate",
+            "pct_return",
+        ):
+            assert isinstance(payload[field], str), field
+        assert payload["position_id"] == snapshot.position_id
+        assert Decimal(payload["net_post_tax"]) == snapshot.net_post_tax
+        assert Decimal(payload["pct_return"]) == snapshot.pct_return

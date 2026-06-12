@@ -46,7 +46,9 @@ export const PnLDisplay: React.FC<PnLDisplayProps> = ({ profileId }) => {
                     <div><span className="text-muted-foreground/70">Fees:</span> <span className="text-red-500/70">-${(pnl.fees).toFixed(2)}</span></div>
                     <div><span className="text-muted-foreground/70">Tax Est:</span> <span className="text-red-500/70">-${(pnl.tax_estimate).toFixed(2)}</span></div>
                     <div className={isZero ? 'text-muted-foreground' : isPositive ? 'text-emerald-500/80' : 'text-red-500/80'}>
-                        <span className="text-muted-foreground/70">ROI:</span> {isPositive ? '+' : ''}{(pnl.pct_return * 100).toFixed(2)}%
+                        {/* pct_return is null when the profile holds >1 position
+                            (per-position returns don't sum without weights). */}
+                        <span className="text-muted-foreground/70">ROI:</span> {pnl.pct_return !== null ? `${pnl.pct_return >= 0 ? '+' : ''}${(pnl.pct_return * 100).toFixed(2)}%` : '—'}
                     </div>
                 </div>
             </div>

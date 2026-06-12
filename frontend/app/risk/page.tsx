@@ -30,6 +30,7 @@ import {
   type KillSwitchStatus,
   type ProfileResponse,
 } from "@/lib/api/client";
+import { useKillSwitch, usePositions, useRisk } from "@/lib/api/hooks";
 import { parseHaltLevel, severity, useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { cn } from "@/lib/utils";
 
@@ -44,14 +45,15 @@ import { cn } from "@/lib/utils";
  * Wired-up vs. Pending split:
  *
  *   Wired:
- *     - Kill switch: GET/POST /commands/kill-switch (binary backend state).
- *     - Active profile metrics: api.agents.risk(profile_id).
- *     - Concentration: derived from api.positions.list (notional / total).
+ *     - Kill switch: useKillSwitch — the shared ["killSwitch"] query that
+ *       RedesignShell polls every 10s (zero extra requests from this page).
+ *     - Active profile metrics: useRisk(profile_id), 10s refetchInterval.
+ *     - Concentration: derived from usePositions (notional / total),
+ *       10s refetchInterval.
  *     - Drawdown / daily PnL: agents.risk + portfolioStore.
  *     - Active limits list: profile.risk_limits jsonb.
  *
  *   Pending tags surface where backend reality lags spec:
- *     - Hard-arm vs soft-arm distinction (backend kill switch is binary).
  *     - Portfolio VaR (no endpoint).
  *     - Recent violations log (no endpoint).
  *     - Auto-flatten progress on hard-arm (no backend wiring).
@@ -98,24 +100,9 @@ export default function RiskControlPage() {
   const [profileLoading, setProfileLoading] = useState(true);
   const [profileError, setProfileError] = useState<string | null>(null);
 
-  const [riskMetrics, setRiskMetrics] = useState<{
-    daily_pnl_pct: number;
-    drawdown_pct: number;
-    allocation_pct: number;
-    circuit_breaker_threshold?: number;
-  } | null>(null);
-
-  const [concentration, setConcentration] = useState<ConcentrationEntry[]>([]);
-  const [openCount, setOpenCount] = useState(0);
-
-  const [killStatus, setKillStatus] = useState<KillSwitchStatus | null>(null);
-  const [killLoading, setKillLoading] = useState(true);
-  const setKillLevel = useKillSwitchStore((s) => s.setLevel);
   const openKillModal = useKillSwitchStore((s) => s.setModalOpen);
 
-  const [refreshTick, setRefreshTick] = useState(0);
-
-  // ---------- Initial profile + poller ----------
+  // ---------- Initial profile (one-shot, not a poller) ----------
   const loadProfile = useCallback(async () => {
     setProfileLoading(true);
     setProfileError(null);
@@ -135,77 +122,57 @@ export default function RiskControlPage() {
     loadProfile();
   }, [loadProfile]);
 
-  const reloadAll = useCallback(async () => {
-    if (!profile) return;
-    try {
-      const [risk, positions] = await Promise.all([
-        api.agents.risk(profile.profile_id).catch(() => null),
-        api.positions.list({ status: "open" }).catch(() => []),
-      ]);
-      if (risk) setRiskMetrics(risk);
+  // ---------- Live reads (FE-W2: React Query, no page-local setInterval) ----
+  // Same fetches reloadAll made — api.agents.risk(profile_id) and
+  // api.positions.list({ status: "open" }) — now on a 10s refetchInterval
+  // that stops on unmount and pauses while the tab is hidden. Errors keep
+  // the last good data instead of zeroing the page.
+  const riskQuery = useRisk(profile?.profile_id, {
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+  const positionsQuery = usePositions(undefined, {
+    status: "open",
+    refetchInterval: POLL_INTERVAL_MS,
+  });
+  const riskMetrics = riskQuery.data ?? null;
 
-      const open = positions.filter((p) => p.status?.toLowerCase() === "open");
-      setOpenCount(open.length);
-      const totalNotional = open.reduce((acc, p) => {
-        const n = parseFloat(p.notional ?? "0");
-        return acc + (Number.isFinite(n) ? Math.abs(n) : 0);
-      }, 0);
-      if (totalNotional > 0) {
-        const bySymbol = new Map<string, number>();
-        for (const p of open) {
-          const n = parseFloat(p.notional ?? "0");
-          if (!Number.isFinite(n)) continue;
-          bySymbol.set(p.symbol, (bySymbol.get(p.symbol) ?? 0) + Math.abs(n));
-        }
-        const entries: ConcentrationEntry[] = [...bySymbol.entries()]
-          .map(([symbol, notional]) => ({
-            symbol,
-            notional,
-            pct: notional / totalNotional,
-          }))
-          .sort((a, b) => b.notional - a.notional);
-        setConcentration(entries);
-      } else {
-        setConcentration([]);
-      }
-    } catch {
-      // swallow — banner state is owned by the kill-switch loader
+  const { concentration, openCount } = useMemo<{
+    concentration: ConcentrationEntry[];
+    openCount: number;
+  }>(() => {
+    const open = (positionsQuery.data ?? []).filter(
+      (p) => p.status?.toLowerCase() === "open"
+    );
+    const totalNotional = open.reduce((acc, p) => {
+      const n = parseFloat(p.notional ?? "0");
+      return acc + (Number.isFinite(n) ? Math.abs(n) : 0);
+    }, 0);
+    if (totalNotional <= 0) {
+      return { concentration: [], openCount: open.length };
     }
-  }, [profile]);
-
-  useEffect(() => {
-    reloadAll();
-    const id = window.setInterval(() => {
-      setRefreshTick((t) => t + 1);
-    }, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [reloadAll, profile?.profile_id]);
-
-  useEffect(() => {
-    reloadAll();
-  }, [refreshTick, reloadAll]);
-
-  // ---------- Kill switch loader ----------
-  const loadKillStatus = useCallback(async () => {
-    setKillLoading(true);
-    try {
-      const status = await api.commands.killSwitchStatus();
-      setKillStatus(status);
-      // Write the tiered level straight through (FE-W1) — no more
-      // active→"soft" downgrade. parseHaltLevel guards older payloads.
-      setKillLevel(parseHaltLevel(status.level, status.active));
-    } catch {
-      setKillStatus(null);
-    } finally {
-      setKillLoading(false);
+    const bySymbol = new Map<string, number>();
+    for (const p of open) {
+      const n = parseFloat(p.notional ?? "0");
+      if (!Number.isFinite(n)) continue;
+      bySymbol.set(p.symbol, (bySymbol.get(p.symbol) ?? 0) + Math.abs(n));
     }
-  }, [setKillLevel]);
+    const entries: ConcentrationEntry[] = [...bySymbol.entries()]
+      .map(([symbol, notional]) => ({
+        symbol,
+        notional,
+        pct: notional / totalNotional,
+      }))
+      .sort((a, b) => b.notional - a.notional);
+    return { concentration: entries, openCount: open.length };
+  }, [positionsQuery.data]);
 
-  useEffect(() => {
-    loadKillStatus();
-    const id = window.setInterval(loadKillStatus, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [loadKillStatus]);
+  // ---------- Kill switch ----------
+  // Shared ["killSwitch"] query — RedesignShell owns the single 10s network
+  // poll AND the killSwitchStore mirror; subscribing here adds zero extra
+  // requests. isPending is initial-load only (no per-poll flash).
+  const killQuery = useKillSwitch();
+  const killStatus = killQuery.data ?? null;
+  const killLoading = killQuery.isPending;
 
   // ---------- Active limits derivation ----------
   const activeLimits = useMemo<ActiveLimitsRow[]>(() => {
@@ -309,8 +276,9 @@ export default function RiskControlPage() {
             size="sm"
             leftIcon={<RefreshCw className="w-3 h-3" strokeWidth={1.5} />}
             onClick={() => {
-              loadKillStatus();
-              setRefreshTick((t) => t + 1);
+              killQuery.refetch();
+              riskQuery.refetch();
+              positionsQuery.refetch();
             }}
           >
             Refresh

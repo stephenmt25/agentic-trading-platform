@@ -15,9 +15,10 @@ _SNAPSHOT_THRESHOLD = Decimal("0.005")
 class _DecimalEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, Decimal):
-            return float(
-                o
-            )  # float-ok: JSON wire for dashboard display; ledger stays Decimal (TECH-DEBT 2026-06-11)
+            # Registry row 54: Decimals are str-encoded on the wire so no
+            # binary-float precision is lost in transit. Consumers parse
+            # explicitly (frontend Number(x), hot_path Decimal(str(x))).
+            return str(o)
         if hasattr(o, "hex"):  # UUID
             return str(o)
         return super().default(o)
@@ -40,8 +41,15 @@ class PnLPublisher:
             profile_id=profile_id,
             symbol=snapshot.symbol,
             gross_pnl=snapshot.gross_pnl,
-            net_pnl=snapshot.net_pre_tax,
+            net_pnl=snapshot.net_pre_tax,  # historical semantics: PRE-tax net
             pct_return=snapshot.pct_return,
+            # FE-W2: full per-position breakdown — the dashboard keys its
+            # store by position_id and reads the fee/tax fields directly.
+            position_id=str(snapshot.position_id),
+            fees=snapshot.fees,
+            net_pre_tax=snapshot.net_pre_tax,
+            net_post_tax=snapshot.net_post_tax,
+            tax_estimate=snapshot.tax_estimate,
             timestamp_us=int(time.time() * 1000000),
             source_service="pnl",
         )

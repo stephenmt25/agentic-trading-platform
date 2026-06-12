@@ -262,21 +262,40 @@ class MockDataPump:
     # ── PnL updates (every 5s) ───
 
     async def _pnl_loop(self):
+        # Mirrors the real PnlUpdateEvent wire shape (libs/core/schemas.py):
+        # Decimal fields str-encoded (registry row 54), per-position events —
+        # mock and prod exercise the exact same frontend parse path. Stable
+        # position_id per symbol: the store keys on it; a fresh uuid per
+        # publish would grow the dashboard's pnl map without bound.
+        position_ids = {sym: str(uuid.uuid4()) for sym in SYMBOLS}
+        cost_basis = 10000.0
         while True:
             for sym in SYMBOLS:
-                # Random walk the P&L
+                # Random walk the gross P&L, derive a consistent breakdown
                 self._position_pnl[sym] += random.gauss(0, 50)
-                pnl = self._position_pnl[sym]
+                gross = self._position_pnl[sym]
+                fees = abs(gross) * 0.02 + 1.0
+                net_pre_tax = gross - fees
+                tax_estimate = max(net_pre_tax, 0.0) * 0.15
+                net_post_tax = net_pre_tax - tax_estimate
                 await self._pub(
                     PUBSUB_PNL_UPDATES,
                     {
-                        "profile_id": self._profile_id,
-                        "position_id": str(uuid.uuid4()),
-                        "symbol": sym,
-                        "net_post_tax": round(pnl, 2),
-                        "net_pre_tax": round(pnl * 1.15, 2),
-                        "roi_pct": round(pnl / 10000 * 100, 4),
+                        "event_id": str(uuid.uuid4()),
+                        "event_type": "PNL_UPDATE",
                         "timestamp_us": self._now_us(),
+                        "source_service": "mock-pump",
+                        "schema_version": 1,
+                        "profile_id": self._profile_id,
+                        "position_id": position_ids[sym],
+                        "symbol": sym,
+                        "gross_pnl": f"{gross:.2f}",
+                        "net_pnl": f"{net_pre_tax:.2f}",  # pre-tax net (real semantics)
+                        "fees": f"{fees:.2f}",
+                        "net_pre_tax": f"{net_pre_tax:.2f}",
+                        "net_post_tax": f"{net_post_tax:.2f}",
+                        "tax_estimate": f"{tax_estimate:.2f}",
+                        "pct_return": f"{net_post_tax / cost_basis:.6f}",
                     },
                 )
             await asyncio.sleep(5.0)

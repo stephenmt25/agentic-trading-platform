@@ -63,11 +63,15 @@ import { backendIdToKind } from "@/app/agents/observatory/_components/eventHelpe
 import {
   api,
   type ProfileResponse,
-  type KillSwitchStatus,
 } from "@/lib/api/client";
+import { useOrders, usePositions } from "@/lib/api/hooks";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { useShallow } from "zustand/react/shallow";
-import { parseHaltLevel, useKillSwitchStore } from "@/lib/stores/killSwitchStore";
+import {
+  severity,
+  useKillSwitchStore,
+  type HaltLevel,
+} from "@/lib/stores/killSwitchStore";
 import { useOrderBookStore } from "@/lib/stores/orderbookStore";
 import { useOrdersStore, type OptimisticOrder } from "@/lib/stores/ordersStore";
 import { usePortfolioStore } from "@/lib/stores/portfolioStore";
@@ -85,22 +89,25 @@ import { cn } from "@/lib/utils";
  *
  * Wired:
  *   - PriceChart: api.marketData.candles(symbol, timeframe).
- *   - Positions: api.positions.list, polled.
+ *   - Positions: usePositions (React Query, 5s refetchInterval — stops on
+ *     unmount, pauses while the tab is hidden).
  *   - PnL: portfolioStore (populated by wsClient → pubsub:pnl_updates).
- *   - Kill switch: api.commands.killSwitchStatus polled for chrome rendering;
+ *   - Kill switch: killSwitchStore, mirrored from the single ["killSwitch"]
+ *     poll mounted in RedesignShell — no page-local poller (FE-W2);
  *     modal + Cmd+Shift+K hotkey are global (RedesignShell + KillSwitchModal).
  *   - Agent summary: agentViewStore.globalFeed → up to 3 compact AgentTrace cards.
  *   - OrderBook: orderbookStore (populated by wsClient → pubsub:orderbook).
  *   - Tape: tapeStore (populated by wsClient → pubsub:trades).
  *   - Order submit: api.orders.submit → ordersStore (optimistic insert with
- *     rollback on HTTP error); reconciled against api.orders.list polling.
- *   - Open Orders tab: api.orders.list, polled, merged with ordersStore
- *     optimistic entries.
+ *     rollback on HTTP error); reconciled against the useOrders query.
+ *   - Open Orders tab: useOrders (React Query, 5s refetchInterval), merged
+ *     with ordersStore optimistic entries.
  *
  * Pending tags surface backend reality where it lags spec:
  *   - Fills tab (no api.orders.fills or pubsub:fills channel yet).
- *   - Hard-arm kill switch state (backend is binary; same as /risk).
  *   - Drawing tools strip on PriceChart (deferred to v2 — see price-chart.md).
+ * (The kill-switch chrome is tiered as of FE-W2 — level verb + severity
+ * styling from killSwitchStore.)
  *
  * Per ADR-006 + IA §7: at ≤1024px we drop the right column entirely
  * (monitor-only mode); the chrome still surfaces PnL, positions, and the
@@ -117,8 +124,16 @@ const TIMEFRAME_LIMIT: Record<PriceChartTimeframe, number> = {
 };
 
 const POSITION_POLL_MS = 5_000;
-const KILL_POLL_MS = 10_000;
 const AGENT_TRACE_CAP = 3;
+
+// Stable empty references so memos don't churn while queries are pending.
+const EMPTY_POSITIONS: Position[] = [];
+
+// Server rows persist canonical slash-form symbols (BTC/USDT) — the gateway
+// normalizes order submissions — while the URL param is the URL-safe dash
+// form (BTC-USDT). Legacy dash-form rows still exist in the DB, so always
+// normalize BOTH sides before comparing page symbol against server data.
+const toCanonicalSymbol = (s: string) => s.replace(/-/g, "/");
 
 type BottomTab = "positions" | "orders" | "fills";
 
@@ -187,69 +202,47 @@ export default function HotTradingPage() {
   }, []);
 
   // ----- Data: positions ---------------------------------------------------
-  type Position = Awaited<ReturnType<typeof api.positions.list>>[number];
-  const [positions, setPositions] = useState<Position[]>([]);
   const activeProfileId = activeProfile?.profile_id;
+  // React Query 5s poll — shared ["positions", profileId, "open"] cache,
+  // stops refetching on unmount, pauses while the tab is hidden. Errors
+  // keep the last good data (the header banner covers connectivity).
+  const { data: positionsData } = usePositions(activeProfileId, {
+    status: "open",
+    refetchInterval: POSITION_POLL_MS,
+    enabled: !!activeProfileId,
+  });
+  const positions = positionsData ?? EMPTY_POSITIONS;
 
-  const loadPositions = useCallback(async () => {
-    if (!activeProfileId) {
-      setPositions([]);
-      return;
-    }
-    try {
-      const rows = await api.positions.list({
-        status: "open",
-        profileId: activeProfileId,
-      });
-      setPositions(rows);
-    } catch {
-      // swallow — header banner covers connectivity issues elsewhere
-    }
-  }, [activeProfileId]);
-
-  useEffect(() => {
-    loadPositions();
-    const id = window.setInterval(loadPositions, POSITION_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [loadPositions]);
-
-  const symbolPositions = useMemo(
-    () => positions.filter((p) => p.symbol === symbol),
-    [positions, symbol]
-  );
+  const symbolPositions = useMemo(() => {
+    const canon = toCanonicalSymbol(symbol);
+    return positions.filter((p) => toCanonicalSymbol(p.symbol) === canon);
+  }, [positions, symbol]);
 
   // ----- Data: PnL ---------------------------------------------------------
+  // pnlData is keyed by position_id (FE-W2 store contract): sum net_post_tax
+  // over snapshots belonging to CURRENT open positions only; skip nulls.
+  // null result = no contributing snapshot → chrome renders the honest "—"
+  // empty state instead of a fake 0.
   const pnlData = usePortfolioStore((s) => s.pnlData);
-  const totalNetPnl = useMemo(() => {
+  const totalNetPnl = useMemo<number | null>(() => {
+    const openIds = new Set(positions.map((p) => p.position_id));
     let total = 0;
+    let contributed = false;
     for (const snap of Object.values(pnlData)) {
-      total += snap.net_post_tax ?? 0;
+      if (!openIds.has(snap.position_id)) continue;
+      if (snap.net_post_tax == null) continue;
+      total += snap.net_post_tax;
+      contributed = true;
     }
-    return total;
-  }, [pnlData]);
+    return contributed ? total : null;
+  }, [pnlData, positions]);
 
   // ----- Data: kill switch -------------------------------------------------
-  const [killStatus, setKillStatus] = useState<KillSwitchStatus | null>(null);
-  const setLocalKill = useKillSwitchStore((s) => s.setLevel);
+  // No page-local poller (FE-W2): RedesignShell mounts the single 10s
+  // ["killSwitch"] poll and mirrors it into killSwitchStore — reading the
+  // store here costs zero extra network requests.
+  const killLevel = useKillSwitchStore((s) => s.level);
   const openKillModal = useKillSwitchStore((s) => s.setModalOpen);
-  const loadKill = useCallback(async () => {
-    try {
-      const s = await api.commands.killSwitchStatus();
-      setKillStatus(s);
-      // Write the tiered level straight through (FE-W1) — no more
-      // active→"soft" downgrade. parseHaltLevel guards older payloads.
-      setLocalKill(parseHaltLevel(s.level, s.active));
-    } catch {
-      /* leave previous */
-    }
-  }, [setLocalKill]);
-  useEffect(() => {
-    loadKill();
-    const id = window.setInterval(loadKill, KILL_POLL_MS);
-    return () => window.clearInterval(id);
-  }, [loadKill]);
-
-  const armed = killStatus?.active === true;
 
   // ----- Data: agent traces (filtered to current symbol) ------------------
   // Subscribe to the symbol-filtered, capped top-N events directly from the
@@ -370,7 +363,7 @@ export default function HotTradingPage() {
           if (next) setActiveProfile(next);
         }}
         totalNetPnl={totalNetPnl}
-        killArmed={armed}
+        killLevel={killLevel}
         onOpenKillModal={() => openKillModal(true)}
       />
 
@@ -417,7 +410,7 @@ export default function HotTradingPage() {
             <OrderEntryPanel
               symbol={symbol}
               midPrice={lastClose}
-              state={armed ? "kill-switch-armed" : "ok"}
+              haltLevel={killLevel}
               onSubmit={handleSubmit}
               availableSize={1}
               density="compact"
@@ -458,8 +451,10 @@ interface HotChromeProps {
   profile: ProfileResponse | null;
   profiles: ProfileResponse[];
   onProfileChange: (profileId: string) => void;
-  totalNetPnl: number;
-  killArmed: boolean;
+  /** null = no contributing PnL snapshot → render the honest "—". */
+  totalNetPnl: number | null;
+  /** Tiered halt level (killSwitchStore) — chrome renders the level verb. */
+  killLevel: HaltLevel;
   onOpenKillModal: () => void;
 }
 
@@ -471,9 +466,13 @@ function HotChrome({
   profiles,
   onProfileChange,
   totalNetPnl,
-  killArmed,
+  killLevel,
   onOpenKillModal,
 }: HotChromeProps) {
+  // Tiered chrome (FE-W2): danger tier for position-destructive verbs
+  // (NEUTRALIZE/FLATTEN), warn tier for STOP_OPENING/DE_RISK, neutral when
+  // NONE. Display only — the backend enforces the halt policy.
+  const killSev = severity(killLevel);
   // Active-only — inactive profiles can't route orders, so showing them
   // in the switcher would let the user submit through a profile the
   // backend will silently drop. The "all profiles" link covers discovery
@@ -588,20 +587,23 @@ function HotChrome({
           type="button"
           onClick={onOpenKillModal}
           aria-label="Open kill-switch modal (Cmd+Shift+K)"
+          data-halt-level={killLevel}
           className={cn(
             "inline-flex items-center gap-1.5 px-2.5 h-6 rounded-full border text-[11px] num-tabular font-medium",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent-500",
-            killArmed
-              ? "border-warn-700/50 bg-warn-700/15 text-warn-400 hover:bg-warn-700/25"
-              : "border-border-subtle bg-bg-canvas text-fg-secondary hover:bg-bg-rowhover"
+            killSev === "danger"
+              ? "border-danger-700/50 bg-danger-700/15 text-danger-500 hover:bg-danger-700/25"
+              : killSev === "warn"
+                ? "border-warn-700/50 bg-warn-700/15 text-warn-400 hover:bg-warn-700/25"
+                : "border-border-subtle bg-bg-canvas text-fg-secondary hover:bg-bg-rowhover"
           )}
         >
-          {killArmed ? (
-            <ShieldAlert className="w-3 h-3" strokeWidth={1.5} aria-hidden />
-          ) : (
+          {killSev === "off" ? (
             <Shield className="w-3 h-3" strokeWidth={1.5} aria-hidden />
+          ) : (
+            <ShieldAlert className="w-3 h-3" strokeWidth={1.5} aria-hidden />
           )}
-          {killArmed ? "armed-soft" : "disarmed"}
+          {killSev === "off" ? "disarmed" : killLevel}
         </button>
         {modeMeta && tradingMode && (
           <span
@@ -621,7 +623,16 @@ function HotChrome({
         </span>
         <span className="ml-auto inline-flex items-center gap-2 num-tabular text-[12px] text-fg-muted">
           PnL{" "}
-          <PnLBadge value={totalNetPnl} mode="absolute" size="prominent" signed />
+          {totalNetPnl === null ? (
+            <span
+              className="text-2xl font-semibold tracking-tight text-fg-muted"
+              aria-label="PnL unavailable — no live snapshot for open positions"
+            >
+              —
+            </span>
+          ) : (
+            <PnLBadge value={totalNetPnl} mode="absolute" size="prominent" signed />
+          )}
         </span>
       </div>
     </header>
@@ -785,9 +796,11 @@ function BottomTabs({
 
 /* -------------------------- Open Orders --------------------------------- */
 
-const ORDERS_POLL_MS = 5_000;
-
 type ServerOrder = Awaited<ReturnType<typeof api.orders.list>>[number];
+
+// Stable empty reference — keeps the merge memo from churning while the
+// orders query is pending/disabled.
+const EMPTY_SERVER_ORDERS: ServerOrder[] = [];
 
 interface OpenOrderRow {
   /** Either the server order_id or the optimistic tempId. */
@@ -810,41 +823,36 @@ function useOpenOrdersForSymbol(
   symbol: string,
   profileId: string | undefined
 ): OpenOrderRow[] {
-  const [serverRows, setServerRows] = useState<ServerOrder[]>([]);
   const optimistic = useOrdersStore((s) => s.optimistic);
   const reconcile = useOrdersStore((s) => s.reconcile);
 
+  // Server rows are canonical slash-form; the page symbol is dash-form.
+  const canonicalSymbol = toCanonicalSymbol(symbol);
+
+  // React Query 5s poll (refetchInterval lives in useOrders). Enabled only
+  // with both symbol and profile — mirrors the old guard that skipped the
+  // fetch without a profileId. On error the last good data is kept; the
+  // optimistic state still surfaces what the user saw.
+  const { data: ordersData } = useOrders(
+    { symbol: canonicalSymbol, profileId, limit: 50 },
+    { enabled: !!profileId }
+  );
+  const serverRows = ordersData ?? EMPTY_SERVER_ORDERS;
+
+  // Reconcile confirmed optimistic entries against each server snapshot —
+  // exactly the call the old setInterval tick made. React Query's
+  // structural sharing keeps `ordersData` referentially stable when the
+  // payload is unchanged, so this effect fires only on real updates.
   useEffect(() => {
-    if (!profileId) {
-      setServerRows([]);
-      return;
-    }
-    let cancelled = false;
-    const tick = () => {
-      api.orders
-        .list({ symbol, profileId, limit: 50 })
-        .then((rows) => {
-          if (cancelled) return;
-          setServerRows(rows);
-          reconcile(new Set(rows.map((r) => r.order_id)));
-        })
-        .catch(() => {
-          // Swallow; optimistic state still surfaces what the user saw.
-        });
-    };
-    tick();
-    const id = window.setInterval(tick, ORDERS_POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [symbol, profileId, reconcile]);
+    if (!ordersData) return;
+    reconcile(new Set(ordersData.map((r) => r.order_id)));
+  }, [ordersData, reconcile]);
 
   return useMemo(() => {
     const out: OpenOrderRow[] = [];
     const claimed = new Set<string>();
     for (const o of optimistic) {
-      if (o.symbol !== symbol) continue;
+      if (toCanonicalSymbol(o.symbol) !== canonicalSymbol) continue;
       if (profileId && o.profileId !== profileId) continue;
       if (o.status === "confirmed" && o.orderId && serverRows.some((r) => r.order_id === o.orderId)) {
         // Server already shows it — skip the optimistic shadow.
@@ -855,13 +863,13 @@ function useOpenOrdersForSymbol(
     }
     for (const r of serverRows) {
       if (!OPEN_ORDER_STATUSES.has(r.status)) continue;
-      if (r.symbol !== symbol) continue;
+      if (toCanonicalSymbol(r.symbol) !== canonicalSymbol) continue;
       if (claimed.has(r.order_id)) continue;
       out.push(toServerRow(r));
     }
     out.sort((a, b) => b.submittedAtMs - a.submittedAtMs);
     return out;
-  }, [optimistic, serverRows, symbol, profileId]);
+  }, [optimistic, serverRows, canonicalSymbol, profileId]);
 }
 
 function toOptimisticRow(o: OptimisticOrder): OpenOrderRow {

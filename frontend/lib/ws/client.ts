@@ -1,5 +1,5 @@
 import { useAuthStore } from '../stores/authStore';
-import { usePortfolioStore } from '../stores/portfolioStore';
+import { usePortfolioStore, PnLPositionSnapshot } from '../stores/portfolioStore';
 import { useAlertStore } from '../stores/alertStore';
 import { useHITLStore } from '../stores/hitlStore';
 import { useConnectionStore } from '../stores/connectionStore';
@@ -13,11 +13,72 @@ function getWsUrl(): string {
     return BACKEND_DIRECT_URL.replace(/^http/, 'ws') + '/ws';
 }
 
+// ── PnL wire parsing (FE-W2) ─────────────────────────────────────────────
+// Decimal fields are str-encoded on the wire (registry row 54). Missing or
+// unparseable values become null — consumers null-guard.
+function toNumberOrNull(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') return null;
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
+
+// Exported for tests. Returns null when the message has no position_id —
+// PNL_UPDATE events are per-position and the store keys on it.
+export function parsePnlMessage(data: any): PnLPositionSnapshot | null {
+    if (!data || typeof data !== 'object' || !data.position_id) return null;
+    return {
+        position_id: String(data.position_id),
+        profile_id: data.profile_id ? String(data.profile_id) : '',
+        symbol: data.symbol ? String(data.symbol) : '',
+        gross_pnl: toNumberOrNull(data.gross_pnl),
+        fees: toNumberOrNull(data.fees),
+        net_pre_tax: toNumberOrNull(data.net_pre_tax),
+        net_post_tax: toNumberOrNull(data.net_post_tax),
+        tax_estimate: toNumberOrNull(data.tax_estimate),
+        pct_return: toNumberOrNull(data.pct_return),
+        timestamp_us: toNumberOrNull(data.timestamp_us) ?? Date.now() * 1000,
+    };
+}
+
 class WebSocketClient {
     private socket: WebSocket | null = null;
     private reconnectAttempts = 0;
     private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     private pingInterval: ReturnType<typeof setInterval> | null = null;
+
+    // FE-W2 render-jank fix at the source: buffer latest-per-position and
+    // flush to the store at most every 250ms — ONE zustand set() per flush
+    // instead of one per message. Single timer, started on the first
+    // buffered item; cleared when the buffer empties / on disconnect.
+    private static readonly PNL_FLUSH_INTERVAL_MS = 250;
+    private pnlBuffer = new Map<string, PnLPositionSnapshot>();
+    private pnlFlushTimer: ReturnType<typeof setTimeout> | null = null;
+
+    private bufferPnlSnapshot(snapshot: PnLPositionSnapshot) {
+        this.pnlBuffer.set(snapshot.position_id, snapshot);
+        if (this.pnlFlushTimer === null) {
+            this.pnlFlushTimer = setTimeout(
+                () => this.flushPnlBuffer(),
+                WebSocketClient.PNL_FLUSH_INTERVAL_MS
+            );
+        }
+    }
+
+    private flushPnlBuffer() {
+        this.pnlFlushTimer = null;
+        if (this.pnlBuffer.size === 0) return;
+        const snapshots = Array.from(this.pnlBuffer.values());
+        this.pnlBuffer.clear();
+        usePortfolioStore.getState().applyPnlSnapshots(snapshots);
+    }
+
+    private clearPnlBuffer() {
+        if (this.pnlFlushTimer) {
+            clearTimeout(this.pnlFlushTimer);
+            this.pnlFlushTimer = null;
+        }
+        this.pnlBuffer.clear();
+    }
 
     connect() {
         // Guard CONNECTING too — a second connect() during the handshake
@@ -55,20 +116,11 @@ class WebSocketClient {
                 const data = msg.data;
 
                 switch (msg.channel) {
-                    case 'pubsub:pnl_updates':
-                        usePortfolioStore.getState().updatePnlData(
-                            data.profile_id,
-                            {
-                                position_id: data.position_id,
-                                symbol: data.symbol,
-                                net_post_tax: data.net_post_tax,
-                                net_pre_tax: data.net_pre_tax,
-                                pct_return: data.roi_pct,
-                                gross_pnl: 0, fees: 0, tax_estimate: 0, // Mock fills
-                                timestamp_us: data.timestamp_us
-                            }
-                        );
+                    case 'pubsub:pnl_updates': {
+                        const snapshot = parsePnlMessage(data);
+                        if (snapshot) this.bufferPnlSnapshot(snapshot);
                         break;
+                    }
                     case 'pubsub:system_alerts':
                         useAlertStore.getState().addAlert({
                             event_id: Math.random().toString(),
@@ -203,6 +255,7 @@ class WebSocketClient {
             this.socket = null;
         }
         this.stopHeartbeat();
+        this.clearPnlBuffer();
         this.reconnectAttempts = 0;
     }
 }

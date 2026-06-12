@@ -2,7 +2,6 @@
 
 import {
   forwardRef,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -15,6 +14,8 @@ import { Button } from "@/components/primitives/Button";
 import { Input } from "@/components/primitives/Input";
 import { Toggle } from "@/components/primitives/Toggle";
 import { Kbd } from "@/components/primitives/Kbd";
+import { LADDER } from "@/components/shell/KillSwitchModal";
+import { severity, type HaltLevel } from "@/lib/stores/killSwitchStore";
 
 /**
  * OrderEntryPanel per docs/design/04-component-specs/trading-specific.md.
@@ -22,6 +23,13 @@ import { Kbd } from "@/components/primitives/Kbd";
  * Critical-path (per frontend/DESIGN.md): the kill-switch-armed state
  * MUST always render correctly — submit disabled, danger banner, no
  * way to bypass.
+ *
+ * Tiered halt (FE-W2): `haltLevel` carries the graduated ladder from
+ * killSwitchStore. Any level ≥ STOP_OPENING disables new-entry submission
+ * and surfaces the level verb + its DECISIONS-verbatim description
+ * (shared with KillSwitchModal's LADDER — display + disable only, the
+ * backend enforces policy). The legacy binary `state="kill-switch-armed"`
+ * remains supported for callers not yet on the tiered model.
  *
  * Critical UX rule (per dYdX learnings): every input reachable in ≤3
  * keystrokes from any other. Tab order: side → size → price →
@@ -52,11 +60,21 @@ export interface OrderEntryPayload {
   postOnly: boolean;
 }
 
+/** Verb → DECISIONS-verbatim description, shared with the halt modal. */
+const HALT_DESCRIPTIONS: Partial<Record<HaltLevel, string>> =
+  Object.fromEntries(LADDER.map(({ level, description }) => [level, description]));
+
 export interface OrderEntryPanelProps
   extends Omit<HTMLAttributes<HTMLDivElement>, "onSubmit" | "children"> {
   symbol: string;
   midPrice?: number;
   state?: OrderEntryState;
+  /**
+   * Tiered trading-halt level (killSwitchStore). STOP_OPENING or higher
+   * disables new-entry submission and renders the level banner. Defaults
+   * to NONE so existing callers/states are unaffected.
+   */
+  haltLevel?: HaltLevel;
   riskBlockReason?: string;
   estimatedCost?: number;
   estimatedMargin?: number;
@@ -96,6 +114,7 @@ export const OrderEntryPanel = forwardRef<HTMLDivElement, OrderEntryPanelProps>(
       symbol,
       midPrice,
       state = "ok",
+      haltLevel = "NONE",
       riskBlockReason,
       estimatedCost,
       estimatedMargin,
@@ -146,6 +165,11 @@ export const OrderEntryPanel = forwardRef<HTMLDivElement, OrderEntryPanelProps>(
     const numericSize = parseFloat(size) || 0;
     const numericPrice = parseFloat(price) || undefined;
 
+    // Tiered halt: any level ≥ STOP_OPENING blocks new entries. Display +
+    // disable only — the backend HaltController enforces the policy.
+    const haltBlocked = haltLevel !== "NONE";
+    const haltSev = severity(haltLevel);
+
     // Within X% of mid hint for the price input
     const priceHint = useMemo(() => {
       if (!midPrice || !numericPrice || isMarket) return undefined;
@@ -173,7 +197,7 @@ export const OrderEntryPanel = forwardRef<HTMLDivElement, OrderEntryPanelProps>(
           e.preventDefault();
           setOrderTypeAndNotify("market");
         } else if (e.key === "Enter") {
-          if (state === "ok" && submitRef.current) {
+          if (state === "ok" && !haltBlocked && submitRef.current) {
             e.preventDefault();
             submitRef.current.click();
           }
@@ -182,7 +206,7 @@ export const OrderEntryPanel = forwardRef<HTMLDivElement, OrderEntryPanelProps>(
     };
 
     const handleSubmit = () => {
-      if (state !== "ok") return;
+      if (state !== "ok" || haltBlocked) return;
       if (numericSize <= 0) return;
       if (!isMarket && (numericPrice === undefined || numericPrice <= 0)) return;
       onSubmit?.({
@@ -205,6 +229,7 @@ export const OrderEntryPanel = forwardRef<HTMLDivElement, OrderEntryPanelProps>(
     };
 
     const submitDisabled =
+      haltBlocked ||
       state === "kill-switch-armed" ||
       state === "risk-block" ||
       state === "validating" ||
@@ -214,18 +239,20 @@ export const OrderEntryPanel = forwardRef<HTMLDivElement, OrderEntryPanelProps>(
     const submitLabel = useMemo(() => {
       if (state === "validating") return "validating…";
       if (state === "kill-switch-armed") return "kill switch armed";
+      if (haltBlocked) return `entries blocked — ${haltLevel}`;
       const verb = side === "buy" ? "Buy" : "Sell";
       const sizeStr = numericSize > 0 ? fmt(numericSize, 4) : "—";
       if (isMarket) return `${verb} ${sizeStr} ${symbol} @ market`;
       const priceStr =
         numericPrice !== undefined ? fmt(numericPrice, 2) : "—";
       return `${verb} ${sizeStr} ${symbol} @ ${priceStr}`;
-    }, [state, side, numericSize, symbol, isMarket, numericPrice]);
+    }, [state, haltBlocked, haltLevel, side, numericSize, symbol, isMarket, numericPrice]);
 
     // Submit button intent: per spec, the consequence color (bid for buy, ask for sell).
-    // Disabled+kill-switch state shows danger style.
+    // Disabled+kill-switch state shows danger style; tiered danger levels
+    // (NEUTRALIZE/FLATTEN) collapse to the same danger treatment.
     const submitIntent: "bid" | "ask" | "danger" =
-      state === "kill-switch-armed"
+      state === "kill-switch-armed" || (haltBlocked && haltSev === "danger")
         ? "danger"
         : side === "buy"
           ? "bid"
@@ -244,6 +271,7 @@ export const OrderEntryPanel = forwardRef<HTMLDivElement, OrderEntryPanelProps>(
         role="form"
         aria-label={`Order entry for ${symbol}`}
         data-state={state}
+        data-halt-level={haltLevel}
         data-side={side}
         // tabIndex=-1 so the panel root can receive programmatic focus —
         // lets the per-surface keyboard map deliver shortcuts here even
@@ -473,6 +501,25 @@ export const OrderEntryPanel = forwardRef<HTMLDivElement, OrderEntryPanelProps>(
             <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" strokeWidth={1.5} />
             <span>
               Kill switch armed — disarm at <span className="font-mono">/risk</span> to trade.
+            </span>
+          </div>
+        )}
+        {haltBlocked && state !== "kill-switch-armed" && (
+          <div
+            role="alert"
+            data-testid="halt-level-banner"
+            className={cn(
+              "flex items-start gap-2 rounded-sm border px-3 py-2 text-[12px]",
+              haltSev === "danger"
+                ? "bg-danger-500/15 border-danger-700/60 text-danger-500"
+                : "bg-warn-500/10 border-warn-700/40 text-warn-400"
+            )}
+          >
+            <ShieldAlert className="w-4 h-4 mt-0.5 shrink-0" strokeWidth={1.5} />
+            <span>
+              <span className="font-mono font-semibold">{haltLevel}</span>
+              {" — "}
+              {HALT_DESCRIPTIONS[haltLevel] ?? "Trading halted."}
             </span>
           </div>
         )}

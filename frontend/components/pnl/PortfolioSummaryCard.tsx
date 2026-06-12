@@ -7,11 +7,13 @@ import { InfoTooltip } from '@/components/ui/InfoTooltip';
 export const PortfolioSummaryCard: React.FC = () => {
     const pnlData = usePortfolioStore(state => state.pnlData);
 
+    // FE-W2: entries are per-position snapshots (keyed by position_id);
+    // Decimal fields parse to number | null — null-coalesce to 0 in sums.
     const entries = Object.values(pnlData);
-    const totalNet = entries.reduce((sum, pnl) => sum + pnl.net_post_tax, 0);
-    const totalGross = entries.reduce((sum, pnl) => sum + pnl.gross_pnl, 0);
-    const totalFees = entries.reduce((sum, pnl) => sum + pnl.fees, 0);
-    const totalTaxEst = entries.reduce((sum, pnl) => sum + pnl.tax_estimate, 0);
+    const totalNet = entries.reduce((sum, pnl) => sum + (pnl.net_post_tax ?? 0), 0);
+    const totalGross = entries.reduce((sum, pnl) => sum + (pnl.gross_pnl ?? 0), 0);
+    const totalFees = entries.reduce((sum, pnl) => sum + (pnl.fees ?? 0), 0);
+    const totalTaxEst = entries.reduce((sum, pnl) => sum + (pnl.tax_estimate ?? 0), 0);
     // Invested = gross PnL minus net post-tax (captures fees + taxes deducted from principal)
     // When no positions exist this shows $0.00 which is correct.
     const totalInvested = totalGross - totalNet + totalFees + totalTaxEst;

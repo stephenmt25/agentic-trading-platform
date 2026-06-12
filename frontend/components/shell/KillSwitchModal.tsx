@@ -44,7 +44,9 @@ import { cn } from "@/lib/utils";
  * reconciles. A mis-reconcile on a safety control is worse than a spinner.
  */
 
-const LADDER: Array<{
+/** Exported so OrderEntryPanel's tiered halt banner reuses this exact copy
+ * (DECISIONS-verbatim) instead of retyping it. */
+export const LADDER: Array<{
   level: Exclude<HaltLevel, "NONE">;
   description: string;
 }> = [

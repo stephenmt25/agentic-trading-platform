@@ -26,4 +26,24 @@ describe("queryKeys — key discipline", () => {
     expect(queryKeys.allRisk).toEqual(["risk", "all"]);
     expect(queryKeys.riskFor("abc")).toEqual(["risk", "profile", "abc"]);
   });
+
+  it("orders key (FE-W2) namespaces by symbol/profile/limit with 'all' fallbacks", () => {
+    expect(queryKeys.orders("BTC-USDT", "p-1", 50)).toEqual([
+      "orders",
+      "BTC-USDT",
+      "p-1",
+      50,
+    ]);
+    // Undefined slots collapse to "all" so the key is always fully addressed.
+    expect(queryKeys.orders(undefined, undefined, 50)).toEqual([
+      "orders",
+      "all",
+      "all",
+      50,
+    ]);
+    // Default limit is part of the key (different limits coexist).
+    expect(queryKeys.orders("ETH-USDT")).toEqual(["orders", "ETH-USDT", "all", 50]);
+    // Lives in its own namespace — must never alias the ["risk"] umbrella.
+    expect(queryKeys.orders("BTC-USDT")[0]).not.toBe("risk");
+  });
 });

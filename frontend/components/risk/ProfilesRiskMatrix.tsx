@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import {
   AlertTriangle,
@@ -11,7 +11,7 @@ import {
   Wallet,
 } from "lucide-react";
 
-import { api } from "@/lib/api/client";
+import { useAllRisk, usePositions, useProfiles } from "@/lib/api/hooks";
 
 /**
  * ProfilesRiskMatrix — horizontally-scrollable grid of per-profile risk
@@ -27,11 +27,13 @@ import { api } from "@/lib/api/client";
  * stress-moment question is "which profile needs intervening on first?".
  */
 
-// 30s cadence (was 10s) — this poll makes 1 + 2N requests per cycle (profiles +
-// per-profile risk + per-profile positions). At 5 active profiles that's 11
-// requests per pass. /paper-trading and friends have been observed in the
-// 20s p95 range under load, so a 10s interval just stacks queued requests
-// against the 6-per-origin browser cap until the matrix freezes.
+// FE-W2: the old setInterval cycle made 1 + 2N requests per pass (profiles
+// + per-profile risk + per-profile positions). It now collapses onto THREE
+// shared React Query reads: useProfiles + useAllRisk (one /agents/risk —
+// same per-row shape as /agents/risk/{id}) + ONE usePositions fetch grouped
+// client-side by profile_id. 30s cadence kept (see git history for the
+// 6-per-origin browser-cap rationale); refetching stops on unmount and
+// pauses while the tab is hidden.
 const POLL_INTERVAL_MS = 30_000;
 const DEFAULT_DD_THRESHOLD = 0.1;
 
@@ -57,96 +59,80 @@ function numOr<T extends number>(v: unknown, fallback: T): number {
 }
 
 export function ProfilesRiskMatrix() {
-  const [rows, setRows] = useState<MatrixRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Three shared queries replace the 1 + 2N request cycle. The profiles
+  // read is the shared ["profiles"] cache (on-demand, no extra interval);
+  // allRisk + positions poll at 30s. Per-resource failures degrade exactly
+  // like the old per-profile .catch fallbacks: missing risk → zeros,
+  // missing positions → empty (last good data is kept on refetch errors).
+  const profilesQuery = useProfiles();
+  const allRiskQuery = useAllRisk({ refetchInterval: POLL_INTERVAL_MS });
+  const positionsQuery = usePositions(undefined, {
+    status: "open",
+    refetchInterval: POLL_INTERVAL_MS,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    let inFlight = false;
+  const loading = profilesQuery.isPending;
+  const error = profilesQuery.isError
+    ? profilesQuery.error instanceof Error
+      ? profilesQuery.error.message
+      : "Failed to load matrix"
+    : null;
 
-    const load = async () => {
-      if (inFlight) return; // skip overlapping polls — see POLL_INTERVAL_MS note
-      inFlight = true;
-      try {
-        const profiles = await api.profiles.list();
-        const active = profiles.filter((p) => p.is_active);
-        if (active.length === 0) {
-          if (!cancelled) {
-            setRows([]);
-            setError(null);
-            setLoading(false);
-          }
-          return;
-        }
+  const rows = useMemo<MatrixRow[]>(() => {
+    const active = (profilesQuery.data ?? []).filter((p) => p.is_active);
+    if (active.length === 0) return [];
 
-        const results = await Promise.all(
-          active.map(async (p) => {
-            const risk = await api.agents
-              .risk(p.profile_id)
-              .catch(() => null);
-            const positions = await api.positions
-              .list({ status: "open", profileId: p.profile_id })
-              .catch(() => []);
+    const riskById = new Map(
+      (allRiskQuery.data ?? []).map((r) => [r.profile_id, r])
+    );
 
-            const open = positions.filter(
-              (pos) => pos.status?.toLowerCase() === "open"
-            );
-            const exposure = open.reduce((acc, pos) => {
-              const n = parseFloat(pos.notional ?? "0");
-              return acc + (Number.isFinite(n) ? Math.abs(n) : 0);
-            }, 0);
+    // ONE positions fetch, grouped client-side by profile_id.
+    const openByProfile = new Map<
+      string,
+      { count: number; exposure: number }
+    >();
+    for (const pos of positionsQuery.data ?? []) {
+      if (pos.status?.toLowerCase() !== "open") continue;
+      const acc = openByProfile.get(pos.profile_id) ?? {
+        count: 0,
+        exposure: 0,
+      };
+      acc.count += 1;
+      const n = parseFloat(pos.notional ?? "0");
+      if (Number.isFinite(n)) acc.exposure += Math.abs(n);
+      openByProfile.set(pos.profile_id, acc);
+    }
 
-            const rl = (p.risk_limits ?? {}) as Record<string, unknown>;
-            const maxAlloc = numOr(rl["max_allocation_pct"], 0.25);
-            const autoPause = numOr(
-              rl["auto_pause_drawdown_pct"] ?? rl["max_drawdown_pct"],
-              DEFAULT_DD_THRESHOLD
-            );
+    return active
+      .map((p) => {
+        const risk = riskById.get(p.profile_id);
+        const open = openByProfile.get(p.profile_id);
 
-            const row: MatrixRow = {
-              profile_id: p.profile_id,
-              name: p.name,
-              daily_pnl_pct: risk?.daily_pnl_pct ?? 0,
-              drawdown_pct: risk?.drawdown_pct ?? 0,
-              allocation_pct: risk?.allocation_pct ?? 0,
-              max_allocation_pct: maxAlloc,
-              auto_pause_drawdown_pct: autoPause,
-              open_count: open.length,
-              exposure_usdc: exposure,
-            };
-            return row;
-          })
+        const rl = (p.risk_limits ?? {}) as Record<string, unknown>;
+        const maxAlloc = numOr(rl["max_allocation_pct"], 0.25);
+        const autoPause = numOr(
+          rl["auto_pause_drawdown_pct"] ?? rl["max_drawdown_pct"],
+          DEFAULT_DD_THRESHOLD
         );
 
-        if (!cancelled) {
-          // Sort: worst drawdown first (largest drawdown_pct).
-          const sorted = [...results].sort(
-            (a, b) => b.drawdown_pct - a.drawdown_pct
-          );
-          setRows(sorted);
-          setError(null);
-          setLoading(false);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Failed to load matrix");
-          setLoading(false);
-        }
-      } finally {
-        inFlight = false;
-      }
-    };
+        const row: MatrixRow = {
+          profile_id: p.profile_id,
+          name: p.name,
+          daily_pnl_pct: risk?.daily_pnl_pct ?? 0,
+          drawdown_pct: risk?.drawdown_pct ?? 0,
+          allocation_pct: risk?.allocation_pct ?? 0,
+          max_allocation_pct: maxAlloc,
+          auto_pause_drawdown_pct: autoPause,
+          open_count: open?.count ?? 0,
+          exposure_usdc: open?.exposure ?? 0,
+        };
+        return row;
+      })
+      // Sort: worst drawdown first (largest drawdown_pct).
+      .sort((a, b) => b.drawdown_pct - a.drawdown_pct);
+  }, [profilesQuery.data, allRiskQuery.data, positionsQuery.data]);
 
-    load();
-    const id = window.setInterval(load, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
-
-  const headerCount = useMemo(() => rows.length, [rows]);
+  const headerCount = rows.length;
 
   return (
     <section className="flex flex-col gap-2">

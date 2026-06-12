@@ -1,7 +1,7 @@
 import asyncio
 import json
 import time
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 import msgpack
 
@@ -92,10 +92,19 @@ class PnlSync:
                 profile_id = message.get("profile_id")
                 if not profile_id:
                     return
+                # Wire Decimals are str-encoded (registry row 54); older
+                # payloads carried numerics. Accept either defensively.
+                raw_pct = message.get("pct_return")
+                pct_return = None
+                if raw_pct is not None:
+                    try:
+                        pct_return = Decimal(str(raw_pct))
+                    except (InvalidOperation, ValueError, TypeError):
+                        pct_return = None
                 logger.debug(
                     "PnL update observed",
                     profile_id=profile_id,
-                    pct_return=message.get("pct_return"),
+                    pct_return=str(pct_return) if pct_return is not None else None,
                 )
             except Exception as e:
                 logger.error("PnL sync pubsub callback error", error=str(e))
