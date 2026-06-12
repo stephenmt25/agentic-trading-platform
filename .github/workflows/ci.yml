@@ -45,8 +45,21 @@ jobs:
       # pragmatic profile in pyproject.toml. Justified `# type: ignore[code]`
       # markers carry inline rationale; several point at real defects tracked
       # in TECH-DEBT-REGISTRY (tax float/Decimal, SentimentCache dead client).
+      #
+      # mypy runs through poetry — NOT the pip-pinned tools above — for exact
+      # parity with local runs and the pre-commit hook: the bare-pip variant
+      # has neither the project deps (redis "library stubs not installed"
+      # noise, degraded inference without the pydantic plugin) nor the locked
+      # mypy version, and produced 22 phantom errors on a locally-clean tree
+      # (first blocking run, 2026-06-12).
+      - name: Install Poetry (for mypy parity)
+        run: pip install poetry==1.7.0
+
+      - name: Install dependencies (for mypy parity)
+        run: poetry install --no-interaction
+
       - name: Run mypy
-        run: mypy --ignore-missing-imports services/ libs/
+        run: poetry run mypy --ignore-missing-imports services/ libs/
 
   # ------------------------------------------------------------------
   # Domain guards: financial-precision float gate + Redis channel contract.
