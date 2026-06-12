@@ -1,24 +1,31 @@
 import asyncio
 import time
 import uuid
+from collections import deque
 from dataclasses import asdict
 from decimal import Decimal
-from typing import Any, Dict, Optional
+from typing import Any, Deque, Dict, Optional
 
 from libs.config import settings
 from libs.core.constants import THRESHOLD_PROXIMITY_BAND_PCT
-from libs.core.enums import SignalDirection, ValidationCheck, ValidationVerdict
+from libs.core.enums import (
+    EventType,
+    SignalDirection,
+    ValidationCheck,
+    ValidationVerdict,
+)
 from libs.core.models import NormalisedTick
 from libs.core.portfolio import SNAPSHOT_KEY as PORTFOLIO_SNAPSHOT_KEY
 from libs.core.portfolio import PortfolioExposure, check_order_against_budget
 from libs.core.schemas import (
+    AlertEvent,
     MarketTickEvent,
     OrderApprovedEvent,
     ThresholdProximityEvent,
     ValidationRequestEvent,
 )
 from libs.messaging import PubSubBroadcaster, StreamConsumer, StreamPublisher
-from libs.messaging.channels import ORDERS_STREAM_MAXLEN
+from libs.messaging.channels import ORDERS_STREAM_MAXLEN, PUBSUB_SYSTEM_ALERTS
 from libs.observability import MetricsCollector, get_logger, timer
 from libs.observability.telemetry import TelemetryPublisher
 
@@ -27,12 +34,12 @@ from .agent_modifier import AgentModifier
 from .blacklist import BlacklistChecker
 from .circuit_breaker import CircuitBreaker
 from .decision_writer import DecisionTraceWriter
-from .hitl_gate import HITLGate
+from .hitl_gate import HITLGate, HITLResolution, ParkedSignal
 from .kill_switch import KillSwitch
 from .reentry_gate import ReentryGate
 from .regime_dampener import RegimeDampener
 from .risk_gate import RiskGate
-from .state import ProfileStateCache
+from .state import ProfileState, ProfileStateCache
 from .strategy_eval import SignalResult, StrategyEvaluator
 from .validation_client import ValidationClient
 
@@ -41,6 +48,59 @@ logger = get_logger("hot-path.processor")
 # Market-data ticks older than this are skipped — hot_path only trades on
 # live data, never on a backlog of stale ticks drained at boot.
 MAX_TICK_AGE_S = 60.0
+
+
+class OrderBurstTripwire:
+    """Rolling-window order-publish burst detector (registry row 41 / D-K).
+
+    The boot-time pyramid race has not been root-caused (it needs a live
+    recurrence); until then this tripwire makes any recurrence LOUD the
+    moment it starts instead of 651 orders later. Per-profile publish
+    timestamps over a rolling 60s window: count > 10 → WARN log;
+    count > 25 → CRITICAL log + an AlertEvent on pubsub:system_alerts.
+    Detection only — NO auto-halt (that wiring is EN-W4 territory).
+    """
+
+    WINDOW_S = 60.0
+    WARN_THRESHOLD = 10
+    CRITICAL_THRESHOLD = 25
+    # The CRITICAL pubsub alert is rate-limited per profile so a sustained
+    # burst (the original incident was 651 orders in 87s) emits one alert
+    # per window, not one per order. Logs still record every breach.
+    ALERT_COOLDOWN_S = 60.0
+
+    def __init__(self):
+        self._publishes: Dict[str, Deque[float]] = {}
+        self._last_alert_mono: Dict[str, float] = {}
+
+    def record(self, profile_id: str, now: Optional[float] = None) -> int:
+        """Record one order publish; return the publish count inside the
+        rolling window (including this one)."""
+        if now is None:
+            now = time.monotonic()
+        dq = self._publishes.setdefault(profile_id, deque())
+        dq.append(now)
+        cutoff = now - self.WINDOW_S
+        while dq and dq[0] <= cutoff:
+            dq.popleft()
+        return len(dq)
+
+    def level(self, count: int) -> Optional[str]:
+        if count > self.CRITICAL_THRESHOLD:
+            return "CRITICAL"
+        if count > self.WARN_THRESHOLD:
+            return "WARN"
+        return None
+
+    def should_alert(self, profile_id: str, now: Optional[float] = None) -> bool:
+        """True when the per-profile alert cooldown has elapsed (and arms it)."""
+        if now is None:
+            now = time.monotonic()
+        last = self._last_alert_mono.get(profile_id)
+        if last is not None and (now - last) < self.ALERT_COOLDOWN_S:
+            return False
+        self._last_alert_mono[profile_id] = now
+        return True
 
 
 class HotPathProcessor:
@@ -78,14 +138,17 @@ class HotPathProcessor:
         # Sprint 9.5: Agent modifier for TA + sentiment scores
         self._agent_modifier = AgentModifier(redis_client) if redis_client else None
 
-        # Phase 3: HITL execution gate. Uses a separate Redis client with no
-        # socket_timeout so the 60 s BLPOP for human response isn't truncated
-        # by the default-pool's 5 s socket_timeout.
-        self._hitl_gate = (
-            HITLGate(hitl_redis_client or redis_client, pubsub)
-            if redis_client
-            else None
-        )
+        # Phase 3 / row 44 rework: the HITL gate is fully non-blocking now
+        # (per-iteration LPOP sweep, no BLPOP), so it deliberately uses the
+        # DEFAULT Redis client — the one WITH socket timeouts. The
+        # hitl_redis_client param (main.py's no-socket-timeout pool) is
+        # accepted for wiring compatibility but intentionally unused: a
+        # silently-degraded no-timeout connection inside the tick loop is
+        # exactly what froze the Phase 0 soak for ~13h.
+        self._hitl_gate = HITLGate(redis_client, pubsub) if redis_client else None
+
+        # Registry row 41 / D-K: per-profile order-publish burst detector.
+        self._order_tripwire = OrderBurstTripwire()
 
         # Updated every consume cycle. The stall watchdog in main.py reads this
         # to detect a hung processor loop (a stuck await stops it advancing).
@@ -144,6 +207,20 @@ class HotPathProcessor:
                         self._tick_channel, group_name, message_ids_to_ack
                     )
                 continue
+
+            # HITL async sweep (row 44): resolve parked approvals/denials/
+            # timeouts with a non-blocking LPOP pass — the tick loop never
+            # awaits a human. Runs every iteration (even with no ticks, since
+            # consume returns within block_ms) and sits AFTER the kill-switch
+            # check so a halt also pauses approval resumption; parked signals
+            # keep aging toward their fail-safe timeout regardless. A failure
+            # here must not take down tick processing — log and continue.
+            if self._hitl_gate is not None and self._hitl_gate.pending_count:
+                try:
+                    for resolution in await self._hitl_gate.sweep():
+                        await self._handle_hitl_resolution(resolution)
+                except Exception:
+                    logger.exception("hitl_sweep_failed")
 
             for msg_id, event in events:
                 if not event or not isinstance(event, MarketTickEvent):
@@ -570,7 +647,10 @@ class HotPathProcessor:
                             if trace:
                                 trace["gates"]["portfolio"] = {"passed": True}
 
-                        # 6b. HITL Gate (between risk_gate and validation)
+                        # 6b. HITL Gate (between risk_gate and validation).
+                        # Non-blocking (row 44): a triggered signal is PARKED
+                        # pending the human response and resolved by the
+                        # per-iteration sweep — this call returns immediately.
                         if self._hitl_gate:
                             hitl_result = await self._hitl_gate.check(
                                 profile_state,
@@ -578,7 +658,13 @@ class HotPathProcessor:
                                 tick,
                                 inds,
                                 risk_result,
+                                trace=trace,
                             )
+                            if hitl_result.parked:
+                                # Pending, not decided: the decision trace is
+                                # written at resolution time (approve / deny /
+                                # timeout) by _handle_hitl_resolution.
+                                continue
                             if hitl_result.blocked:
                                 logger.info(
                                     f"HITL blocked trade for {profile_state.profile_id} - {hitl_result.reason}"
@@ -643,75 +729,15 @@ class HotPathProcessor:
                                 "reason": val_resp.reason if val_resp else None,
                             }
 
-                        # 8. Emit Order Approved (using dynamic quantity from RiskGate)
-                        qty = risk_result.suggested_quantity
-                        order_ev = OrderApprovedEvent(
-                            profile_id=profile_state.profile_id,
-                            symbol=tick.symbol,
-                            side=SignalDirection(sig_res.direction),
-                            quantity=qty,
-                            price=tick.price,
-                            decision_event_id=trace.get("event_id"),
-                            timestamp_us=tick.timestamp,
-                            source_service="hot-path",
+                        # 8. Emit Order Approved (using dynamic quantity from
+                        # RiskGate). Shared with the HITL approve-resume path.
+                        await self._emit_approved_order(
+                            profile_state,
+                            sig_res,
+                            tick,
+                            risk_result.suggested_quantity,
+                            trace,
                         )
-                        await self._publisher.publish(
-                            self._orders_channel, order_ev, maxlen=ORDERS_STREAM_MAXLEN
-                        )
-                        MetricsCollector.increment_counter("orders.approved")
-
-                        # Optimistically mark the symbol as held so the next
-                        # tick's ReentryGate blocks a pyramid immediately —
-                        # before PnlSync's 5s poll reconciles
-                        # open_position_symbols from the positions table. The
-                        # timestamp lets that reconciliation preserve this add
-                        # while the position row is still in flight.
-                        profile_state.open_position_symbols.add(tick.symbol)
-                        profile_state.open_position_symbols_optimistic_ts[
-                            tick.symbol
-                        ] = time.monotonic()
-
-                        # Pre-bump open exposure so the next tick's RiskGate sees
-                        # the projected commitment immediately. Without this,
-                        # PnlSync's 5s reconciliation poll leaves a race window
-                        # where multiple ticks in the same window all see
-                        # exposure=0 and approve in parallel — the live failure
-                        # mode that opened 3 ETH/USDT positions in 6 seconds
-                        # past a $10k notional cap. The poll loop overwrites
-                        # this value in seconds with the DB-derived ground
-                        # truth, so over-counting is bounded to one poll cycle.
-                        try:
-                            projected_cost = Decimal(str(qty)) * Decimal(
-                                str(tick.price)
-                            )
-                            profile_state.open_exposure_dollars += projected_cost
-                        except Exception:
-                            logger.exception(
-                                "Failed to pre-bump open_exposure_dollars",
-                                profile_id=profile_state.profile_id,
-                                symbol=tick.symbol,
-                            )
-
-                        # Write approved decision trace.
-                        # Note: trade_decisions.order_id intentionally left NULL.
-                        # The reverse link is canonical: orders.decision_event_id = trade_decisions.event_id.
-                        if self._decision_writer:
-                            trace["outcome"] = "APPROVED"
-                            await self._decision_writer.write(trace)
-
-                        # Telemetry: order approved emitted
-                        if self._telemetry:
-                            await self._telemetry.emit(
-                                "output_emitted",
-                                {
-                                    "profile_id": str(profile_state.profile_id),
-                                    "symbol": tick.symbol,
-                                    "side": sig_res.direction,
-                                    "quantity": str(qty),
-                                    "price": str(tick.price),
-                                },
-                                target_agent="execution",
-                            )
 
                 message_ids_to_ack.append(msg_id)
 
@@ -719,3 +745,261 @@ class HotPathProcessor:
                 await self._consumer.ack(
                     self._tick_channel, group_name, message_ids_to_ack
                 )
+
+    async def _handle_hitl_resolution(self, resolution: HITLResolution) -> None:
+        """Apply a sweep() outcome: deny/timeout → fail-safe reject with the
+        same audit trail as the old inline BLOCKED_HITL path; approve →
+        resume the remaining gate sequence."""
+        parked = resolution.parked
+        if not resolution.approved:
+            logger.info(
+                f"HITL blocked trade for {parked.profile_id} - {resolution.reason}"
+            )
+            await self._write_hitl_block_trace(parked.trace, resolution.reason)
+            return
+        await self._resume_approved_signal(parked)
+
+    async def _write_hitl_block_trace(
+        self, trace: Dict[str, Any], reason: Optional[str]
+    ) -> None:
+        if self._decision_writer and trace:
+            trace["outcome"] = "BLOCKED_HITL"
+            trace.setdefault("gates", {})["hitl"] = {
+                "passed": False,
+                "reason": reason,
+            }
+            await self._decision_writer.write(trace)
+
+    async def _resume_approved_signal(self, parked: ParkedSignal) -> None:
+        """Resume the REMAINING gate sequence (validation → publish) for a
+        signal a human approved while it was parked.
+
+        The approval window is up to HITL_TIMEOUT_S (60s) — plenty of time
+        for the world to change — so the two cheap safety gates that can flip
+        during it are re-checked first: kill switch (trading may have been
+        halted) and re-entry (a position may have opened on this symbol).
+        Fail-safe: any doubt → reject."""
+        trace = parked.trace
+
+        profile_state = self._state_cache.get(parked.profile_id)
+        if profile_state is None or not profile_state.is_active:
+            logger.warning(
+                "HITL approval for inactive/removed profile — rejected (fail-safe)",
+                profile_id=parked.profile_id,
+                request_id=parked.request_id,
+            )
+            await self._write_hitl_block_trace(trace, "hitl_profile_inactive_at_resume")
+            return
+
+        if self._redis is not None and await KillSwitch.is_active(self._redis):
+            logger.warning(
+                "HITL approval arrived while kill switch active — rejected (fail-safe)",
+                profile_id=parked.profile_id,
+                request_id=parked.request_id,
+            )
+            await self._write_hitl_block_trace(
+                trace, "hitl_killswitch_active_at_resume"
+            )
+            return
+
+        if ReentryGate.check(profile_state, parked.symbol):
+            logger.info(
+                "gate_block",
+                gate="reentry",
+                symbol=parked.symbol,
+                stage="hitl_resume",
+            )
+            if self._decision_writer and trace:
+                trace["outcome"] = "BLOCKED_REENTRY"
+                trace.setdefault("gates", {})["reentry"] = {
+                    "passed": False,
+                    "stage": "hitl_resume",
+                }
+                await self._decision_writer.write(trace)
+            return
+
+        if trace:
+            trace.setdefault("gates", {})["hitl"] = {
+                "passed": True,
+                "triggered": True,
+                "approval_wait_s": round(time.monotonic() - parked.parked_at_mono, 1),
+            }
+
+        # 7. Validation Fast Gate — identical to the inline path, using the
+        # parked tick/indicator context. Note the order (if approved) keeps
+        # the ORIGINAL tick timestamp_us: execution's stale-order guard
+        # (age > 60s) provides downstream protection against an approval
+        # landing on a price that is no longer current.
+        val_req = ValidationRequestEvent(
+            profile_id=profile_state.profile_id,
+            symbol=parked.symbol,
+            check_type=ValidationCheck.CHECK_1_STRATEGY,
+            payload={
+                "confidence": parked.signal.confidence,
+                "inds": {
+                    "rsi": parked.indicators.rsi,
+                    "macd": parked.indicators.macd_line,
+                    "atr": parked.indicators.atr,
+                },
+            },
+            timestamp_us=parked.tick.timestamp,
+            source_service="hot-path",
+        )
+        val_resp = await self._validation_client.fast_gate(val_req)
+        if val_resp and val_resp.verdict == ValidationVerdict.RED:
+            logger.info(
+                f"Validation blocked trade for {profile_state.profile_id} - {val_resp.reason}"
+            )
+            if self._decision_writer and trace:
+                trace["outcome"] = "BLOCKED_VALIDATION"
+                trace.setdefault("gates", {})["validation"] = {
+                    "passed": False,
+                    "verdict": (val_resp.verdict.value if val_resp.verdict else "RED"),
+                    "reason": val_resp.reason,
+                }
+                await self._decision_writer.write(trace)
+            return
+        if trace:
+            trace.setdefault("gates", {})["validation"] = {
+                "passed": True,
+                "verdict": (
+                    val_resp.verdict.value if val_resp and val_resp.verdict else "GREEN"
+                ),
+                "reason": val_resp.reason if val_resp else None,
+            }
+
+        # 8. Emit Order Approved — the same shared path the inline sequence
+        # uses, so optimistic re-entry marking, exposure pre-bump, decision
+        # trace, telemetry and the burst tripwire all behave identically.
+        await self._emit_approved_order(
+            profile_state,
+            parked.signal,
+            parked.tick,
+            parked.risk_result.suggested_quantity,
+            trace,
+        )
+
+    async def _emit_approved_order(
+        self,
+        profile_state: ProfileState,
+        sig_res: SignalResult,
+        tick: NormalisedTick,
+        qty: Decimal,
+        trace: Dict[str, Any],
+    ) -> None:
+        """Publish an approved order plus all its bookkeeping. Single emit
+        path shared by the inline tick sequence and the HITL approve-resume
+        path — keeps the re-entry/exposure race guards from drifting apart."""
+        order_ev = OrderApprovedEvent(
+            profile_id=profile_state.profile_id,
+            symbol=tick.symbol,
+            side=SignalDirection(sig_res.direction),
+            quantity=qty,
+            price=tick.price,
+            decision_event_id=trace.get("event_id"),
+            timestamp_us=tick.timestamp,
+            source_service="hot-path",
+        )
+        await self._publisher.publish(
+            self._orders_channel, order_ev, maxlen=ORDERS_STREAM_MAXLEN
+        )
+        MetricsCollector.increment_counter("orders.approved")
+
+        # Registry row 41 / D-K: burst tripwire at the order-publish site.
+        await self._order_tripwire_record(profile_state.profile_id)
+
+        # Optimistically mark the symbol as held so the next
+        # tick's ReentryGate blocks a pyramid immediately —
+        # before PnlSync's 5s poll reconciles
+        # open_position_symbols from the positions table. The
+        # timestamp lets that reconciliation preserve this add
+        # while the position row is still in flight.
+        profile_state.open_position_symbols.add(tick.symbol)
+        profile_state.open_position_symbols_optimistic_ts[tick.symbol] = (
+            time.monotonic()
+        )
+
+        # Pre-bump open exposure so the next tick's RiskGate sees
+        # the projected commitment immediately. Without this,
+        # PnlSync's 5s reconciliation poll leaves a race window
+        # where multiple ticks in the same window all see
+        # exposure=0 and approve in parallel — the live failure
+        # mode that opened 3 ETH/USDT positions in 6 seconds
+        # past a $10k notional cap. The poll loop overwrites
+        # this value in seconds with the DB-derived ground
+        # truth, so over-counting is bounded to one poll cycle.
+        try:
+            projected_cost = Decimal(str(qty)) * Decimal(str(tick.price))
+            profile_state.open_exposure_dollars += projected_cost
+        except Exception:
+            logger.exception(
+                "Failed to pre-bump open_exposure_dollars",
+                profile_id=profile_state.profile_id,
+                symbol=tick.symbol,
+            )
+
+        # Write approved decision trace.
+        # Note: trade_decisions.order_id intentionally left NULL.
+        # The reverse link is canonical: orders.decision_event_id = trade_decisions.event_id.
+        if self._decision_writer:
+            trace["outcome"] = "APPROVED"
+            await self._decision_writer.write(trace)
+
+        # Telemetry: order approved emitted
+        if self._telemetry:
+            await self._telemetry.emit(
+                "output_emitted",
+                {
+                    "profile_id": str(profile_state.profile_id),
+                    "symbol": tick.symbol,
+                    "side": sig_res.direction,
+                    "quantity": str(qty),
+                    "price": str(tick.price),
+                },
+                target_agent="execution",
+            )
+
+    async def _order_tripwire_record(self, profile_id) -> None:
+        """Feed the burst tripwire; escalate per thresholds. Detection only —
+        NO auto-halt — and never allowed to break order flow."""
+        try:
+            pid = str(profile_id)
+            count = self._order_tripwire.record(pid)
+            level = self._order_tripwire.level(count)
+            if level is None:
+                return
+            if level == "CRITICAL":
+                logger.critical(
+                    "order_burst_tripwire",
+                    profile_id=pid,
+                    orders_in_window=count,
+                    window_s=int(OrderBurstTripwire.WINDOW_S),
+                    threshold=OrderBurstTripwire.CRITICAL_THRESHOLD,
+                )
+                if self._pubsub and self._order_tripwire.should_alert(pid):
+                    alert = AlertEvent(
+                        event_type=EventType.ALERT_RED,
+                        message=(
+                            f"hot_path order burst: {count} orders for profile "
+                            f"{pid} within {int(OrderBurstTripwire.WINDOW_S)}s "
+                            f"(critical threshold "
+                            f"{OrderBurstTripwire.CRITICAL_THRESHOLD}) — possible "
+                            f"pyramid race recurrence (registry row 41). "
+                            f"Detection only, no auto-halt."
+                        ),
+                        level="RED",
+                        profile_id=pid,
+                        timestamp_us=int(time.time() * 1_000_000),
+                        source_service="hot-path",
+                    )
+                    await self._pubsub.publish(PUBSUB_SYSTEM_ALERTS, alert)
+            else:
+                logger.warning(
+                    "order_burst_tripwire",
+                    profile_id=pid,
+                    orders_in_window=count,
+                    window_s=int(OrderBurstTripwire.WINDOW_S),
+                    threshold=OrderBurstTripwire.WARN_THRESHOLD,
+                )
+        except Exception:
+            logger.exception("order_tripwire_failed")

@@ -1,7 +1,9 @@
-"""Tests for Phase 3: HITL Execution Gate.
+"""Tests for the HITL Execution Gate (non-blocking park/sweep model, row 44).
 
-Tests trigger conditions, pass-through when disabled, timeout rejection,
-and approval flow.
+Covers trigger conditions, the PRAXIS_HITL_ENABLED=false bypass, parking
+(check returns immediately, never awaits a human), the sweep's
+approve/deny/timeout/parse-error resolutions, fail-safe semantics, and the
+duplicate-request dedup for sustained signals.
 """
 
 import json
@@ -88,10 +90,10 @@ class FakeRedis:
     async def delete(self, key):
         self._store.pop(key, None)
 
-    async def blpop(self, key, timeout=0):
+    async def lpop(self, key):
         if key in self._lists and self._lists[key]:
-            return (key, self._lists[key].pop(0))
-        return None  # Simulate timeout
+            return self._lists[key].pop(0)
+        return None
 
     async def lpush(self, key, value):
         if key not in self._lists:
@@ -127,12 +129,31 @@ class FakePubSub:
         self.published.append((channel, event))
 
 
+def _configure(mock_settings, enabled=True, conf=0.5, size_pct=5.0, timeout_s=60):
+    mock_settings.HITL_ENABLED = enabled
+    mock_settings.HITL_CONFIDENCE_THRESHOLD = conf
+    mock_settings.HITL_SIZE_THRESHOLD_PCT = size_pct
+    mock_settings.HITL_TIMEOUT_S = timeout_s
+
+
+async def _park_low_confidence(gate, **check_kwargs):
+    """Trigger HITL via low confidence; return the gate result."""
+    return await gate.check(
+        _make_state(),
+        _make_signal(confidence=0.3),
+        _make_tick(),
+        _make_indicators(),
+        _make_risk_result(),
+        **check_kwargs,
+    )
+
+
 # ---------------------------------------------------------------------------
-# Tests
+# Trigger + bypass tests
 # ---------------------------------------------------------------------------
 
 
-class TestHITLGate:
+class TestHITLGateTriggers:
 
     @pytest.mark.asyncio
     @patch("services.hot_path.src.hitl_gate.settings")
@@ -152,17 +173,15 @@ class TestHITLGate:
         )
         assert not result.blocked
         assert not result.hitl_triggered
+        assert not result.parked
         assert len(pubsub.published) == 0
+        assert gate.pending_count == 0
 
     @pytest.mark.asyncio
     @patch("services.hot_path.src.hitl_gate.settings")
     async def test_no_trigger_passes_through(self, mock_settings):
         """High confidence + normal regime + small trade → no trigger."""
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.5
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
-        mock_settings.HITL_TIMEOUT_S = 5
-
+        _configure(mock_settings)
         redis = FakeRedis()
         pubsub = FakePubSub()
         gate = HITLGate(redis, pubsub)
@@ -176,42 +195,39 @@ class TestHITLGate:
         )
         assert not result.blocked
         assert not result.hitl_triggered
+        assert not result.parked
 
     @pytest.mark.asyncio
     @patch("services.hot_path.src.hitl_gate.settings")
-    async def test_low_confidence_triggers(self, mock_settings):
-        """Low confidence should trigger HITL."""
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.5
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
-        mock_settings.HITL_TIMEOUT_S = 1
-
+    async def test_low_confidence_parks_immediately(self, mock_settings):
+        """Low confidence triggers HITL: request emitted, signal PARKED,
+        check returns instantly (no blocking wait)."""
+        _configure(mock_settings)
         redis = FakeRedis()
         pubsub = FakePubSub()
         gate = HITLGate(redis, pubsub)
 
-        # Low confidence, no pre-set response → timeout → reject
-        result = await gate.check(
-            _make_state(),
-            _make_signal(confidence=0.3),
-            _make_tick(),
-            _make_indicators(),
-            _make_risk_result(),
-        )
-        assert result.blocked
+        result = await _park_low_confidence(gate)
+        assert result.parked
         assert result.hitl_triggered
-        assert "timeout" in result.reason
+        assert not result.blocked
         assert len(pubsub.published) == 1  # Request was published
+        assert gate.pending_count == 1
+        # Both Redis records exist: frontend pending payload + parked record
+        request = pubsub.published[0][1]
+        assert redis._store.get(f"hitl:pending:{request.event_id}") is not None
+        parked_raw = redis._store.get(f"hitl:parked:{request.event_id}")
+        assert parked_raw is not None
+        parked_doc = json.loads(parked_raw)
+        assert parked_doc["profile_id"] == "test-profile"
+        assert parked_doc["symbol"] == "BTC/USDT"
+        assert "deadline_epoch" in parked_doc
 
     @pytest.mark.asyncio
     @patch("services.hot_path.src.hitl_gate.settings")
     async def test_high_volatility_triggers(self, mock_settings):
-        """HIGH_VOLATILITY regime should trigger HITL."""
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.3
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 50.0
-        mock_settings.HITL_TIMEOUT_S = 1
-
+        """HIGH_VOLATILITY regime should trigger HITL (park)."""
+        _configure(mock_settings, conf=0.3, size_pct=50.0)
         redis = FakeRedis()
         pubsub = FakePubSub()
         gate = HITLGate(redis, pubsub)
@@ -223,108 +239,37 @@ class TestHITLGate:
             _make_indicators(),
             _make_risk_result(),
         )
-        assert result.blocked  # Timeout → reject
+        assert result.parked
         assert result.hitl_triggered
         assert len(pubsub.published) == 1
 
     @pytest.mark.asyncio
     @patch("services.hot_path.src.hitl_gate.settings")
-    async def test_approval_unblocks(self, mock_settings):
-        """When human approves, trade should pass through."""
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.5
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
-        mock_settings.HITL_TIMEOUT_S = 5
-
+    async def test_duplicate_signal_blocked_while_parked(self, mock_settings):
+        """A sustained signal re-fires every tick — while one approval is
+        pending for a (profile, symbol), duplicates are fail-safe blocked
+        WITHOUT emitting another approval request."""
+        _configure(mock_settings)
         redis = FakeRedis()
         pubsub = FakePubSub()
         gate = HITLGate(redis, pubsub)
 
-        # We need to pre-populate the response before the gate reads it.
-        # The gate uses blpop on `hitl:response:{event_id}` but we don't know
-        # the event_id ahead of time. Instead, override blpop to always return approved.
-        async def mock_blpop(key, timeout=0):
-            return (
-                key,
-                json.dumps({"status": "APPROVED", "reviewer": "test"}).encode(),
-            )
+        first = await _park_low_confidence(gate)
+        assert first.parked
 
-        redis.blpop = mock_blpop
-
-        result = await gate.check(
-            _make_state(),
-            _make_signal(confidence=0.3),  # Low confidence triggers
-            _make_tick(),
-            _make_indicators(),
-            _make_risk_result(),
-        )
-        assert not result.blocked
-        assert result.hitl_triggered
-
-    @pytest.mark.asyncio
-    @patch("services.hot_path.src.hitl_gate.settings")
-    async def test_rejection_blocks(self, mock_settings):
-        """When human rejects, trade should be blocked."""
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.5
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
-        mock_settings.HITL_TIMEOUT_S = 5
-
-        redis = FakeRedis()
-        pubsub = FakePubSub()
-        gate = HITLGate(redis, pubsub)
-
-        async def mock_blpop(key, timeout=0):
-            return (
-                key,
-                json.dumps({"status": "REJECTED", "reason": "Too risky"}).encode(),
-            )
-
-        redis.blpop = mock_blpop
-
-        result = await gate.check(
-            _make_state(),
-            _make_signal(confidence=0.3),
-            _make_tick(),
-            _make_indicators(),
-            _make_risk_result(),
-        )
-        assert result.blocked
-        assert result.hitl_triggered
-        assert "rejected" in result.reason
-
-    @pytest.mark.asyncio
-    @patch("services.hot_path.src.hitl_gate.settings")
-    async def test_timeout_rejects_failsafe(self, mock_settings):
-        """Timeout should result in rejection (fail-safe)."""
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.5
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
-        mock_settings.HITL_TIMEOUT_S = 1
-
-        redis = FakeRedis()
-        pubsub = FakePubSub()
-        gate = HITLGate(redis, pubsub)
-
-        result = await gate.check(
-            _make_state(),
-            _make_signal(confidence=0.3),
-            _make_tick(),
-            _make_indicators(),
-            _make_risk_result(),
-        )
-        assert result.blocked
-        assert "timeout" in result.reason
+        second = await _park_low_confidence(gate)
+        assert second.blocked
+        assert second.hitl_triggered
+        assert not second.parked
+        assert second.reason == "hitl_pending_existing"
+        assert len(pubsub.published) == 1  # no duplicate request
+        assert gate.pending_count == 1
 
     @pytest.mark.asyncio
     @patch("services.hot_path.src.hitl_gate.settings")
     async def test_large_trade_triggers(self, mock_settings):
-        """Trade size exceeding threshold should trigger HITL."""
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.3
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
-        mock_settings.HITL_TIMEOUT_S = 1
-
+        """Trade size exceeding threshold should trigger HITL (park)."""
+        _configure(mock_settings, conf=0.3, timeout_s=60)
         redis = FakeRedis()
         pubsub = FakePubSub()
         gate = HITLGate(redis, pubsub)
@@ -337,7 +282,7 @@ class TestHITLGate:
             _make_indicators(),
             _make_risk_result(quantity=5.0),
         )
-        assert result.blocked  # Timeout → reject
+        assert result.parked
         assert result.hitl_triggered
 
     @pytest.mark.asyncio
@@ -350,11 +295,7 @@ class TestHITLGate:
         triggered. The corrected dollar-based formula evaluates this trade
         at $5 / $1000 = 0.5% of allocation — well below the 5% threshold.
         """
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.3
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
-        mock_settings.HITL_TIMEOUT_S = 1
-
+        _configure(mock_settings, conf=0.3)
         redis = FakeRedis()
         pubsub = FakePubSub()
         gate = HITLGate(redis, pubsub)
@@ -398,21 +339,18 @@ class TestHITLGate:
         )
         assert not result.blocked
         assert not result.hitl_triggered
+        assert not result.parked
 
     @pytest.mark.asyncio
     @patch("services.hot_path.src.hitl_gate.settings")
     async def test_size_check_triggers_on_real_dollar_excess(self, mock_settings):
-        """A trade above the dollar threshold should trigger.
+        """A trade above the dollar threshold should trigger (park).
 
         Mirrors a realistic profile (10% max allocation, $10k notional →
         $1000 allocation cap). Risk gate sized this trade at $700 — that's
         70% of the cap, well above the 5% threshold, so HITL must trigger.
         """
-        mock_settings.HITL_ENABLED = True
-        mock_settings.HITL_CONFIDENCE_THRESHOLD = 0.3
-        mock_settings.HITL_SIZE_THRESHOLD_PCT = 5.0
-        mock_settings.HITL_TIMEOUT_S = 1
-
+        _configure(mock_settings, conf=0.3)
         redis = FakeRedis()
         pubsub = FakePubSub()
         gate = HITLGate(redis, pubsub)
@@ -452,10 +390,176 @@ class TestHITLGate:
             _make_indicators(),
             _make_risk_result(quantity=Decimal("0.2")),  # $700 trade
         )
-        assert result.blocked  # Timeout → reject
+        assert result.parked
         assert result.hitl_triggered
-        # The post-timeout result.reason is "hitl_timeout_*", but the published
-        # event carries the upstream trigger reason — assert against that.
+        # The published event carries the upstream trigger reason.
         assert len(pubsub.published) == 1
         _, published = pubsub.published[0]
         assert "large_trade" in published.trigger_reason
+
+
+# ---------------------------------------------------------------------------
+# Sweep resolution tests
+# ---------------------------------------------------------------------------
+
+
+class TestHITLSweep:
+
+    @pytest.mark.asyncio
+    @patch("services.hot_path.src.hitl_gate.settings")
+    async def test_sweep_noop_when_nothing_parked(self, mock_settings):
+        _configure(mock_settings)
+        gate = HITLGate(FakeRedis(), FakePubSub())
+        assert await gate.sweep() == []
+
+    @pytest.mark.asyncio
+    @patch("services.hot_path.src.hitl_gate.settings")
+    async def test_sweep_keeps_pending_before_deadline(self, mock_settings):
+        """No response and deadline not reached → stays parked, no resolution."""
+        _configure(mock_settings, timeout_s=60)
+        redis = FakeRedis()
+        gate = HITLGate(redis, FakePubSub())
+
+        result = await _park_low_confidence(gate)
+        assert result.parked
+        assert await gate.sweep() == []
+        assert gate.pending_count == 1
+
+    @pytest.mark.asyncio
+    @patch("services.hot_path.src.hitl_gate.settings")
+    async def test_approval_resolves_approved(self, mock_settings):
+        """When human approves, sweep yields an approved resolution carrying
+        the parked context, and all keys are cleaned up."""
+        _configure(mock_settings, timeout_s=60)
+        redis = FakeRedis()
+        pubsub = FakePubSub()
+        gate = HITLGate(redis, pubsub)
+
+        await _park_low_confidence(gate)
+        request = pubsub.published[0][1]
+        await redis.lpush(
+            f"hitl:response:{request.event_id}",
+            json.dumps({"status": "APPROVED", "reviewer": "test"}).encode(),
+        )
+
+        resolutions = await gate.sweep()
+        assert len(resolutions) == 1
+        res = resolutions[0]
+        assert res.approved
+        assert res.reason is None
+        assert res.parked.symbol == "BTC/USDT"
+        assert res.parked.profile_id == "test-profile"
+        assert gate.pending_count == 0
+        assert redis._store.get(f"hitl:pending:{request.event_id}") is None
+        assert redis._store.get(f"hitl:parked:{request.event_id}") is None
+
+    @pytest.mark.asyncio
+    @patch("services.hot_path.src.hitl_gate.settings")
+    async def test_rejection_resolves_blocked(self, mock_settings):
+        """When human rejects, sweep yields a fail-safe reject resolution."""
+        _configure(mock_settings, timeout_s=60)
+        redis = FakeRedis()
+        pubsub = FakePubSub()
+        gate = HITLGate(redis, pubsub)
+
+        await _park_low_confidence(gate)
+        request = pubsub.published[0][1]
+        await redis.lpush(
+            f"hitl:response:{request.event_id}",
+            json.dumps({"status": "REJECTED", "reason": "Too risky"}).encode(),
+        )
+
+        resolutions = await gate.sweep()
+        assert len(resolutions) == 1
+        assert not resolutions[0].approved
+        assert resolutions[0].reason == "hitl_rejected"
+        assert gate.pending_count == 0
+
+    @pytest.mark.asyncio
+    @patch("services.hot_path.src.hitl_gate.settings")
+    async def test_timeout_rejects_failsafe(self, mock_settings):
+        """No response by the deadline → fail-safe reject, same reason string
+        as the old blocking implementation."""
+        _configure(mock_settings, timeout_s=0)  # deadline = park time
+        redis = FakeRedis()
+        pubsub = FakePubSub()
+        gate = HITLGate(redis, pubsub)
+
+        await _park_low_confidence(gate)
+        resolutions = await gate.sweep()
+        assert len(resolutions) == 1
+        assert not resolutions[0].approved
+        assert "timeout" in resolutions[0].reason
+        assert resolutions[0].reason == "hitl_timeout_0s"
+        assert gate.pending_count == 0
+        # Cleanup happened
+        request = pubsub.published[0][1]
+        assert redis._store.get(f"hitl:pending:{request.event_id}") is None
+
+    @pytest.mark.asyncio
+    @patch("services.hot_path.src.hitl_gate.settings")
+    async def test_malformed_response_rejects_failsafe(self, mock_settings):
+        """Unparseable response → fail-safe reject (hitl_parse_error)."""
+        _configure(mock_settings, timeout_s=60)
+        redis = FakeRedis()
+        pubsub = FakePubSub()
+        gate = HITLGate(redis, pubsub)
+
+        await _park_low_confidence(gate)
+        request = pubsub.published[0][1]
+        await redis.lpush(f"hitl:response:{request.event_id}", b"not-json{{{")
+
+        resolutions = await gate.sweep()
+        assert len(resolutions) == 1
+        assert not resolutions[0].approved
+        assert resolutions[0].reason == "hitl_parse_error"
+
+    @pytest.mark.asyncio
+    @patch("services.hot_path.src.hitl_gate.settings")
+    async def test_sweep_survives_redis_error_then_times_out(self, mock_settings):
+        """A degraded Redis connection can't hang resolution: lpop failures
+        leave the signal parked, and the monotonic deadline still fires the
+        fail-safe timeout (row 44 failure mode 2)."""
+        _configure(mock_settings, timeout_s=60)
+        redis = FakeRedis()
+        pubsub = FakePubSub()
+        gate = HITLGate(redis, pubsub)
+
+        await _park_low_confidence(gate)
+
+        async def broken_lpop(key):
+            raise ConnectionError("redis degraded")
+
+        redis.lpop = broken_lpop
+
+        # Before deadline: error tolerated, still parked.
+        assert await gate.sweep() == []
+        assert gate.pending_count == 1
+
+        # Force the deadline into the past — timeout fires even though lpop
+        # is still failing.
+        parked = next(iter(gate._parked.values()))
+        parked.deadline_mono = 0.0
+        resolutions = await gate.sweep()
+        assert len(resolutions) == 1
+        assert not resolutions[0].approved
+        assert "timeout" in resolutions[0].reason
+        assert gate.pending_count == 0
+
+    @pytest.mark.asyncio
+    @patch("services.hot_path.src.hitl_gate.settings")
+    async def test_pair_freed_after_resolution(self, mock_settings):
+        """After a resolution the (profile, symbol) pair can trigger again."""
+        _configure(mock_settings, timeout_s=0)
+        redis = FakeRedis()
+        pubsub = FakePubSub()
+        gate = HITLGate(redis, pubsub)
+
+        first = await _park_low_confidence(gate)
+        assert first.parked
+        await gate.sweep()  # timeout-rejects
+        assert gate.pending_count == 0
+
+        again = await _park_low_confidence(gate)
+        assert again.parked
+        assert len(pubsub.published) == 2

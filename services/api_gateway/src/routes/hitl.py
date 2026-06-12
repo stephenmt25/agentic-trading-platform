@@ -67,8 +67,8 @@ async def respond_to_hitl(
 ):
     """Process a human approve/reject decision for a pending HITL trade request.
 
-    Pushes the response to the Redis list that the hot-path HITL gate is
-    blocking on (BLPOP on hitl:response:{request_id}).
+    Pushes the response to the Redis list the hot-path HITL gate sweeps each
+    tick iteration (non-blocking LPOP on hitl:response:{request_id}).
     """
     redis = _get_redis()
     response_key = f"hitl:response:{body.request_id}"
