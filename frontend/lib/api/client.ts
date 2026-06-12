@@ -100,16 +100,42 @@ async function getSessionToken(): Promise<string | null> {
   return fetchSessionToken();
 }
 
+/**
+ * Token for the WebSocket URL (registry row 31 remainder). Unlike the REST
+ * fast path, this PREFERS a session-endpoint-fresh token on every
+ * (re)connect — NextAuth re-mints the backend JWT server-side inside the
+ * session read, so a long-lived tab whose store JWT has expired still
+ * handshakes with a valid token. Memoized for 30s (shared with the REST
+ * fallback cache) so reconnect bursts cost at most one fetch. Falls back to
+ * the store JWT when the session endpoint is unreachable.
+ */
+export async function getWsToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  if (
+    fallbackToken &&
+    Date.now() - fallbackToken.fetchedAt < FALLBACK_TOKEN_TTL_MS
+  ) {
+    return fallbackToken.value ?? useAuthStore.getState().jwt;
+  }
+  const fresh = await fetchSessionToken();
+  return fresh ?? useAuthStore.getState().jwt;
+}
+
 async function apiRequest<T>(
   endpoint: string,
   options: ApiClientOptions = {}
 ): Promise<T> {
   const { body, headers: customHeaders, ...rest } = options;
 
-  // FastAPI expects trailing slashes — without them it returns a 307 redirect
-  // whose response lacks CORS headers, causing browser fetch to fail.
-  const normalizedEndpoint =
-    endpoint.endsWith("/") || endpoint.includes("?") ? endpoint : `${endpoint}/`;
+  // Registry row 78: endpoint strings must literally match the FastAPI
+  // route definitions (gateway routers are mounted under prefixes in
+  // services/api_gateway/src/main.py). The old "always append a trailing
+  // slash" normalization made FastAPI 307-redirect every GET whose route is
+  // defined WITHOUT a trailing slash (e.g. /commands/kill-switch), doubling
+  // request count on every poll. Only the routers whose list/create route
+  // is literally "/" need the slash (profiles, orders, positions,
+  // exchange-keys, backtest root) — those endpoints carry it explicitly.
+  const normalizedEndpoint = endpoint;
 
   const doFetch = async (token: string | null): Promise<Response> => {
     const headers: Record<string, string> = {
@@ -341,8 +367,10 @@ export interface TradeDecision {
 
 export const api = {
   profiles: {
+    // Router root routes ("/" under the /profiles prefix) — trailing slash
+    // is the real FastAPI path; see the row-78 note in apiRequest.
     list: () =>
-      validatedRequest(z.array(ProfileResponseSchema), "/profiles"),
+      validatedRequest(z.array(ProfileResponseSchema), "/profiles/"),
 
     create: (data: {
       name: string;
@@ -350,7 +378,7 @@ export const api = {
       risk_limits?: Record<string, unknown>;
       allocation_pct?: number;
     }) =>
-      apiRequest<{ status: string; id: string; profile: ProfileResponse }>("/profiles", {
+      apiRequest<{ status: string; id: string; profile: ProfileResponse }>("/profiles/", {
         method: "POST",
         body: data,
       }),
@@ -411,7 +439,7 @@ export const api = {
         stop_loss_pct?: string | null;
         take_profit_price?: string | null;
         take_profit_pct?: string | null;
-      }>>(`/positions?${params.toString()}`);
+      }>>(`/positions/?${params.toString()}`);
     },
 
     // Manual close — see services/api_gateway/src/routes/positions.py.
@@ -749,15 +777,16 @@ export const api = {
   },
 
   exchangeKeys: {
+    // Router root routes — trailing slash is the real FastAPI path.
     list: () =>
-      validatedRequest(z.array(ExchangeKeyInfoSchema), "/exchange-keys"),
+      validatedRequest(z.array(ExchangeKeyInfoSchema), "/exchange-keys/"),
 
     store: (data: {
       exchange_id: string;
       api_key: string;
       api_secret: string;
     }) =>
-      apiRequest<StoreKeyResponse>("/exchange-keys", {
+      apiRequest<StoreKeyResponse>("/exchange-keys/", {
         method: "POST",
         body: data,
       }),
@@ -787,7 +816,7 @@ export const api = {
       timeframe: string;
       slippage_pct: number;
     }) =>
-      apiRequest<{ job_id: string; status: string }>("/backtest", {
+      apiRequest<{ job_id: string; status: string }>("/backtest/", {
         method: "POST",
         body: data,
       }),

@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { Plus, Zap } from "lucide-react";
 
 import { Pill, Sparkline, StatusDot } from "@/components/data-display";
 import { Tag } from "@/components/primitives";
-import { api, type ProfileResponse } from "@/lib/api/client";
+import { type ProfileResponse } from "@/lib/api/client";
+import {
+  useAllRisk,
+  useClosedTrades,
+  usePositions,
+  useProfiles,
+} from "@/lib/api/hooks";
 import { useTradingModeStore, type TradingMode } from "@/lib/stores/tradingModeStore";
 import { cn } from "@/lib/utils";
 
@@ -18,14 +24,16 @@ import { cn } from "@/lib/utils";
  * Per-card data is aggregated client-side because the backend has no
  * per-profile `metricsSinceBoot` endpoint yet (tracked in TECH-DEBT):
  *
- *   - `api.profiles.list()`                    — active profiles + risk_limits
- *   - `api.agents.allRisk()`                   — per-profile drawdown/alloc/daily-pnl%
- *   - `api.audit.closedTrades(limit=500)`      — per-profile realized P&L + win rate
- *   - `api.positions.list({ status: 'open' })` — open-position counts grouped by profile
+ *   - `useProfiles`                — active profiles + risk_limits
+ *   - `useAllRisk`                 — per-profile drawdown/alloc/daily-pnl%
+ *   - `useClosedTrades(limit=500)` — per-profile realized P&L + win rate
+ *   - `usePositions(status=open)`  — open-position counts grouped by profile
  *
- * Four total backend round-trips regardless of profile count. The N+1
- * shape was rejected (one call per profile × four endpoints) — see
- * TECH-DEBT row for the eventual per-profile aggregate endpoint.
+ * Four shared React Query reads on a 30s refetchInterval (FE-W2.1 — the
+ * old page-local setInterval is gone; intervals pause while the tab is
+ * hidden and stop on unmount). The N+1 shape was rejected (one call per
+ * profile × four endpoints) — see TECH-DEBT row for the eventual
+ * per-profile aggregate endpoint.
  */
 
 const POLL_INTERVAL_MS = 30_000;
@@ -86,120 +94,115 @@ function numFrom(rl: Record<string, unknown>, key: string, fallback: number): nu
 }
 
 export default function HotProfilesPage() {
-  const [cards, setCards] = useState<CardData[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
   const mode = useTradingModeStore((s) => s.mode);
 
-  useEffect(() => {
-    let cancelled = false;
+  // Four shared queries on the same 30s cadence the old setInterval used.
+  // Only the profiles read surfaces an error (matching the old code, where
+  // the other three were `.catch(() => [])` best-effort reads).
+  const profilesQuery = useProfiles({ refetchInterval: POLL_INTERVAL_MS });
+  const risksQuery = useAllRisk({ refetchInterval: POLL_INTERVAL_MS });
+  const tradesQuery = useClosedTrades(
+    { limit: 500 },
+    { refetchInterval: POLL_INTERVAL_MS }
+  );
+  const positionsQuery = usePositions(undefined, {
+    status: "open",
+    refetchInterval: POLL_INTERVAL_MS,
+  });
 
-    const load = async () => {
-      try {
-        const [profiles, risks, trades, positions] = await Promise.all([
-          api.profiles.list(),
-          api.agents.allRisk().catch(() => [] as RiskRow[]),
-          api.audit
-            .closedTrades({ limit: 500 })
-            .catch(() => [] as ClosedTrade[]),
-          api.positions
-            .list({ status: "open" })
-            .catch(() => [] as OpenPosition[]),
-        ]);
+  const loading = profilesQuery.isPending;
+  const error = profilesQuery.error
+    ? profilesQuery.error instanceof Error
+      ? profilesQuery.error.message
+      : "Failed to load profiles"
+    : null;
 
-        const active = profiles.filter((p) => p.is_active);
-        const riskByProfile = new Map<string, RiskRow>(
-          risks.map((r) => [r.profile_id, r])
-        );
+  const cards = useMemo<CardData[] | null>(() => {
+    const profiles = profilesQuery.data;
+    if (!profiles) return null;
+    const risks: RiskRow[] = risksQuery.data ?? [];
+    const trades: ClosedTrade[] = tradesQuery.data ?? [];
+    const positions: OpenPosition[] = positionsQuery.data ?? [];
 
-        // Group closed trades by profile_id. Already closed_at DESC from server.
-        const tradesByProfile = new Map<string, ClosedTrade[]>();
-        for (const t of trades) {
-          if (!t.profile_id) continue;
-          const arr = tradesByProfile.get(t.profile_id) ?? [];
-          arr.push(t);
-          tradesByProfile.set(t.profile_id, arr);
-        }
+    const active = profiles.filter((p) => p.is_active);
+    const riskByProfile = new Map<string, RiskRow>(
+      risks.map((r) => [r.profile_id, r])
+    );
 
-        // Group open positions by profile_id.
-        const openByProfile = new Map<string, number>();
-        for (const p of positions) {
-          if (p.status?.toLowerCase() !== "open") continue;
-          openByProfile.set(
-            p.profile_id,
-            (openByProfile.get(p.profile_id) ?? 0) + 1
-          );
-        }
+    // Group closed trades by profile_id. Already closed_at DESC from server.
+    const tradesByProfile = new Map<string, ClosedTrade[]>();
+    for (const t of trades) {
+      if (!t.profile_id) continue;
+      const arr = tradesByProfile.get(t.profile_id) ?? [];
+      arr.push(t);
+      tradesByProfile.set(t.profile_id, arr);
+    }
 
-        const now = new Date();
-        const rows: CardData[] = active.map((p: ProfileResponse) => {
-          const ptrades = tradesByProfile.get(p.profile_id) ?? [];
-          const todayTrades = ptrades.filter((t) =>
-            isSameUtcDay(t.closed_at, now)
-          );
-          const wins = todayTrades.filter((t) => t.outcome === "win").length;
-          const decided = todayTrades.filter(
-            (t) => t.outcome === "win" || t.outcome === "loss"
-          ).length;
+    // Group open positions by profile_id.
+    const openByProfile = new Map<string, number>();
+    for (const p of positions) {
+      if (p.status?.toLowerCase() !== "open") continue;
+      openByProfile.set(
+        p.profile_id,
+        (openByProfile.get(p.profile_id) ?? 0) + 1
+      );
+    }
 
-          const netPnl = ptrades.reduce(
-            (acc, t) => acc + (Number.isFinite(t.realized_pnl) ? t.realized_pnl : 0),
-            0
-          );
+    const now = new Date();
+    const rows: CardData[] = active.map((p: ProfileResponse) => {
+      const ptrades = tradesByProfile.get(p.profile_id) ?? [];
+      const todayTrades = ptrades.filter((t) =>
+        isSameUtcDay(t.closed_at, now)
+      );
+      const wins = todayTrades.filter((t) => t.outcome === "win").length;
+      const decided = todayTrades.filter(
+        (t) => t.outcome === "win" || t.outcome === "loss"
+      ).length;
 
-          // Sparkline: cumulative net P&L over the most recent 24 trades
-          // (in chronological order). Server returned closed_at DESC.
-          const last24 = ptrades.slice(0, 24).reverse();
-          let running = 0;
-          const sparkline = last24.map((t) => {
-            running += Number.isFinite(t.realized_pnl) ? t.realized_pnl : 0;
-            return running;
-          });
+      const netPnl = ptrades.reduce(
+        (acc, t) => acc + (Number.isFinite(t.realized_pnl) ? t.realized_pnl : 0),
+        0
+      );
 
-          const rl = (p.risk_limits ?? {}) as Record<string, unknown>;
-          const maxAlloc = numFrom(rl, "max_allocation_pct", 0.25);
+      // Sparkline: cumulative net P&L over the most recent 24 trades
+      // (in chronological order). Server returned closed_at DESC.
+      const last24 = ptrades.slice(0, 24).reverse();
+      let running = 0;
+      const sparkline = last24.map((t) => {
+        running += Number.isFinite(t.realized_pnl) ? t.realized_pnl : 0;
+        return running;
+      });
 
-          const risk = riskByProfile.get(p.profile_id);
+      const rl = (p.risk_limits ?? {}) as Record<string, unknown>;
+      const maxAlloc = numFrom(rl, "max_allocation_pct", 0.25);
 
-          return {
-            profile_id: p.profile_id,
-            name: p.name,
-            is_active: p.is_active,
-            net_pnl_since_boot: netPnl,
-            trades_today: todayTrades.length,
-            win_rate_today: decided > 0 ? wins / decided : null,
-            drawdown_pct: risk?.drawdown_pct ?? 0,
-            allocation_pct: risk?.allocation_pct ?? 0,
-            max_allocation_pct: maxAlloc,
-            open_positions: openByProfile.get(p.profile_id) ?? 0,
-            pnl_sparkline: sparkline,
-            last_trade_at: ptrades[0]?.closed_at ?? null,
-          };
-        });
+      const risk = riskByProfile.get(p.profile_id);
 
-        // Sort: net P&L since boot DESC (spec §9.1).
-        rows.sort((a, b) => b.net_pnl_since_boot - a.net_pnl_since_boot);
+      return {
+        profile_id: p.profile_id,
+        name: p.name,
+        is_active: p.is_active,
+        net_pnl_since_boot: netPnl,
+        trades_today: todayTrades.length,
+        win_rate_today: decided > 0 ? wins / decided : null,
+        drawdown_pct: risk?.drawdown_pct ?? 0,
+        allocation_pct: risk?.allocation_pct ?? 0,
+        max_allocation_pct: maxAlloc,
+        open_positions: openByProfile.get(p.profile_id) ?? 0,
+        pnl_sparkline: sparkline,
+        last_trade_at: ptrades[0]?.closed_at ?? null,
+      };
+    });
 
-        if (!cancelled) {
-          setCards(rows);
-          setError(null);
-          setLoading(false);
-        }
-      } catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : "Failed to load profiles");
-          setLoading(false);
-        }
-      }
-    };
-
-    load();
-    const id = window.setInterval(load, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, []);
+    // Sort: net P&L since boot DESC (spec §9.1).
+    rows.sort((a, b) => b.net_pnl_since_boot - a.net_pnl_since_boot);
+    return rows;
+  }, [
+    profilesQuery.data,
+    risksQuery.data,
+    tradesQuery.data,
+    positionsQuery.data,
+  ]);
 
   return (
     <div

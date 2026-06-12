@@ -402,7 +402,13 @@ export function PriceChart({
         {loading && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <div className="flex items-center gap-2 text-[12px] text-fg-muted bg-bg-panel/80 px-3 py-1.5 rounded-sm">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+              {/* will-change-transform: composite the spin off the main
+                  thread — without it Chrome flags every rotation frame as a
+                  layout shift (registry row 28, CLS 0.1041 culprit). */}
+              <Loader2
+                className="w-3.5 h-3.5 animate-spin will-change-transform"
+                aria-hidden
+              />
               Loading candles…
             </div>
           </div>

@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
-import { api } from '../../lib/api/client';
+import React from 'react';
 import { AgentScore } from '../../lib/types';
+import { useAgentStatus } from '../../lib/api/hooks';
 import { RegimeBadge } from '../profiles/RegimeBadge';
 import { InfoTooltip } from '@/components/ui/InfoTooltip';
 import { Badge } from '@/components/ui/badge';
@@ -11,32 +11,18 @@ import {
   WifiOff,
 } from 'lucide-react';
 
-const POLL_INTERVAL = 15000; // 15 seconds
-
 export const AgentStatusPanel: React.FC = () => {
-  const [agents, setAgents] = useState<AgentScore[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-  const [error, setError] = useState(false);
-
-  const fetchAgents = async () => {
-    try {
-      const data = await api.agents.status();
-      setAgents(data as AgentScore[]);
-      setLastUpdated(new Date());
-      setError(false);
-    } catch {
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchAgents();
-    const interval = setInterval(fetchAgents, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, []);
+  // FE-W2.1: shared ["agentStatus"] query, 15s refetchInterval (pauses
+  // while the tab is hidden; stops on unmount). Stale data survives a
+  // failed poll exactly like the old keep-last-agents behavior.
+  const agentsQuery = useAgentStatus();
+  const agents = (agentsQuery.data ?? []) as AgentScore[];
+  const loading = agentsQuery.isFetching;
+  const error = agentsQuery.isError && agents.length === 0;
+  const lastUpdated = agentsQuery.dataUpdatedAt
+    ? new Date(agentsQuery.dataUpdatedAt)
+    : null;
+  const fetchAgents = () => agentsQuery.refetch();
 
   const hasAnyData = agents.some(
     (a) => a.ta_score !== null || a.sentiment_score !== null || a.hmm_regime !== null
@@ -60,7 +46,7 @@ export const AgentStatusPanel: React.FC = () => {
             className="p-2 rounded-md hover:bg-accent transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             aria-label="Refresh agent scores"
           >
-            <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw className={`w-3.5 h-3.5 text-muted-foreground ${loading ? 'animate-spin will-change-transform' : ''}`} />
           </button>
         </div>
       </div>

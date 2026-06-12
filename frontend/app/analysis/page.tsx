@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { api } from "@/lib/api/client";
+import { useAgentScores, useAgentWeights, useCandles } from "@/lib/api/hooks";
 import { useAnalysisStore } from "@/lib/stores/analysisStore";
 import { PriceChart } from "@/components/analysis/PriceChart";
 import { AgentScoreOverlay } from "@/components/analysis/AgentScoreOverlay";
@@ -45,45 +44,43 @@ interface WeightData {
   trackers: Record<string, { ewma: number | null; samples: number; last_updated: string | null }>;
 }
 
+const REFRESH_MS = 60_000;
+
 export default function AnalysisPage() {
   const symbol = useAnalysisStore((s) => s.symbol);
   const timeframe = useAnalysisStore((s) => s.timeframe);
   const visibleOverlays = useAnalysisStore((s) => s.visibleOverlays);
 
-  const [candles, setCandles] = useState<CandleData[]>([]);
-  const [scores, setScores] = useState<ScoreDataPoint[]>([]);
-  const [weights, setWeights] = useState<WeightData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // FE-W2.1: the page's bundled Promise.all + 60s setInterval becomes three
+  // shared React Query reads on the same cadence (candles via the existing
+  // useCandles hook — registry row 75). Symbol/timeframe changes change the
+  // keys, so isPending reproduces the old per-switch loading state without
+  // the old full-page flash on every background refresh.
+  const candlesQuery = useCandles(symbol, timeframe, {
+    limit: 500,
+    refetchInterval: REFRESH_MS,
+  });
+  const scoresQuery = useAgentScores(
+    symbol,
+    { agents: "ta,sentiment,debate,regime_hmm", limit: 2000 },
+    { refetchInterval: REFRESH_MS }
+  );
+  const weightsQuery = useAgentWeights(symbol, {
+    refetchInterval: REFRESH_MS,
+  });
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [candleData, scoreData, weightData] = await Promise.all([
-        api.marketData.candles(symbol, timeframe, 500),
-        api.agentPerformance.scores(symbol, {
-          agents: "ta,sentiment,debate,regime_hmm",
-          limit: 2000,
-        }),
-        api.agentPerformance.weights(symbol),
-      ]);
-      setCandles(candleData);
-      setScores(scoreData);
-      setWeights(weightData);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load data");
-    } finally {
-      setLoading(false);
-    }
-  }, [symbol, timeframe]);
-
-  useEffect(() => {
-    fetchData();
-    // Auto-refresh every 60 seconds
-    const interval = setInterval(fetchData, 60_000);
-    return () => clearInterval(interval);
-  }, [fetchData]);
+  const candles: CandleData[] = candlesQuery.data ?? [];
+  const scores: ScoreDataPoint[] = scoresQuery.data ?? [];
+  const weights: WeightData | null = weightsQuery.data ?? null;
+  const loading =
+    candlesQuery.isPending || scoresQuery.isPending || weightsQuery.isPending;
+  const firstError =
+    candlesQuery.error ?? scoresQuery.error ?? weightsQuery.error;
+  const error = firstError
+    ? firstError instanceof Error
+      ? firstError.message
+      : "Failed to load data"
+    : null;
 
   return (
     <motion.div
@@ -114,7 +111,7 @@ export default function AnalysisPage() {
       {/* Main chart area */}
       {loading ? (
         <div className="flex items-center justify-center h-[400px] bg-zinc-900/50 rounded-lg border border-zinc-800">
-          <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+          <Loader2 className="w-6 h-6 text-blue-400 animate-spin will-change-transform" />
           <span className="ml-2 text-sm text-zinc-400">Loading chart data...</span>
         </div>
       ) : error ? (

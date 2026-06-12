@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Download, Search, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { Button, Input, Select, Tag, type SelectOption } from "@/components/primitives";
 import { Pill } from "@/components/data-display";
-import { api } from "@/lib/api/client";
+import { useAuditUserEvents } from "@/lib/api/hooks";
 
 const EVENT_TYPES: SelectOption[] = [
   { value: "all", label: "All events" },
@@ -34,66 +34,57 @@ const TYPE_LABEL: Record<string, string> = {
   auth_fail: "Sign-in",
 };
 
-const POLL_MS = 30_000;
-
 /**
  * /settings/audit — read-only user-action event log.
  * Surface spec: docs/design/05-surface-specs/06-profiles-settings.md §10.
  *
- * Wired against api.audit.userEvents (services/api_gateway/src/routes/audit.py).
- * Today's source: kill-switch transitions from Redis. Profile changes,
- * API-key rotations, agent overrides, and failed sign-ins are spec'd but
- * their sources don't emit yet — the page tags those in "What gets
- * recorded" with their reason; the response shape stays stable so each
- * source flips from Pending to Recorded as it lands.
+ * Wired against api.audit.userEvents via the shared `useAuditUserEvents`
+ * query (30s refetchInterval, keyed by the filter tuple — FE-W2.1, no
+ * page-local setInterval). Today's source: kill-switch transitions from
+ * Redis. Profile changes, API-key rotations, agent overrides, and failed
+ * sign-ins are spec'd but their sources don't emit yet — the page tags
+ * those in "What gets recorded" with their reason; the response shape
+ * stays stable so each source flips from Pending to Recorded as it lands.
  */
 export default function AuditLogPage() {
   const [eventType, setEventType] = useState<EventTypeKey>("all");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
 
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [availableTypes, setAvailableTypes] = useState<Set<string>>(new Set());
-  const [pendingTypes, setPendingTypes] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Inclusive end-of-day for the upper bound — without this the user's
+  // 'to' selection of e.g. 2026-05-10 only matches events at midnight.
+  const fromMs = useMemo(() => {
+    if (!from) return undefined;
+    const t = Date.parse(from);
+    return Number.isFinite(t) ? t : undefined;
+  }, [from]);
+  const toMs = useMemo(() => {
+    if (!to) return undefined;
+    const t = Date.parse(to) + 86_400_000 - 1;
+    return Number.isFinite(t) ? t : undefined;
+  }, [to]);
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = () => {
-      const fromMs = from ? Date.parse(from) : undefined;
-      // Inclusive end-of-day for the upper bound — without this the user's
-      // 'to' selection of e.g. 2026-05-10 only matches events at midnight.
-      const toMs = to ? Date.parse(to) + 86_400_000 - 1 : undefined;
-      api.audit
-        .userEvents({
-          type: eventType,
-          from: Number.isFinite(fromMs) ? fromMs : undefined,
-          to: Number.isFinite(toMs) ? toMs : undefined,
-          limit: 200,
-        })
-        .then((res) => {
-          if (cancelled) return;
-          setEvents(res.events);
-          setAvailableTypes(new Set(res.available_types));
-          setPendingTypes(new Set(res.pending_types));
-          setError(null);
-        })
-        .catch((e: unknown) => {
-          if (cancelled) return;
-          setError(e instanceof Error ? e.message : "Failed to load audit events");
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-    };
-    tick();
-    const id = window.setInterval(tick, POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [eventType, from, to]);
+  const eventsQuery = useAuditUserEvents({
+    type: eventType,
+    from: fromMs,
+    to: toMs,
+    limit: 200,
+  });
+  const events: AuditEvent[] = eventsQuery.data?.events ?? [];
+  const availableTypes = useMemo(
+    () => new Set(eventsQuery.data?.available_types ?? []),
+    [eventsQuery.data]
+  );
+  const pendingTypes = useMemo(
+    () => new Set(eventsQuery.data?.pending_types ?? []),
+    [eventsQuery.data]
+  );
+  const loading = eventsQuery.isPending;
+  const error = eventsQuery.error
+    ? eventsQuery.error instanceof Error
+      ? eventsQuery.error.message
+      : "Failed to load audit events"
+    : null;
 
   const hasFilters = eventType !== "all" || !!from || !!to;
   const allPendingTypeFiltered =

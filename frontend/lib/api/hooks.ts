@@ -37,6 +37,19 @@ export type KillSwitchState = ApiResult<typeof api.commands.killSwitchStatus>;
 export type RiskPortfolio = ApiResult<typeof api.risk.portfolio>;
 export type DecaySnapshot = ApiResult<typeof api.risk.decay>;
 export type NetOfCost = ApiResult<typeof api.pnl.netOfCost>;
+// FE-W2.1 final sweep (debt burn-down F1)
+export type PaperStatus = ApiResult<typeof api.paperTrading.status>;
+export type DecisionRow = ApiResult<typeof api.paperTrading.decisions>[number];
+export type AgentStatusRow = ApiResult<typeof api.agents.status>[number];
+export type SessionsPayload = ApiResult<typeof api.sessions.list>;
+export type UserEventsPayload = ApiResult<typeof api.audit.userEvents>;
+export type BacktestHistoryPayload = ApiResult<typeof api.backtest.history>;
+export type BacktestResultPayload = ApiResult<typeof api.backtest.result>;
+export type AgentScorePoint = ApiResult<typeof api.agentPerformance.scores>[number];
+export type AgentWeightsPayload = ApiResult<typeof api.agentPerformance.weights>;
+export type GateAnalyticsPayload = ApiResult<
+  typeof api.agentPerformance.gateAnalytics
+>;
 
 type QueryOpts<TData> = Omit<UseQueryOptions<TData>, "queryKey" | "queryFn">;
 
@@ -69,6 +82,40 @@ export const queryKeys = {
   netOfCost: (windowHours: number) => ["netOfCost", windowHours] as const,
   closedTrades: (symbol?: string, limit = 500) =>
     ["closedTrades", symbol ?? "all", limit] as const,
+  // ---- FE-W2.1 final sweep (debt burn-down F1) ----
+  /** Engine-wide /paper-trading/status (EngineTotalsPill + DailyPnlTab). */
+  paperTradingStatus: ["paperTradingStatus"] as const,
+  /** Trade decisions feed, addressed by profile/outcome/limit. */
+  decisions: (profileId?: string, outcome?: string, limit = 100) =>
+    ["decisions", profileId ?? "all", outcome ?? "all", limit] as const,
+  /** /agents/status — latest per-symbol agent scores. */
+  agentStatus: ["agentStatus"] as const,
+  /** /auth/sessions — the settings sessions list. */
+  sessions: ["sessions"] as const,
+  /** /audit/user-events, addressed by the page's filter tuple. */
+  auditUserEvents: (
+    type: string,
+    fromMs?: number,
+    toMs?: number,
+    limit = 200
+  ) => ["auditUserEvents", type, fromMs ?? null, toMs ?? null, limit] as const,
+  /** /backtest/history — the run-list read. */
+  backtestHistory: (limit = 100) => ["backtestHistory", limit] as const,
+  /** /backtest/{job_id} — one job's status payload (live-run polling). */
+  backtestResult: (jobId: string) => ["backtestResult", jobId] as const,
+  /** /agent-performance/scores/{symbol} (the /analysis overlay read). */
+  agentScores: (symbol: string, agents?: string, limit = 2000) =>
+    ["agentScores", symbol, agents ?? "all", limit] as const,
+  /** /agent-performance/weights/{symbol}. */
+  agentWeights: (symbol: string) => ["agentWeights", symbol] as const,
+  /** /agent-performance/gate-analytics/{symbol} (AttributionTab). */
+  gateAnalytics: (symbol: string, profileId?: string, limit = 500) =>
+    ["gateAnalytics", symbol, profileId ?? "all", limit] as const,
+  /** /performance surface (F2) — ONE key for its bundled 4-endpoint
+   * Promise.all read (weights + gate analytics + weight history +
+   * attribution land together, preserving the page's single
+   * loading/error state). Own namespace; never aliases ["risk"]. */
+  agentPerformance: (symbol: string) => ["agentPerformance", symbol] as const,
 };
 
 // ---- Hooks ----
@@ -229,5 +276,137 @@ export function useClosedTrades(
     queryKey: queryKeys.closedTrades(params?.symbol, limit),
     queryFn: () => api.audit.closedTrades({ symbol: params?.symbol, limit }),
     ...opts,
+  });
+}
+
+// ---- FE-W2.1 final sweep (debt burn-down F1) ----
+
+/**
+ * Engine-wide paper-trading status ("since boot" totals + daily reports).
+ * One shared 30s poll for every consumer (EngineTotalsPill lives in chrome
+ * on every surface; DailyPnlTab reads the same payload). React Query's
+ * dedupe replaces the pill's old in-flight guard, and its abort signal
+ * replaces the manual AbortController.
+ */
+export function usePaperTradingStatus(opts?: QueryOpts<PaperStatus>) {
+  return useQuery({
+    queryKey: queryKeys.paperTradingStatus,
+    queryFn: ({ signal }) => api.paperTrading.status({ signal }),
+    refetchInterval: 30_000,
+    ...opts,
+  });
+}
+
+/** Trade decisions for a profile (DecisionsTab). 15s — the tab is the
+ * highest-traffic observation surface. */
+export function useDecisions(
+  params: { profileId?: string; outcome?: string; limit?: number },
+  opts?: QueryOpts<DecisionRow[]>
+) {
+  const { profileId, outcome, limit = 100 } = params;
+  return useQuery({
+    queryKey: queryKeys.decisions(profileId, outcome, limit),
+    queryFn: () =>
+      api.paperTrading.decisions({ profile_id: profileId, outcome, limit }),
+    refetchInterval: 15_000,
+    ...opts,
+  });
+}
+
+/** Latest per-symbol agent scores (AgentStatusPanel). */
+export function useAgentStatus(opts?: QueryOpts<AgentStatusRow[]>) {
+  return useQuery({
+    queryKey: queryKeys.agentStatus,
+    queryFn: () => api.agents.status(),
+    refetchInterval: 15_000,
+    ...opts,
+  });
+}
+
+/** Active sessions for the current user (/settings/sessions). */
+export function useSessions(opts?: QueryOpts<SessionsPayload>) {
+  return useQuery({
+    queryKey: queryKeys.sessions,
+    queryFn: () => api.sessions.list(),
+    refetchInterval: 60_000,
+    ...opts,
+  });
+}
+
+/** User-action audit feed (/settings/audit), keyed by the filter tuple. */
+export function useAuditUserEvents(
+  params: {
+    type: "all" | "kill_switch" | "profile" | "api_key" | "override" | "auth_fail";
+    from?: number;
+    to?: number;
+    limit?: number;
+  },
+  opts?: QueryOpts<UserEventsPayload>
+) {
+  const { type, from, to, limit = 200 } = params;
+  return useQuery({
+    queryKey: queryKeys.auditUserEvents(type, from, to, limit),
+    queryFn: () => api.audit.userEvents({ type, from, to, limit }),
+    refetchInterval: 30_000,
+    ...opts,
+  });
+}
+
+/** Backtest run history (one-shot; the list page refetches on demand). */
+export function useBacktestHistory(
+  limit = 100,
+  opts?: QueryOpts<BacktestHistoryPayload>
+) {
+  return useQuery({
+    queryKey: queryKeys.backtestHistory(limit),
+    queryFn: () => api.backtest.history({ limit }),
+    ...opts,
+  });
+}
+
+/** Agent score series for the /analysis overlay. Callers set the poll. */
+export function useAgentScores(
+  symbol: string,
+  params?: { agents?: string; limit?: number },
+  opts?: QueryOpts<AgentScorePoint[]>
+) {
+  const { agents, limit = 2000 } = params ?? {};
+  const { enabled, ...rest } = opts ?? {};
+  return useQuery({
+    queryKey: queryKeys.agentScores(symbol, agents, limit),
+    queryFn: () => api.agentPerformance.scores(symbol, { agents, limit }),
+    ...rest,
+    enabled: !!symbol && (enabled ?? true),
+  });
+}
+
+/** Current agent weights + trackers for a symbol. Callers set the poll. */
+export function useAgentWeights(
+  symbol: string,
+  opts?: QueryOpts<AgentWeightsPayload>
+) {
+  const { enabled, ...rest } = opts ?? {};
+  return useQuery({
+    queryKey: queryKeys.agentWeights(symbol),
+    queryFn: () => api.agentPerformance.weights(symbol),
+    ...rest,
+    enabled: !!symbol && (enabled ?? true),
+  });
+}
+
+/** Gate pass/block analytics for a symbol (AttributionTab, 60s). */
+export function useGateAnalytics(
+  symbol: string,
+  params?: { profileId?: string; limit?: number },
+  opts?: QueryOpts<GateAnalyticsPayload>
+) {
+  const { profileId, limit = 500 } = params ?? {};
+  const { enabled, ...rest } = opts ?? {};
+  return useQuery({
+    queryKey: queryKeys.gateAnalytics(symbol, profileId, limit),
+    queryFn: () => api.agentPerformance.gateAnalytics(symbol, { profileId, limit }),
+    refetchInterval: 60_000,
+    ...rest,
+    enabled: !!symbol && (enabled ?? true),
   });
 }

@@ -1,5 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { parsePnlMessage } from "./client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { parsePnlMessage, wsClient } from "./client";
+import { useAuthStore } from "../stores/authStore";
+import { clearSessionTokenCache } from "../api/client";
 
 // Real wire shape: PnlUpdateEvent with Decimal fields str-encoded
 // (registry row 54), forwarded verbatim by the gateway.
@@ -79,5 +81,100 @@ describe("parsePnlMessage", () => {
     const after = Date.now() * 1000;
     expect(snapshot!.timestamp_us).toBeGreaterThanOrEqual(before);
     expect(snapshot!.timestamp_us).toBeLessThanOrEqual(after);
+  });
+});
+
+// ── Token refresh on (re)connect — registry row 31 remainder ─────────────
+// Every connect must resolve a session-fresh token instead of reusing the
+// authStore JWT captured at an earlier time (a long-idle tab's store JWT
+// can be expired while the NextAuth session endpoint re-mints a valid one).
+
+class FakeWebSocket {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+  static instances: FakeWebSocket[] = [];
+  url: string;
+  readyState = FakeWebSocket.CONNECTING;
+  onopen: (() => void) | null = null;
+  onmessage: ((e: { data: unknown }) => void) | null = null;
+  onerror: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  constructor(url: string) {
+    this.url = url;
+    FakeWebSocket.instances.push(this);
+  }
+  close() {
+    this.readyState = FakeWebSocket.CLOSED;
+  }
+  send() {}
+}
+
+describe("wsClient.connect — session-fresh token per (re)connect", () => {
+  beforeEach(() => {
+    FakeWebSocket.instances = [];
+    vi.stubGlobal("WebSocket", FakeWebSocket);
+    clearSessionTokenCache();
+    useAuthStore.getState().setSession("stale-store-jwt", "user@test");
+  });
+
+  afterEach(() => {
+    wsClient.disconnect();
+    clearSessionTokenCache();
+    useAuthStore.getState().logout();
+    vi.unstubAllGlobals();
+  });
+
+  it("puts the session-endpoint token in the WS URL, not the store JWT", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        json: async () => ({ accessToken: "fresh-session-token" }),
+      }))
+    );
+
+    wsClient.connect();
+    await vi.waitFor(() => {
+      expect(FakeWebSocket.instances.length).toBe(1);
+    });
+
+    const url = FakeWebSocket.instances[0].url;
+    expect(url).toContain("token=fresh-session-token");
+    expect(url).not.toContain("stale-store-jwt");
+  });
+
+  it("falls back to the store JWT when the session endpoint is unreachable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw new Error("offline");
+      })
+    );
+
+    wsClient.connect();
+    await vi.waitFor(() => {
+      expect(FakeWebSocket.instances.length).toBe(1);
+    });
+
+    expect(FakeWebSocket.instances[0].url).toContain("token=stale-store-jwt");
+  });
+
+  it("does not open a second socket while a connect is already in flight", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        json: async () => ({ accessToken: "fresh-session-token" }),
+      }))
+    );
+
+    wsClient.connect();
+    wsClient.connect(); // second call during the async token resolution
+    await vi.waitFor(() => {
+      expect(FakeWebSocket.instances.length).toBeGreaterThanOrEqual(1);
+    });
+    // Give any stray second connect a chance to (incorrectly) land.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(FakeWebSocket.instances.length).toBe(1);
   });
 });

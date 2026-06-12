@@ -6,18 +6,6 @@ export interface Profile {
   //... other fields
 }
 
-export interface PnLSnapshot {
-  position_id: string;
-  symbol: string;
-  gross_pnl: number;
-  fees: number;
-  net_pre_tax: number;
-  net_post_tax: number;
-  pct_return: number;
-  tax_estimate: number;
-  timestamp_us?: number;
-}
-
 export interface ValidationAlert {
   event_id: string;
   timestamp_us: number;

@@ -1,13 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 
 import { Select } from "@/components/primitives";
 import { StatusDot } from "@/components/data-display";
-import { api, type ProfileResponse } from "@/lib/api/client";
+import { useClosedTrades, useProfiles, useRisk } from "@/lib/api/hooks";
 import { cn } from "@/lib/utils";
 import { MetricStrip, type ProfileStrip } from "./_components/MetricStrip";
 import { DecisionsTab } from "./_components/DecisionsTab";
@@ -38,13 +38,6 @@ const TABS: { id: Tab; label: string }[] = [
 const STORAGE_PREFIX = "praxis:profile-cockpit:tab:";
 const POLL_INTERVAL_MS = 30_000;
 
-interface ClosedTrade {
-  profile_id: string;
-  realized_pnl: number;
-  closed_at: string;
-  outcome: string;
-}
-
 function isSameUtcDay(iso: string, now: Date): boolean {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return false;
@@ -72,10 +65,23 @@ export default function ProfileCockpitPage() {
   const search = useSearchParams();
   const profileId = decodeURIComponent(params.id);
 
-  const [profile, setProfile] = useState<ProfileResponse | null>(null);
-  const [profiles, setProfiles] = useState<ProfileResponse[]>([]);
-  const [strip, setStrip] = useState<ProfileStrip | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  // ---- Profile list (shared useProfiles read — FE-W2.1) ----
+  const profilesQuery = useProfiles();
+  const profiles = useMemo(
+    () => profilesQuery.data ?? [],
+    [profilesQuery.data]
+  );
+  const profile = useMemo(
+    () => profiles.find((p) => p.profile_id === profileId) ?? null,
+    [profiles, profileId]
+  );
+  const loadError = profilesQuery.error
+    ? profilesQuery.error instanceof Error
+      ? profilesQuery.error.message
+      : "Failed to load profile"
+    : profilesQuery.data && !profile
+      ? `Profile ${profileId} not found`
+      : null;
 
   // ---- Tab state ----
   const urlTab = search.get("tab") as Tab | null;
@@ -165,86 +171,48 @@ export default function ProfileCockpitPage() {
     [updateQuery]
   );
 
-  // ---- Profile list (powers switch + name resolution) ----
-  useEffect(() => {
-    let cancelled = false;
-    api.profiles
-      .list()
-      .then((all) => {
-        if (cancelled) return;
-        setProfiles(all);
-        const me = all.find((p) => p.profile_id === profileId);
-        if (me) {
-          setProfile(me);
-          setLoadError(null);
-        } else {
-          setLoadError(`Profile ${profileId} not found`);
-        }
-      })
-      .catch((e: unknown) => {
-        if (!cancelled)
-          setLoadError(
-            e instanceof Error ? e.message : "Failed to load profile"
-          );
-      });
-    return () => {
-      cancelled = true;
+  // ---- Stat strip aggregation (FE-W2.1: React Query, 30s) ----
+  // risk + closed-trades errors degrade gracefully (zeros / null strip),
+  // matching the old best-effort `.catch` reads — the banner is owned by
+  // the profile fetch above.
+  const riskQuery = useRisk(profileId, {
+    refetchInterval: POLL_INTERVAL_MS,
+    enabled: !!profile,
+  });
+  const tradesQuery = useClosedTrades(
+    { limit: 500 },
+    { refetchInterval: POLL_INTERVAL_MS, enabled: !!profile }
+  );
+
+  const strip = useMemo<ProfileStrip | null>(() => {
+    const trades = tradesQuery.data;
+    if (!profile || !trades) return null;
+    const risk = riskQuery.data ?? null;
+
+    const ptrades = trades.filter((t) => t.profile_id === profileId);
+    const now = new Date();
+    const todayTrades = ptrades.filter((t) => isSameUtcDay(t.closed_at, now));
+    const wins = todayTrades.filter((t) => t.outcome === "win").length;
+    const decided = todayTrades.filter(
+      (t) => t.outcome === "win" || t.outcome === "loss"
+    ).length;
+    const netPnl = ptrades.reduce(
+      (acc, t) => acc + (Number.isFinite(t.realized_pnl) ? t.realized_pnl : 0),
+      0
+    );
+
+    const rl = (profile.risk_limits ?? {}) as Record<string, unknown>;
+    const maxAlloc = numFrom(rl, "max_allocation_pct", 0.25);
+
+    return {
+      net_pnl_since_boot: netPnl,
+      trades_today: todayTrades.length,
+      win_rate_today: decided > 0 ? wins / decided : null,
+      drawdown_pct: risk?.drawdown_pct ?? 0,
+      allocation_pct: risk?.allocation_pct ?? 0,
+      max_allocation_pct: maxAlloc,
     };
-  }, [profileId]);
-
-  // ---- Stat strip aggregation ----
-  useEffect(() => {
-    if (!profile) return;
-    let cancelled = false;
-
-    const load = async () => {
-      try {
-        const [risk, trades] = await Promise.all([
-          api.agents.risk(profileId).catch(() => null),
-          api.audit
-            .closedTrades({ limit: 500 })
-            .catch(() => [] as ClosedTrade[]),
-        ]);
-
-        const ptrades = trades.filter((t) => t.profile_id === profileId);
-        const now = new Date();
-        const todayTrades = ptrades.filter((t) =>
-          isSameUtcDay(t.closed_at, now)
-        );
-        const wins = todayTrades.filter((t) => t.outcome === "win").length;
-        const decided = todayTrades.filter(
-          (t) => t.outcome === "win" || t.outcome === "loss"
-        ).length;
-        const netPnl = ptrades.reduce(
-          (acc, t) => acc + (Number.isFinite(t.realized_pnl) ? t.realized_pnl : 0),
-          0
-        );
-
-        const rl = (profile.risk_limits ?? {}) as Record<string, unknown>;
-        const maxAlloc = numFrom(rl, "max_allocation_pct", 0.25);
-
-        if (!cancelled) {
-          setStrip({
-            net_pnl_since_boot: netPnl,
-            trades_today: todayTrades.length,
-            win_rate_today: decided > 0 ? wins / decided : null,
-            drawdown_pct: risk?.drawdown_pct ?? 0,
-            allocation_pct: risk?.allocation_pct ?? 0,
-            max_allocation_pct: maxAlloc,
-          });
-        }
-      } catch {
-        // Banner is owned by the profile fetch; silent on strip errors.
-      }
-    };
-
-    load();
-    const id = window.setInterval(load, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [profile, profileId]);
+  }, [profile, profileId, riskQuery.data, tradesQuery.data]);
 
   const profileOptions = useMemo(
     () =>

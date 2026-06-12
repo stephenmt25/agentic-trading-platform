@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { api, type PaperTradingStatus } from "@/lib/api/client";
+import { type PaperTradingStatus } from "@/lib/api/client";
+import { usePaperTradingStatus } from "@/lib/api/hooks";
 import { useConnectionStore } from "@/lib/stores/connectionStore";
 
 /**
@@ -13,23 +14,17 @@ import { useConnectionStore } from "@/lib/stores/connectionStore";
  * standalone PnL pill would carry once it lands). Click expands a popover
  * with the full strip — gross P&L, trades, win rate, max DD, Sharpe.
  *
- * Polling discipline (2026-05-13): the chrome lives on every surface, so a
- * misbehaving poll cascades into every page. Hardening:
- *   - 30s interval (was 10s) — the strip is "since boot," not real-time
- *   - Skip if the previous request is still in flight (no stacking)
- *   - Hard 8s timeout via AbortController (kills the slowest tail of
- *     /paper-trading/status when the backend is under load — see TECH-DEBT
- *     row for that endpoint)
- *   - Stale-aware render: keep the last known value when a poll fails or
- *     times out, so we don't blink back to "—"
+ * Polling discipline (FE-W2.1): the chrome lives on every surface, so a
+ * misbehaving poll cascades into every page. The shared
+ * `usePaperTradingStatus` query (30s) replaces the page-local setInterval:
+ *   - React Query dedupes concurrent observers (no request stacking — the
+ *     old in-flight ref) and pauses the interval while the tab is hidden
+ *   - The query's abort signal cancels an in-flight fetch on unmount (the
+ *     old manual AbortController)
+ *   - Errors keep the last good data, so the headline never blinks back
+ *     to "—" on a failed poll
+ *   - `enabled` gates on the chrome connection state, as before
  */
-
-const POLL_INTERVAL_MS = 30_000;
-// 20s timeout — long enough to ride out backend slowness (status endpoint
-// has been observed in the 20–25s p95 range under memory pressure) without
-// letting a truly stuck request occupy one of the browser's 6 concurrent
-// slots per origin indefinitely.
-const REQUEST_TIMEOUT_MS = 20_000;
 
 type Metrics = PaperTradingStatus["metrics"];
 
@@ -59,49 +54,16 @@ function toneForPnL(value: number | undefined): "ok" | "danger" | "neutral" {
 
 export function EngineTotalsPill() {
   const backendStatus = useConnectionStore((s) => s.backendStatus);
-  const [status, setStatus] = useState<PaperTradingStatus | null>(null);
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const inFlightRef = useRef(false);
 
-  // Poll while connected. Last good snapshot survives a failed poll so the
-  // headline doesn't blink to "—" — staleness is implicit from the chrome
-  // connection pill. See the polling-discipline note at module top.
-  useEffect(() => {
-    if (backendStatus !== "connected") return;
-    let cancelled = false;
-
-    const fetchStatus = async () => {
-      if (inFlightRef.current) return; // skip overlapping polls
-      inFlightRef.current = true;
-
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(
-        () => controller.abort(),
-        REQUEST_TIMEOUT_MS,
-      );
-
-      try {
-        const next = await api.paperTrading.status({
-          signal: controller.signal,
-        });
-        if (!cancelled) setStatus(next);
-      } catch {
-        // Swallow — connection pill owns error surfacing. Stale `status`
-        // remains visible.
-      } finally {
-        window.clearTimeout(timeoutId);
-        inFlightRef.current = false;
-      }
-    };
-
-    fetchStatus();
-    const id = window.setInterval(fetchStatus, POLL_INTERVAL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [backendStatus]);
+  // Shared ["paperTradingStatus"] query — see the polling-discipline note
+  // at module top. Last good snapshot survives a failed poll (React Query
+  // keeps `data` on error); the connection pill owns error surfacing.
+  const { data } = usePaperTradingStatus({
+    enabled: backendStatus === "connected",
+  });
+  const status: PaperTradingStatus | null = data ?? null;
 
   useEffect(() => {
     if (!open) return;

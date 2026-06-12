@@ -270,7 +270,7 @@ export default function BacktestCompareePage() {
       <div className="flex-1 min-h-0 overflow-auto">
         {loading && (
           <div className="mx-6 mt-6 rounded-md border border-border-subtle bg-bg-panel p-6 flex items-center gap-3">
-            <Loader2 className="w-4 h-4 text-fg-muted animate-spin" aria-hidden />
+            <Loader2 className="w-4 h-4 text-fg-muted animate-spin will-change-transform" aria-hidden />
             <span className="text-[13px] text-fg-muted">
               Loading {runIds.length} run{runIds.length === 1 ? "" : "s"}…
             </span>

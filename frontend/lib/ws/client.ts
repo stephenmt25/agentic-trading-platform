@@ -6,7 +6,7 @@ import { useConnectionStore } from '../stores/connectionStore';
 import { useAgentViewStore } from '../stores/agentViewStore';
 import { useOrderBookStore } from '../stores/orderbookStore';
 import { useTapeStore } from '../stores/tapeStore';
-import { BACKEND_DIRECT_URL } from '../api/client';
+import { BACKEND_DIRECT_URL, getWsToken } from '../api/client';
 
 function getWsUrl(): string {
     // WebSocket must connect directly to the backend (Vercel can't proxy WS)
@@ -80,6 +80,10 @@ class WebSocketClient {
         this.pnlBuffer.clear();
     }
 
+    // Guards a second connect() arriving while the async token fetch for a
+    // first one is still resolving — without it both would open sockets.
+    private connectPending = false;
+
     connect() {
         // Guard CONNECTING too — a second connect() during the handshake
         // would orphan the first socket, whose onclose then schedules a
@@ -96,10 +100,34 @@ class WebSocketClient {
             clearTimeout(this.reconnectTimer);
             this.reconnectTimer = null;
         }
+        if (this.connectPending) return;
+        this.connectPending = true;
 
-        const token = useAuthStore.getState().jwt;
-        if (!token) return;
+        // Registry row 31 remainder: resolve a session-fresh token on EVERY
+        // (re)connect instead of reusing whatever JWT the authStore held at
+        // connect time — a long-idle tab's store JWT can be expired while
+        // the NextAuth session endpoint re-mints a valid one server-side.
+        void (async () => {
+            try {
+                const token = await getWsToken();
+                if (!token) return;
+                // Re-check after the await — a competing open/handshake may
+                // have landed while the token fetch was in flight.
+                if (
+                    this.socket &&
+                    (this.socket.readyState === WebSocket.OPEN ||
+                        this.socket.readyState === WebSocket.CONNECTING)
+                ) {
+                    return;
+                }
+                this.openSocket(token);
+            } finally {
+                this.connectPending = false;
+            }
+        })();
+    }
 
+    private openSocket(token: string) {
         const wsUrl = `${getWsUrl()}?token=${encodeURIComponent(token)}`;
         this.socket = new WebSocket(wsUrl);
 

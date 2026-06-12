@@ -64,7 +64,7 @@ import {
   api,
   type ProfileResponse,
 } from "@/lib/api/client";
-import { useOrders, usePositions } from "@/lib/api/hooks";
+import { useCandles, useOrders, usePositions, useProfiles } from "@/lib/api/hooks";
 import { useAgentViewStore } from "@/lib/stores/agentViewStore";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -88,7 +88,8 @@ import { cn } from "@/lib/utils";
  *   right (360px): OrderEntryPanel + AgentSummaryPanel
  *
  * Wired:
- *   - PriceChart: api.marketData.candles(symbol, timeframe).
+ *   - PriceChart: useCandles(symbol, timeframe) — shared React Query read
+ *     (row 75; one cache entry per symbol/timeframe/limit).
  *   - Positions: usePositions (React Query, 5s refetchInterval — stops on
  *     unmount, pauses while the tab is hidden).
  *   - PnL: portfolioStore (populated by wsClient → pubsub:pnl_updates).
@@ -142,64 +143,51 @@ export default function HotTradingPage() {
   const router = useRouter();
   const symbol = decodeURIComponent(params.symbol).toUpperCase();
 
-  // ----- Data: candles ----------------------------------------------------
+  // ----- Data: candles (row 75: shared useCandles, keyed by
+  // symbol/timeframe/limit — a switch changes the key, so isPending
+  // reproduces the old per-switch loading state) ---------------------------
   const [timeframe, setTimeframe] = useState<PriceChartTimeframe>("1m");
-  const [candles, setCandles] = useState<PriceChartCandle[]>([]);
-  const [candlesLoading, setCandlesLoading] = useState(true);
-  const [candlesError, setCandlesError] = useState<string | null>(null);
+  const candlesQuery = useCandles(symbol, timeframe, {
+    limit: TIMEFRAME_LIMIT[timeframe],
+  });
+  const candles = useMemo<PriceChartCandle[]>(
+    () =>
+      (candlesQuery.data ?? []).map((r) => ({
+        time: r.time,
+        open: r.open,
+        high: r.high,
+        low: r.low,
+        close: r.close,
+        volume: r.volume,
+      })),
+    [candlesQuery.data]
+  );
+  const candlesLoading = candlesQuery.isPending;
+  const candlesError = candlesQuery.error
+    ? candlesQuery.error instanceof Error
+      ? candlesQuery.error.message
+      : "Failed to load candles"
+    : null;
 
-  const loadCandles = useCallback(async () => {
-    setCandlesLoading(true);
-    setCandlesError(null);
-    try {
-      const rows = await api.marketData.candles(
-        symbol,
-        timeframe,
-        TIMEFRAME_LIMIT[timeframe]
-      );
-      setCandles(
-        rows.map((r) => ({
-          time: r.time,
-          open: r.open,
-          high: r.high,
-          low: r.low,
-          close: r.close,
-          volume: r.volume,
-        }))
-      );
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Failed to load candles";
-      setCandlesError(msg);
-      setCandles([]);
-    } finally {
-      setCandlesLoading(false);
-    }
-  }, [symbol, timeframe]);
-
-  useEffect(() => {
-    loadCandles();
-  }, [loadCandles]);
-
-  // ----- Data: profiles + active --------------------------------------
-  const [profiles, setProfiles] = useState<ProfileResponse[]>([]);
-  const [activeProfile, setActiveProfile] = useState<ProfileResponse | null>(
+  // ----- Data: profiles + active (row 75: shared useProfiles read) -------
+  // The active profile is derived: an explicit user selection wins while it
+  // still exists; otherwise first active, then first, then none — exactly
+  // the old fetch-time resolution, now resilient to refetches.
+  const profilesQuery = useProfiles();
+  const profiles = useMemo(
+    () => profilesQuery.data ?? [],
+    [profilesQuery.data]
+  );
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(
     null
   );
-  useEffect(() => {
-    let cancelled = false;
-    api.profiles
-      .list()
-      .then((all) => {
-        if (cancelled) return;
-        setProfiles(all);
-        const active = all.find((p) => p.is_active) ?? all[0] ?? null;
-        setActiveProfile(active);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const activeProfile = useMemo<ProfileResponse | null>(() => {
+    if (selectedProfileId) {
+      const sel = profiles.find((p) => p.profile_id === selectedProfileId);
+      if (sel) return sel;
+    }
+    return profiles.find((p) => p.is_active) ?? profiles[0] ?? null;
+  }, [profiles, selectedProfileId]);
 
   // ----- Data: positions ---------------------------------------------------
   const activeProfileId = activeProfile?.profile_id;
@@ -358,10 +346,7 @@ export default function HotTradingPage() {
         symbolOptions={symbolOptions}
         profile={activeProfile}
         profiles={profiles}
-        onProfileChange={(id) => {
-          const next = profiles.find((p) => p.profile_id === id);
-          if (next) setActiveProfile(next);
-        }}
+        onProfileChange={(id) => setSelectedProfileId(id)}
         totalNetPnl={totalNetPnl}
         killLevel={killLevel}
         onOpenKillModal={() => openKillModal(true)}
@@ -927,7 +912,7 @@ function OrdersList({ rows }: { rows: OpenOrderRow[] }) {
           <span className="font-mono text-fg">{r.price ?? "mkt"}</span>
           <span className="ml-auto flex items-center gap-2">
             {r.status === "submitting" && (
-              <Pill intent="warn" icon={<Loader2 className="w-3 h-3 animate-spin" aria-hidden />}>
+              <Pill intent="warn" icon={<Loader2 className="w-3 h-3 animate-spin will-change-transform" aria-hidden />}>
                 submitting
               </Pill>
             )}

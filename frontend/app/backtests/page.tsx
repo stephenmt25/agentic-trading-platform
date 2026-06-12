@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useQueries } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Plus,
@@ -29,6 +30,7 @@ import {
 import { PnLBadge } from "@/components/trading";
 import { cn } from "@/lib/utils";
 import { api, type ProfileResponse } from "@/lib/api/client";
+import { queryKeys, useBacktestHistory, useProfiles } from "@/lib/api/hooks";
 import { NewBacktestDialog } from "./_components/NewBacktestDialog";
 
 type RunStatus = "queued" | "running" | "completed" | "failed";
@@ -50,8 +52,6 @@ interface RunRow {
   createdAt: string;
   status: RunStatus;
   errorDetail?: string;
-  /** Live runs only — current poll generation for cleanup. */
-  pollKey?: number;
 }
 
 const STATUS_OPTIONS: SelectOption[] = [
@@ -142,11 +142,12 @@ export default function BacktestsListPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [runs, setRuns] = useState<RunRow[]>([]);
+  // Completed live runs are prepended here so they surface with their
+  // freshly polled metrics immediately, without waiting for a history
+  // refetch (the run IS persisted server-side and shows up in history on
+  // the next refetch; the merge dedupes by jobId).
+  const [completedLiveRuns, setCompletedLiveRuns] = useState<RunRow[]>([]);
   const [liveRuns, setLiveRuns] = useState<RunRow[]>([]);
-  const [profiles, setProfiles] = useState<ProfileResponse[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const [filterProfile, setFilterProfile] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<string>("all");
@@ -179,6 +180,25 @@ export default function BacktestsListPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(initialSelectedIds);
   const [showNewDialog, setShowNewDialog] = useState(false);
 
+  // FE-W2.1: history + profiles on shared React Query reads (one-shot;
+  // the Refresh button refetches both). Profile errors degrade to short
+  // ids, matching the old `.catch(() => [])` best-effort read.
+  const profilesQuery = useProfiles();
+  const profiles = useMemo<ProfileResponse[]>(
+    () => profilesQuery.data ?? [],
+    [profilesQuery.data]
+  );
+  const historyQuery = useBacktestHistory(100);
+  const loading = historyQuery.isPending;
+  const error = useMemo(() => {
+    if (!historyQuery.error) return null;
+    const msg =
+      historyQuery.error instanceof Error
+        ? historyQuery.error.message
+        : "Failed to load backtests";
+    return msg.includes("Unauthorized") ? null : msg;
+  }, [historyQuery.error]);
+
   const profileNameFor = useCallback(
     (id: string | null) => {
       if (!id) return "—";
@@ -188,122 +208,97 @@ export default function BacktestsListPage() {
     [profiles]
   );
 
-  const loadHistory = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [profilesData, history] = await Promise.all([
-        api.profiles.list().catch(() => [] as ProfileResponse[]),
-        api.backtest.history({ limit: 100 }),
-      ]);
-      setProfiles(profilesData);
-      const items: RunRow[] = history.items.map((r) => ({
-        jobId: r.job_id,
-        profileId: r.profile_id,
-        profileName: profilesData.find((p) => p.profile_id === r.profile_id)?.name ?? (r.profile_id?.slice(0, 7) ?? "—"),
-        symbol: r.symbol,
-        startDate: r.start_date,
-        endDate: r.end_date,
-        timeframe: r.timeframe,
-        totalTrades: r.total_trades,
-        winRate: toNumber(r.win_rate),
-        avgReturn: toNumber(r.avg_return),
-        maxDrawdown: toNumber(r.max_drawdown),
-        sharpe: toNumber(r.sharpe),
-        profitFactor: toNumber(r.profit_factor),
-        createdAt: r.created_at,
-        status: "completed",
-      }));
-      setRuns(items);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to load backtests";
-      if (!msg.includes("Unauthorized")) setError(msg);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const loadHistory = useCallback(() => {
+    void profilesQuery.refetch();
+    void historyQuery.refetch();
+  }, [profilesQuery.refetch, historyQuery.refetch]);
 
-  useEffect(() => {
-    loadHistory();
-  }, [loadHistory]);
+  const runs = useMemo<RunRow[]>(() => {
+    const items = historyQuery.data?.items ?? [];
+    return items.map((r) => ({
+      jobId: r.job_id,
+      profileId: r.profile_id,
+      profileName: r.profile_id
+        ? profileNameFor(r.profile_id)
+        : "—",
+      symbol: r.symbol,
+      startDate: r.start_date,
+      endDate: r.end_date,
+      timeframe: r.timeframe,
+      totalTrades: r.total_trades,
+      winRate: toNumber(r.win_rate),
+      avgReturn: toNumber(r.avg_return),
+      maxDrawdown: toNumber(r.max_drawdown),
+      sharpe: toNumber(r.sharpe),
+      profitFactor: toNumber(r.profit_factor),
+      createdAt: r.created_at,
+      status: "completed" as RunStatus,
+    }));
+  }, [historyQuery.data, profileNameFor]);
 
-  // Backfill profile names if profiles list arrives after history.
-  useEffect(() => {
-    if (profiles.length === 0) return;
-    setRuns((prev) =>
-      prev.map((r) => ({
-        ...r,
-        profileName: profileNameFor(r.profileId),
-      }))
-    );
-  }, [profiles, profileNameFor]);
+  // Poll live runs (FE-W2.1: useQueries replaces the setInterval fan-out —
+  // one ["backtestResult", jobId] query per inflight job at the same 2.5s
+  // cadence; a query unmounts the moment its job leaves the inflight set).
+  const inflight = useMemo(
+    () =>
+      liveRuns.filter((r) => r.status === "queued" || r.status === "running"),
+    [liveRuns]
+  );
+  const liveResults = useQueries({
+    queries: inflight.map((r) => ({
+      queryKey: queryKeys.backtestResult(r.jobId),
+      queryFn: () => api.backtest.result(r.jobId),
+      refetchInterval: POLL_MS,
+      // Transient errors: keep the interval polling (old behavior).
+      retry: false,
+    })),
+  });
 
-  // Poll live runs.
-  const pollGenRef = useRef(0);
+  // Reconcile poll results into run state. Transitions are one-shot by
+  // construction: completing/failing a job removes it from `inflight`,
+  // which unmounts its query — so a toast can't re-fire.
   useEffect(() => {
-    if (liveRuns.length === 0) return;
-    const gen = ++pollGenRef.current;
-    let cancelled = false;
-    const tick = async () => {
-      const inflight = liveRuns.filter(
-        (r) => r.status === "queued" || r.status === "running"
-      );
-      if (inflight.length === 0) return;
-      await Promise.all(
-        inflight.map(async (r) => {
-          try {
-            const res = await api.backtest.result(r.jobId);
-            if (cancelled || gen !== pollGenRef.current) return;
-            const status = res.status as RunStatus;
-            if (status === "completed") {
-              const payload = res as unknown as Record<string, unknown>;
-              const equityFinal = toNumber(payload.equity_final as number | string);
-              const equityInitial = toNumber(payload.equity_initial as number | string, 1);
-              const avgReturn = equityInitial > 0 ? equityFinal / equityInitial - 1 : 0;
-              setLiveRuns((prev) => prev.filter((x) => x.jobId !== r.jobId));
-              setRuns((prev) => [
-                {
-                  ...r,
-                  status: "completed",
-                  totalTrades: toNumber(payload.total_trades as number | string),
-                  winRate: toNumber(payload.win_rate as number | string),
-                  avgReturn,
-                  maxDrawdown: toNumber(payload.max_drawdown as number | string),
-                  sharpe: toNumber(payload.sharpe as number | string),
-                  profitFactor: toNumber(payload.profit_factor as number | string),
-                  createdAt: new Date().toISOString(),
-                },
-                ...prev,
-              ]);
-              toast.success(`Backtest ${shortJob(r.jobId)} complete.`);
-            } else if (status === "failed") {
-              const detail = (res as { error?: string }).error;
-              setLiveRuns((prev) =>
-                prev.map((x) =>
-                  x.jobId === r.jobId ? { ...x, status: "failed", errorDetail: detail } : x
-                )
-              );
-              toast.error(`Backtest ${shortJob(r.jobId)} failed${detail ? `: ${detail}` : "."}`);
-            } else if (status === "running" || status === "queued") {
-              setLiveRuns((prev) =>
-                prev.map((x) =>
-                  x.jobId === r.jobId ? { ...x, status } : x
-                )
-              );
-            }
-          } catch {
-            // transient — keep polling next tick
-          }
-        })
-      );
-    };
-    const id = window.setInterval(tick, POLL_MS);
-    void tick();
-    return () => {
-      cancelled = true;
-      window.clearInterval(id);
-    };
-  }, [liveRuns]);
+    liveResults.forEach((q, i) => {
+      const r = inflight[i];
+      if (!r || !q.data) return;
+      const res = q.data;
+      const status = res.status as RunStatus;
+      if (status === "completed") {
+        const payload = res as unknown as Record<string, unknown>;
+        const equityFinal = toNumber(payload.equity_final as number | string);
+        const equityInitial = toNumber(payload.equity_initial as number | string, 1);
+        const avgReturn = equityInitial > 0 ? equityFinal / equityInitial - 1 : 0;
+        setLiveRuns((prev) => prev.filter((x) => x.jobId !== r.jobId));
+        setCompletedLiveRuns((prev) => [
+          {
+            ...r,
+            status: "completed",
+            totalTrades: toNumber(payload.total_trades as number | string),
+            winRate: toNumber(payload.win_rate as number | string),
+            avgReturn,
+            maxDrawdown: toNumber(payload.max_drawdown as number | string),
+            sharpe: toNumber(payload.sharpe as number | string),
+            profitFactor: toNumber(payload.profit_factor as number | string),
+            createdAt: new Date().toISOString(),
+          },
+          ...prev,
+        ]);
+        toast.success(`Backtest ${shortJob(r.jobId)} complete.`);
+      } else if (status === "failed") {
+        const detail = (res as { error?: string }).error;
+        setLiveRuns((prev) =>
+          prev.map((x) =>
+            x.jobId === r.jobId ? { ...x, status: "failed", errorDetail: detail } : x
+          )
+        );
+        toast.error(`Backtest ${shortJob(r.jobId)} failed${detail ? `: ${detail}` : "."}`);
+      } else if ((status === "running" || status === "queued") && status !== r.status) {
+        setLiveRuns((prev) =>
+          prev.map((x) => (x.jobId === r.jobId ? { ...x, status } : x))
+        );
+      }
+    });
+  }, [liveResults, inflight]);
 
   const profileOptions: SelectOption[] = useMemo(
     () => [
@@ -313,10 +308,18 @@ export default function BacktestsListPage() {
     [profiles]
   );
 
-  const allRuns = useMemo<RunRow[]>(
-    () => [...liveRuns, ...runs],
-    [liveRuns, runs]
-  );
+  const allRuns = useMemo<RunRow[]>(() => {
+    // Dedupe by jobId: a completed live run wins over the (eventually
+    // identical) history row that appears on the next refetch.
+    const seen = new Set<string>();
+    const out: RunRow[] = [];
+    for (const r of [...liveRuns, ...completedLiveRuns, ...runs]) {
+      if (seen.has(r.jobId)) continue;
+      seen.add(r.jobId);
+      out.push(r);
+    }
+    return out;
+  }, [liveRuns, completedLiveRuns, runs]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -615,7 +618,7 @@ export default function BacktestsListPage() {
 
         {loading && !error && (
           <div className="mx-6 mt-4 rounded-md border border-border-subtle bg-bg-panel p-6 flex items-center gap-3">
-            <Loader2 className="w-4 h-4 text-fg-muted animate-spin" aria-hidden />
+            <Loader2 className="w-4 h-4 text-fg-muted animate-spin will-change-transform" aria-hidden />
             <span className="text-[13px] text-fg-muted">Loading backtests…</span>
           </div>
         )}

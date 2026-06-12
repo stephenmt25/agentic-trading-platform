@@ -36,6 +36,44 @@ interface SimulatedTrade {
   pnl_pct: number;
 }
 
+/** One window of the EN-W1/EN-W2 walk-forward report — shape from
+ * `WalkForwardResult.report()` (services/backtesting/src/walk_forward.py),
+ * surfaced verbatim on the Redis status payload that GET /backtest/{job_id}
+ * returns. `chosen_risk_params` (EN-W2 exit-band sweep winner) is `null`
+ * when no per-window sweep ran and `{}` when a sweep ran without a risk
+ * grid. */
+interface WalkForwardWindowReport {
+  index: number;
+  train_start: string;
+  test_start: string;
+  test_end: string;
+  chosen_params: Record<string, unknown> | null;
+  chosen_risk_params: Record<string, unknown> | null;
+  in_sample_sharpe: number;
+  oos_trades: number;
+  oos_win_rate: number;
+  oos_avg_return: number;
+  oos_sharpe: number;
+  oos_profit_factor: number;
+}
+
+interface WalkForwardReport {
+  config?: {
+    train_bars?: number;
+    test_bars?: number;
+    step_bars?: number;
+    param_grid?: Record<string, unknown[]> | null;
+    risk_limits_grid?: Record<string, unknown[]> | null;
+  };
+  total_windows?: number;
+  windows?: WalkForwardWindowReport[];
+  oos_total_trades?: number;
+  oos_win_rate?: number;
+  oos_avg_return?: number;
+  oos_max_drawdown?: number;
+  oos_sharpe?: number;
+}
+
 interface BacktestPayload {
   job_id: string;
   status: string;
@@ -54,6 +92,10 @@ interface BacktestPayload {
   timeframe?: string | null;
   created_by?: string | null;
   error?: string;
+  /** Present only on walk-forward runs whose Redis status payload is still
+   * cached (the per-window report is Redis/API-only; the DB fallback row
+   * doesn't carry it). */
+  walk_forward?: WalkForwardReport;
 }
 
 const TRADES_PAGE_SIZE = 50;
@@ -355,7 +397,7 @@ export default function BacktestRunDetailPage() {
       <div className="flex-1 min-h-0 overflow-auto">
         {loading && (
           <div className="mx-6 mt-6 rounded-md border border-border-subtle bg-bg-panel p-6 flex items-center gap-3">
-            <Loader2 className="w-4 h-4 text-fg-muted animate-spin" aria-hidden />
+            <Loader2 className="w-4 h-4 text-fg-muted animate-spin will-change-transform" aria-hidden />
             <span className="text-[13px] text-fg-muted">Loading run #{shortJob(runId)}…</span>
           </div>
         )}
@@ -397,6 +439,11 @@ export default function BacktestRunDetailPage() {
             />
 
             <EquityCurveSection equity={equity} roi={roi} />
+
+            {payload.walk_forward?.windows &&
+              payload.walk_forward.windows.length > 0 && (
+                <WalkForwardSection report={payload.walk_forward} />
+              )}
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <DistributionPlaceholder trades={trades} />
@@ -602,6 +649,114 @@ function EquityCurveSection({
           <p className="text-[12px] text-fg-muted">No equity samples in this run.</p>
         )}
       </div>
+    </section>
+  );
+}
+
+/** Compact `k=v` rendering for a chosen-params dict. Registry row 77:
+ * `chosen_risk_params` distinguishes null (no sweep ran for this window)
+ * from {} (sweep ran, no risk grid supplied). */
+function formatParams(
+  params: Record<string, unknown> | null,
+  emptyLabel: string
+): string {
+  if (params === null) return "—";
+  const entries = Object.entries(params);
+  if (entries.length === 0) return emptyLabel;
+  return entries.map(([k, v]) => `${k}=${String(v)}`).join(" · ");
+}
+
+/** Per-window walk-forward report (registry row 77): the EN-W2 exit-band
+ * sweep winners (`chosen_risk_params`) and the param-grid winners
+ * (`chosen_params`) per rolling window, alongside each window's OOS
+ * metrics. Renders only when the run's Redis status payload carries the
+ * walk-forward report. */
+function WalkForwardSection({ report }: { report: WalkForwardReport }) {
+  const windows = report.windows ?? [];
+  const hasRiskGrid = !!report.config?.risk_limits_grid;
+  return (
+    <section className="rounded-md border border-border-subtle bg-bg-panel">
+      <header className="flex items-center justify-between gap-3 px-4 py-2.5 border-b border-border-subtle">
+        <h2 className="text-[11px] font-semibold uppercase tracking-wider text-fg-muted">
+          Walk-forward windows
+          <span className="ml-2 text-fg-secondary normal-case tracking-normal num-tabular">
+            ({windows.length})
+          </span>
+        </h2>
+        <span className="text-[11px] text-fg-muted num-tabular">
+          {report.config?.train_bars != null &&
+            `train ${report.config.train_bars} · `}
+          {report.config?.test_bars != null &&
+            `test ${report.config.test_bars} · `}
+          {report.config?.step_bars != null &&
+            `step ${report.config.step_bars} bars`}
+        </span>
+      </header>
+      <div className="overflow-auto">
+        <table className="w-full text-[12px] num-tabular border-separate border-spacing-0">
+          <thead>
+            <tr>
+              {[
+                "#",
+                "OOS range",
+                "OOS trades",
+                "OOS win",
+                "OOS Sharpe",
+                "Chosen params",
+                "Chosen risk params",
+              ].map((h, i) => (
+                <th
+                  key={h}
+                  className={cn(
+                    "px-3 h-8 text-[10px] uppercase tracking-wider font-medium text-fg-muted",
+                    "bg-bg-canvas border-b border-border-subtle",
+                    i >= 2 && i <= 4 ? "text-right" : "text-left"
+                  )}
+                >
+                  {h}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {windows.map((w) => (
+              <tr key={w.index} className="hover:bg-bg-rowhover">
+                <td className="px-3 h-8 border-b border-border-subtle/60 font-mono text-fg-secondary">
+                  {w.index}
+                </td>
+                <td className="px-3 h-8 border-b border-border-subtle/60 font-mono text-fg-secondary">
+                  {w.test_start?.slice(0, 16).replace("T", " ")} →{" "}
+                  {w.test_end?.slice(0, 16).replace("T", " ")}
+                </td>
+                <td className="px-3 h-8 border-b border-border-subtle/60 text-right font-mono text-fg">
+                  {w.oos_trades}
+                </td>
+                <td className="px-3 h-8 border-b border-border-subtle/60 text-right font-mono text-fg">
+                  {Number.isFinite(w.oos_win_rate)
+                    ? `${(w.oos_win_rate * 100).toFixed(0)}%`
+                    : "—"}
+                </td>
+                <td className="px-3 h-8 border-b border-border-subtle/60 text-right font-mono text-fg">
+                  {Number.isFinite(w.oos_sharpe) ? w.oos_sharpe.toFixed(2) : "—"}
+                </td>
+                <td className="px-3 h-8 border-b border-border-subtle/60 font-mono text-fg-secondary">
+                  {formatParams(w.chosen_params, "(no param grid)")}
+                </td>
+                <td className="px-3 h-8 border-b border-border-subtle/60 font-mono text-fg-secondary">
+                  {formatParams(w.chosen_risk_params, "(no risk grid)")}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="px-4 py-2.5 text-[11px] text-fg-muted border-t border-border-subtle">
+        Headline metrics above are out-of-sample aggregates across these
+        windows (the honest decay-tracker baseline).
+        {hasRiskGrid
+          ? " Risk params per window are the EN-W2 exit-band sweep winners fit on each train slice."
+          : " No risk_limits_grid was supplied — exits used the profile's risk limits in every window."}
+      </p>
     </section>
   );
 }

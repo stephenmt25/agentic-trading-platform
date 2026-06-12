@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, RefreshCw } from "lucide-react";
 import { api, type PaperTradingStatus } from "@/lib/api/client";
+import { usePaperTradingStatus } from "@/lib/api/hooks";
 import { Sparkline, Pill } from "@/components/data-display";
 import { Tag } from "@/components/primitives";
 import { cn } from "@/lib/utils";
@@ -17,34 +18,24 @@ interface DailyPnlTabProps {
 
 type DailyReport = PaperTradingStatus["daily_reports"][number];
 
-const POLL_INTERVAL_MS = 60_000;
-
 export function DailyPnlTab({
   profileId,
   selectedDate,
   onSelect,
 }: DailyPnlTabProps) {
-  const [status, setStatus] = useState<PaperTradingStatus | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api.paperTrading.status();
-      setStatus(data);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load daily reports");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const id = window.setInterval(load, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [load]);
+  // FE-W2.1: shared ["paperTradingStatus"] query (same payload the chrome
+  // EngineTotalsPill reads — one network request serves both). The hook's
+  // 30s interval supersedes this tab's old 60s setInterval.
+  const statusQuery = usePaperTradingStatus();
+  const status = statusQuery.data ?? null;
+  const loading = statusQuery.isPending;
+  const refreshing = statusQuery.isFetching;
+  const error = statusQuery.error
+    ? statusQuery.error instanceof Error
+      ? statusQuery.error.message
+      : "Failed to load daily reports"
+    : null;
+  const load = () => statusQuery.refetch();
 
   const reports = useMemo(() => {
     if (!status) return [];
@@ -94,7 +85,10 @@ export function DailyPnlTab({
               className="h-7 w-7 rounded-md flex items-center justify-center text-fg-muted hover:text-fg hover:bg-bg-raised"
             >
               <RefreshCw
-                className={cn("w-3 h-3", loading && "animate-spin")}
+                className={cn(
+                  "w-3 h-3",
+                  refreshing && "animate-spin will-change-transform"
+                )}
                 strokeWidth={1.5}
                 aria-hidden
               />

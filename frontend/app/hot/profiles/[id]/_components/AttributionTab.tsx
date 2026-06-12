@@ -5,23 +5,14 @@ import { RefreshCw } from "lucide-react";
 import { Select, Tag } from "@/components/primitives";
 import { Sparkline } from "@/components/data-display";
 import { api } from "@/lib/api/client";
+import { useGateAnalytics } from "@/lib/api/hooks";
 import { cn } from "@/lib/utils";
 
 interface AttributionTabProps {
   profileId: string;
 }
 
-const POLL_INTERVAL_MS = 60_000;
 const WINDOW_HOURS = 168; // 7 days
-
-interface GateAnalytics {
-  total_decisions: number;
-  outcome_counts: Record<string, number>;
-  gate_details: Record<
-    string,
-    { passed: number; blocked: number; reasons: Record<string, number> }
-  >;
-}
 
 interface WeightHistoryPoint {
   symbol: string;
@@ -136,31 +127,17 @@ function GateEfficacySection({
   symbol: string;
   profileId: string;
 }) {
-  const [data, setData] = useState<GateAnalytics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const d = await api.agentPerformance.gateAnalytics(symbol, {
-        profileId,
-        limit: 500,
-      });
-      setData(d);
-      setErr(null);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : "Failed to load gate analytics");
-    } finally {
-      setLoading(false);
-    }
-  }, [symbol, profileId]);
-
-  useEffect(() => {
-    load();
-    const id = window.setInterval(load, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [load]);
+  // FE-W2.1: shared ["gateAnalytics", symbol, profile, limit] query — the
+  // hook bakes the 60s refetchInterval this section used to wire by hand.
+  const gateQuery = useGateAnalytics(symbol, { profileId, limit: 500 });
+  const data = gateQuery.data ?? null;
+  const loading = gateQuery.isFetching;
+  const err = gateQuery.error
+    ? gateQuery.error instanceof Error
+      ? gateQuery.error.message
+      : "Failed to load gate analytics"
+    : null;
+  const load = () => gateQuery.refetch();
 
   const rows = useMemo(() => {
     if (!data) return [];
@@ -505,7 +482,10 @@ function SectionFrame({
             className="h-7 w-7 shrink-0 rounded-md flex items-center justify-center text-fg-muted hover:text-fg hover:bg-bg-raised"
           >
             <RefreshCw
-              className={cn("w-3 h-3", loading && "animate-spin")}
+              className={cn(
+                "w-3 h-3",
+                loading && "animate-spin will-change-transform"
+              )}
               strokeWidth={1.5}
               aria-hidden
             />

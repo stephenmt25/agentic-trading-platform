@@ -1,12 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { signOut } from "next-auth/react";
 import { AlertTriangle, Laptop, LogOut, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 import { Button, Tag } from "@/components/primitives";
 import { Pill, StatusDot } from "@/components/data-display";
 import { api } from "@/lib/api/client";
+import { useSessions } from "@/lib/api/hooks";
 
 interface SessionRow {
   session_id: string;
@@ -19,40 +20,28 @@ interface SessionRow {
   is_current: boolean;
 }
 
-const POLL_MS = 60_000;
-
 /**
  * /settings/sessions — active sessions, API tokens, webhooks.
  * Per surface spec §9.
  *
- * Active sessions are wired against /auth/sessions (migration 022). API
- * token issuance and webhook destinations are still pending — those are
- * their own projects, each surfaced explicitly here with a short reason
- * so the partner can see what's coming.
+ * Active sessions are wired against /auth/sessions (migration 022) via the
+ * shared `useSessions` query (60s refetchInterval — FE-W2.1, no page-local
+ * setInterval). API token issuance and webhook destinations are still
+ * pending — those are their own projects, each surfaced explicitly here
+ * with a short reason so the partner can see what's coming.
  */
 export default function SessionsSettingsPage() {
-  const [sessions, setSessions] = useState<SessionRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [revoking, setRevoking] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const res = await api.sessions.list();
-      setSessions(res.sessions);
-      setError(null);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load sessions");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    load();
-    const id = window.setInterval(load, POLL_MS);
-    return () => window.clearInterval(id);
-  }, [load]);
+  const sessionsQuery = useSessions();
+  const sessions: SessionRow[] = sessionsQuery.data?.sessions ?? [];
+  const loading = sessionsQuery.isPending;
+  const error = sessionsQuery.error
+    ? sessionsQuery.error instanceof Error
+      ? sessionsQuery.error.message
+      : "Failed to load sessions"
+    : null;
+  const refetchSessions = sessionsQuery.refetch;
 
   const handleRevoke = useCallback(
     async (sessionId: string, isCurrent: boolean) => {
@@ -66,7 +55,7 @@ export default function SessionsSettingsPage() {
           await signOut({ callbackUrl: "/login" });
           return;
         }
-        await load();
+        await refetchSessions();
       } catch (e: unknown) {
         toast.error(
           e instanceof Error ? e.message : "Failed to revoke session."
@@ -75,7 +64,7 @@ export default function SessionsSettingsPage() {
         setRevoking(null);
       }
     },
-    [load]
+    [refetchSessions]
   );
 
   return (

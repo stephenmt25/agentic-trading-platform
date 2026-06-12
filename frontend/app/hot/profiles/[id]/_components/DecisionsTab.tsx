@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, RefreshCw } from "lucide-react";
-import { api, type TradeDecision } from "@/lib/api/client";
+import { type TradeDecision } from "@/lib/api/client";
+import { useDecisions } from "@/lib/api/hooks";
 import { Pill } from "@/components/data-display";
 import { cn } from "@/lib/utils";
 import { DetailDrawer } from "./DetailDrawer";
@@ -15,7 +16,6 @@ interface DecisionsTabProps {
 }
 
 type Filter = "all" | "approved" | "blocked";
-const POLL_INTERVAL_MS = 15_000;
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "All" },
@@ -29,37 +29,30 @@ export function DecisionsTab({
   onSelect,
 }: DecisionsTabProps) {
   const [filter, setFilter] = useState<Filter>("all");
-  const [rows, setRows] = useState<TradeDecision[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      const outcome = filter === "approved" ? "APPROVED" : undefined;
-      const data = await api.paperTrading.decisions({
-        limit: 100,
-        outcome,
-        profile_id: profileId,
-      });
-      const filtered =
-        filter === "blocked"
-          ? data.filter((d) => d.outcome !== "APPROVED")
-          : data;
-      setRows(filtered);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load decisions");
-    } finally {
-      setLoading(false);
-    }
-  }, [filter, profileId]);
-
-  useEffect(() => {
-    setLoading(true);
-    load();
-    const id = window.setInterval(load, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [load]);
+  // FE-W2.1: shared ["decisions", profile, outcome, limit] query, 15s
+  // refetchInterval baked into the hook. A filter change changes the key,
+  // so isPending covers the "fresh filter" loading state the old
+  // setLoading(true) reset provided.
+  const decisionsQuery = useDecisions({
+    profileId,
+    outcome: filter === "approved" ? "APPROVED" : undefined,
+    limit: 100,
+  });
+  const rows = useMemo<TradeDecision[]>(() => {
+    const data = decisionsQuery.data ?? [];
+    return filter === "blocked"
+      ? data.filter((d) => d.outcome !== "APPROVED")
+      : data;
+  }, [decisionsQuery.data, filter]);
+  const loading = decisionsQuery.isPending;
+  const refreshing = decisionsQuery.isFetching;
+  const error = decisionsQuery.error
+    ? decisionsQuery.error instanceof Error
+      ? decisionsQuery.error.message
+      : "Failed to load decisions"
+    : null;
+  const load = () => decisionsQuery.refetch();
 
   const selected = useMemo(
     () => rows.find((r) => r.event_id === selectedId) ?? null,
@@ -102,7 +95,10 @@ export function DecisionsTab({
             className="h-7 w-7 rounded-md flex items-center justify-center text-fg-muted hover:text-fg hover:bg-bg-raised"
           >
             <RefreshCw
-              className={cn("w-3 h-3", loading && "animate-spin")}
+              className={cn(
+                "w-3 h-3",
+                refreshing && "animate-spin will-change-transform"
+              )}
               strokeWidth={1.5}
               aria-hidden
             />

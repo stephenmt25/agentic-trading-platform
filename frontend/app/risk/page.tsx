@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
+import { memo, useMemo } from "react";
 import Link from "next/link";
 import {
   Shield,
@@ -25,12 +19,16 @@ import { ProfilesRiskMatrix } from "@/components/risk/ProfilesRiskMatrix";
 import { RiskPageSkeleton } from "@/components/risk/RiskPageSkeleton";
 import { RiskTruthPanel } from "@/components/risk/RiskTruthPanel";
 import {
-  api,
   type KillSwitchLogEntry,
   type KillSwitchStatus,
   type ProfileResponse,
 } from "@/lib/api/client";
-import { useKillSwitch, usePositions, useRisk } from "@/lib/api/hooks";
+import {
+  useKillSwitch,
+  usePositions,
+  useProfiles,
+  useRisk,
+} from "@/lib/api/hooks";
 import { parseHaltLevel, severity, useKillSwitchStore } from "@/lib/stores/killSwitchStore";
 import { cn } from "@/lib/utils";
 
@@ -96,31 +94,22 @@ function numLimit(
 }
 
 export default function RiskControlPage() {
-  const [profile, setProfile] = useState<ProfileResponse | null>(null);
-  const [profileLoading, setProfileLoading] = useState(true);
-  const [profileError, setProfileError] = useState<string | null>(null);
-
   const openKillModal = useKillSwitchStore((s) => s.setModalOpen);
 
-  // ---------- Initial profile (one-shot, not a poller) ----------
-  const loadProfile = useCallback(async () => {
-    setProfileLoading(true);
-    setProfileError(null);
-    try {
-      const all = await api.profiles.list();
-      const active = all.find((p) => p.is_active) ?? all[0] ?? null;
-      setProfile(active);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Failed to load profiles";
-      setProfileError(msg);
-    } finally {
-      setProfileLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadProfile();
-  }, [loadProfile]);
+  // ---------- Initial profile (row 75: shared useProfiles read — dedupes
+  // with ProfilesRiskMatrix's subscription to the same ["profiles"] key;
+  // one-shot like the old page-local fetch, not a poller) ----------
+  const profilesQuery = useProfiles();
+  const profile = useMemo<ProfileResponse | null>(() => {
+    const all = profilesQuery.data ?? [];
+    return all.find((p) => p.is_active) ?? all[0] ?? null;
+  }, [profilesQuery.data]);
+  const profileLoading = profilesQuery.isPending;
+  const profileError = profilesQuery.error
+    ? profilesQuery.error instanceof Error
+      ? profilesQuery.error.message
+      : "Failed to load profiles"
+    : null;
 
   // ---------- Live reads (FE-W2: React Query, no page-local setInterval) ----
   // Same fetches reloadAll made — api.agents.risk(profile_id) and

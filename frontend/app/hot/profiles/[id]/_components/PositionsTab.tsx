@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ChevronRight, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api/client";
+import { usePositions } from "@/lib/api/hooks";
 import { Pill } from "@/components/data-display";
 import { cn } from "@/lib/utils";
 import { DetailDrawer } from "./DetailDrawer";
@@ -50,28 +51,23 @@ export function PositionsTab({
   selectedId,
   onSelect,
 }: PositionsTabProps) {
-  const [rows, setRows] = useState<Position[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    try {
-      const data = await api.positions.list({ status: "open", profileId });
-      setRows(data as Position[]);
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load positions");
-    } finally {
-      setLoading(false);
-    }
-  }, [profileId]);
-
-  useEffect(() => {
-    setLoading(true);
-    load();
-    const id = window.setInterval(load, POLL_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [load]);
+  // FE-W2.1: shared ["positions", profileId, "open"] query at the same 5s
+  // cadence the old setInterval used (pauses while hidden, stops on
+  // unmount). Errors keep the last good rows.
+  const positionsQuery = usePositions(profileId, {
+    status: "open",
+    refetchInterval: POLL_INTERVAL_MS,
+    enabled: !!profileId,
+  });
+  const rows = (positionsQuery.data ?? []) as Position[];
+  const loading = positionsQuery.isPending;
+  const refreshing = positionsQuery.isFetching;
+  const error = positionsQuery.error
+    ? positionsQuery.error instanceof Error
+      ? positionsQuery.error.message
+      : "Failed to load positions"
+    : null;
+  const load = () => positionsQuery.refetch();
 
   const selected = useMemo(
     () => rows.find((r) => r.position_id === selectedId) ?? null,
@@ -95,7 +91,10 @@ export function PositionsTab({
           className="h-7 w-7 rounded-md flex items-center justify-center text-fg-muted hover:text-fg hover:bg-bg-raised"
         >
           <RefreshCw
-            className={cn("w-3 h-3", loading && "animate-spin")}
+            className={cn(
+              "w-3 h-3",
+              refreshing && "animate-spin will-change-transform"
+            )}
             strokeWidth={1.5}
             aria-hidden
           />
