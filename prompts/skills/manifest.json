@@ -1,0 +1,20 @@
+{
+  "_comment": "Skill-bundle manifest (TECH-DEBT-REGISTRY row 36, pattern: anthropics/financial-services). 'bundles' maps each LLM-surface service to the canonical skills synced into services/<service>/prompts/skills/ by scripts/sync_agent_skills.py. 'inline_consumers' maps files that carry an inlined copy of a skill (prompt templates, prompt-loading constants in .py, promptfoo configs) to the skills whose canonical lines they must contain verbatim — enforced by scripts/ci/check_skill_drift.py.",
+  "bundles": {
+    "analyst": ["advisory-framing"],
+    "debate": ["advisory-framing", "debate-market-context"],
+    "sentiment": ["advisory-framing", "json-output-contract", "sentiment-scoring"],
+    "slm_inference": ["advisory-framing", "json-output-contract", "sentiment-scoring"]
+  },
+  "inline_consumers": {
+    "prompts/trading-signal.txt": ["advisory-framing", "json-output-contract"],
+    "prompts/risk-assessor.txt": ["advisory-framing", "json-output-contract"],
+    "prompts/sentiment-scorer.txt": ["advisory-framing", "json-output-contract", "sentiment-scoring"],
+    "prompts/debate/bull.txt": ["advisory-framing", "debate-market-context"],
+    "prompts/debate/bear.txt": ["advisory-framing", "debate-market-context"],
+    "prompts/debate/judge.txt": ["advisory-framing", "debate-market-context"],
+    "promptfoo-redteam.yaml": ["advisory-framing"],
+    "services/sentiment/src/scorer.py": ["advisory-framing", "json-output-contract", "sentiment-scoring"],
+    "services/slm_inference/src/main.py": ["advisory-framing", "json-output-contract", "sentiment-scoring"]
+  }
+}

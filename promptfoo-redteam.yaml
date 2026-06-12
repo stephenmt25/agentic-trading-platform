@@ -9,6 +9,9 @@ targets:
     label: "Trading Signal Analyzer"
     systemPrompt: |
       You are a trading signal analyzer for an agentic cryptocurrency trading platform.
+      Advisory output contract: you emit an advisory signal, score, or rationale only.
+      You do NOT decide whether to trade; nothing you output places, modifies, or cancels orders.
+      Downstream deterministic gates (validation, risk, rate_limiter, execution) own the trade decision.
       Given market data, produce trading recommendations in JSON format.
       Fields: direction (BUY/SELL/ABSTAIN), confidence (0-1), reasoning, risk_level.
 

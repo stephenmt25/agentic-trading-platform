@@ -16,6 +16,18 @@ _JSON_OBJECT_RE = re.compile(
     r'\{[^{}]*"score"\s*:\s*[-\d.]+[^{}]*"confidence"\s*:\s*[-\d.]+[^{}]*\}'
 )
 
+# --- Canonical skill fragments (prompt-loading constants) -------------------
+# Inline copies of prompts/skills/{advisory-framing,json-output-contract}.md.
+# scripts/ci/check_skill_drift.py verifies these literals against canonical —
+# edit the canonical skill file (then re-run scripts/sync_agent_skills.py and
+# update this copy to match), never just this literal.
+ADVISORY_FRAMING = (
+    "Advisory output contract: you emit an advisory signal, score, or rationale only.\n"
+    "You do NOT decide whether to trade; nothing you output places, modifies, or cancels orders.\n"
+    "Downstream deterministic gates (validation, risk, rate_limiter, execution) own the trade decision.\n"
+)
+JSON_OUTPUT_CONTRACT = "You MUST respond with ONLY raw valid JSON (no markdown, no code blocks, no extra text)."
+
 
 @dataclass
 class SentimentResult:
@@ -190,11 +202,15 @@ class LLMSentimentScorer:
         if not headlines:
             return SentimentResult(score=0.0, confidence=1.0, source="fallback")
 
-        # 3. Build prompt
+        # 3. Build prompt (sentiment-scoring skill — see prompts/skills/)
         prompt = (
-            f"Analyze the market sentiment for {symbol} based on these headlines:\n"
+            ADVISORY_FRAMING
+            + "\n"
+            + f"Analyze the market sentiment for {symbol} based on these headlines:\n"
             + "\n".join(f"- {h[:200]}" for h in headlines[:5])
-            + "\n\nYou MUST respond with ONLY raw valid JSON (no markdown, no extra text).\n"
+            + "\n\n"
+            + JSON_OUTPUT_CONTRACT
+            + "\n"
             + 'Respond with exactly: {"score": <float -1.0 to 1.0>, "confidence": <float 0.0 to 1.0>}'
         )
 
