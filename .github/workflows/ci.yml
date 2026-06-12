@@ -40,15 +40,13 @@ jobs:
       - name: Run ruff
         run: ruff check .
 
-      # mypy is ADVISORY (non-blocking) during the typing-cleanup transition.
-      # Config relaxed from --strict to a pragmatic profile in pyproject.toml;
-      # ~99 real type errors remain (None-indexing, Literal mismatches, the
-      # adapter cancel_order/get_order_status signature drift) and are tracked in
-      # TECH-DEBT-REGISTRY (2026-06-10) for incremental, per-module fixing. The
-      # blocking quality gates are black/isort/ruff above.
-      - name: Run mypy (advisory)
+      # mypy is BLOCKING as of 2026-06-13: the W2-2 per-module cleanup drove
+      # the post-relaxation baseline (97 errors in 36 files) to zero under the
+      # pragmatic profile in pyproject.toml. Justified `# type: ignore[code]`
+      # markers carry inline rationale; several point at real defects tracked
+      # in TECH-DEBT-REGISTRY (tax float/Decimal, SentimentCache dead client).
+      - name: Run mypy
         run: mypy --ignore-missing-imports services/ libs/
-        continue-on-error: true
 
   # ------------------------------------------------------------------
   # Domain guards: financial-precision float gate + Redis channel contract.
@@ -69,6 +67,11 @@ jobs:
 
       - name: Run float + channel guards
         run: python scripts/ci/guards.py
+
+      # Canonical prompts/skills/*.md must match every service's bundled copy
+      # (sync via scripts/sync_agent_skills.py). Stdlib-only, like guards.py.
+      - name: Run skill-drift guard
+        run: python scripts/ci/check_skill_drift.py
 
   # ------------------------------------------------------------------
   # Unit tests
@@ -148,20 +151,12 @@ jobs:
       - name: Install dependencies
         run: poetry install --no-interaction
 
-      # tests/integration is currently EMPTY — pytest exits 5 ("no tests
-      # collected"), which is not a build failure. Tolerated with a warning
-      # until integration tests land (TECH-DEBT-REGISTRY 2026-06-11); any
-      # other non-zero exit still fails the job.
+      # tests/integration has 24 real tests (W2-3, 2026-06-13) against the
+      # service containers above: order-flow contract, kill-switch round-trip,
+      # repository CRUD incl. the tenant-scoped decay baseline, and the
+      # learning_loop -> job_runner enqueue contract. Normal exit semantics.
       - name: Run integration tests
-        run: |
-          set +e
-          poetry run pytest tests/integration -v --tb=short --junitxml=reports/integration-results.xml
-          code=$?
-          if [ "$code" = "5" ]; then
-            echo "::warning::tests/integration collected no tests — treating as pass until integration tests exist"
-            exit 0
-          fi
-          exit $code
+        run: poetry run pytest tests/integration -v --tb=short --junitxml=reports/integration-results.xml
         env:
           PRAXIS_REDIS_URL: redis://localhost:6380/1
           PRAXIS_DATABASE_URL: postgresql://postgres:postgres@localhost:5433/praxis_test
@@ -223,14 +218,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # ESLint is ADVISORY (non-blocking) during the frontend baseline cleanup
-      # — the tree carries ~298 pre-existing problems (62 errors), tracked in
-      # TECH-DEBT-REGISTRY (2026-06-11). Mirrors the mypy advisory decision:
-      # the gate returns to blocking once the baseline lands. tsc stays
-      # blocking below — it is green and catches real breakage.
-      - name: Run ESLint (advisory)
+      # ESLint is BLOCKING as of 2026-06-13: the W2-1 baseline burn-down drove
+      # the tree from 300 problems (65 errors / 235 warnings) to 0/0. Rule-level
+      # decisions live in frontend/eslint.config.mjs with inline justifications
+      # (public/** vendored ignore; two react-hooks compiler-era rules off
+      # pending React Compiler adoption — see TECH-DEBT-REGISTRY 2026-06-13).
+      - name: Run ESLint
         run: npx eslint . --max-warnings 0
-        continue-on-error: true
 
       - name: Run TypeScript check
         run: npx tsc --noEmit

@@ -53,9 +53,24 @@ repos:
         pass_filenames: false
         always_run: true
 
-  # NOTE: mypy is intentionally NOT a pre-commit hook. It is ADVISORY (non-blocking)
-  # in CI during the typing-cleanup transition (see .github/workflows/ci.yml and
-  # TECH-DEBT-REGISTRY 2026-06-10), so blocking it locally would be stricter than CI
-  # and would wedge every commit on the ~99 known type errors. Run it manually:
-  #   poetry run mypy --ignore-missing-imports services/ libs/
-  # pre-commit mirrors only the BLOCKING gates: black, isort, ruff (above).
+  # --- mypy (BLOCKING since 2026-06-13 — W2-2 drove the baseline to zero) ---
+  # Mirrors the now-blocking CI mypy gate exactly (same command, same pragmatic
+  # profile from pyproject.toml). Runs via poetry so hook and CI share versions.
+  - repo: local
+    hooks:
+      - id: praxis-mypy
+        name: mypy (mirrors CI lint job)
+        entry: poetry run mypy --ignore-missing-imports services/ libs/
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  # --- skill-drift guard (mirrors the CI guards job step) ---
+  - repo: local
+    hooks:
+      - id: praxis-skill-drift
+        name: prompt skill-bundle drift guard
+        entry: python scripts/ci/check_skill_drift.py
+        language: system
+        pass_filenames: false
+        always_run: true
