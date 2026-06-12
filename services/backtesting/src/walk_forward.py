@@ -30,7 +30,7 @@ All aggregate OOS metrics are Decimal via the shared
 
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from libs.core.schemas import (
     WALK_FORWARD_MAX_BARS,
@@ -282,7 +282,12 @@ def run_walk_forward(
                 _set_nested(rules, key, val)
             # Same string-valued merge the sweep applied in-sample, so the
             # OOS evaluation runs the exact thresholds that won the window.
-            window_risk_limits = merge_risk_limits(job.risk_limits, chosen_risk_params)
+            # cast: job.risk_limits is Optional[Dict], so the str branch of
+            # merge_risk_limits (JSON-string base) is unreachable here.
+            window_risk_limits = cast(
+                Optional[Dict[str, Any]],
+                merge_risk_limits(job.risk_limits, chosen_risk_params),
+            )
         else:
             # Static rules: report the train-slice sharpe as the in-sample
             # reference so IS vs OOS decay is visible per window.

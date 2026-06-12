@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from libs.core.enums import SignalDirection
 from libs.observability import get_logger
@@ -207,7 +207,10 @@ class CompiledRuleSet:
                 # not-matched and emits no signal.
                 primary = "BUY" if self.long_leg is not None else "SELL"
                 primary_logic = (
-                    self.long_leg["logic"] if self.long_leg else self.short_leg["logic"]
+                    self.long_leg["logic"]
+                    if self.long_leg
+                    # _has_explicit_legs() guarantees at least one leg is set.
+                    else cast(Dict[str, Any], self.short_leg)["logic"]
                 )
                 primary_traces = (
                     long_traces if self.long_leg is not None else short_traces
@@ -226,27 +229,33 @@ class CompiledRuleSet:
                 logger.warning("strategy.both_legs_matched")
                 signal = None
                 # Use long leg for the trace summary in the both-matched case.
+                # long_match=True implies self.long_leg is not None.
                 primary = "BUY"
-                primary_logic = self.long_leg["logic"]
+                primary_logic = cast(Dict[str, Any], self.long_leg)["logic"]
                 primary_traces = long_traces
                 matched = False
             elif long_match:
                 signal = (SignalDirection.BUY, self.base_confidence)
                 primary = "BUY"
-                primary_logic = self.long_leg["logic"]
+                # long_match=True implies self.long_leg is not None.
+                primary_logic = cast(Dict[str, Any], self.long_leg)["logic"]
                 primary_traces = long_traces
                 matched = True
             elif short_match:
                 signal = (SignalDirection.SELL, self.base_confidence)
                 primary = "SELL"
-                primary_logic = self.short_leg["logic"]
+                # short_match=True implies self.short_leg is not None.
+                primary_logic = cast(Dict[str, Any], self.short_leg)["logic"]
                 primary_traces = short_traces
                 matched = True
             else:
                 signal = None
                 primary = "BUY" if self.long_leg is not None else "SELL"
                 primary_logic = (
-                    self.long_leg["logic"] if self.long_leg else self.short_leg["logic"]
+                    self.long_leg["logic"]
+                    if self.long_leg
+                    # _has_explicit_legs() guarantees at least one leg is set.
+                    else cast(Dict[str, Any], self.short_leg)["logic"]
                 )
                 primary_traces = (
                     long_traces if self.long_leg is not None else short_traces

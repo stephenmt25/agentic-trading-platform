@@ -1,5 +1,6 @@
 import asyncio
 from contextlib import asynccontextmanager
+from decimal import Decimal
 
 import uvicorn
 from fastapi import FastAPI
@@ -82,11 +83,16 @@ async def check_order(
             {"message_type": "risk_check_request"},
             source_agent="hot_path",
         )
-    result = await _risk_service.check_order(
+    # _risk_service is initialised in lifespan() before any request is served;
+    # typing-only ignore (a None-raise here would change runtime behavior).
+    result = await _risk_service.check_order(  # type: ignore[union-attr]
         profile_id=profile_id,
         symbol=symbol,
-        quantity=quantity,
-        price=price,
+        # JSON/query boundary: FastAPI parses these as float; check_order
+        # re-normalises via Decimal(str(...)) so this conversion is
+        # behavior-identical — it just satisfies the Decimal contract.
+        quantity=Decimal(str(quantity)),
+        price=Decimal(str(price)),
         side=side,
     )
     if _telemetry:

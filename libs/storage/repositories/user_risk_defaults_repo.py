@@ -27,7 +27,9 @@ class UserRiskDefaultsRepository(BaseRepository):
 
     async def upsert(self, user_id: str, defaults: Dict[str, Any]) -> Dict[str, Any]:
         """Insert or update defaults for the given user; returns the upserted row."""
-        row = await self._fetchrow(
+        # Annotated Any: INSERT ... RETURNING always yields a row, so the
+        # Optional from _fetchrow never materialises here.
+        row: Any = await self._fetchrow(
             """
             INSERT INTO user_risk_defaults (user_id, defaults, updated_at)
             VALUES ($1, $2::jsonb, NOW())

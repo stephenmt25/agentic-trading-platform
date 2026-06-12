@@ -20,8 +20,13 @@ async def lifespan(app: FastAPI):
     timescale_client = TimescaleClient(settings.DATABASE_URL)
     await timescale_client.init_pool()
 
+    # DataMigrator's hint names the RedisClient wrapper, but it actually consumes
+    # the raw redis.asyncio connection (calls .scan/.ttl/.expire directly) — the
+    # annotation bug lives in migrator.py, outside this cleanup's file set.
     migrator = DataMigrator(
-        redis_instance, timescale_client, gcs_bucket=settings.GCS_BUCKET_NAME
+        redis_instance,  # type: ignore[arg-type]
+        timescale_client,
+        gcs_bucket=settings.GCS_BUCKET_NAME,
     )
 
     async def daily_cron():

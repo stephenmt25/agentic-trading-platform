@@ -7,13 +7,13 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from redis.asyncio import Redis
 
 from libs.config import settings
 from libs.core.enums import OrderSide, PositionStatus
 from libs.core.models import Position
 from libs.core.notional import profile_notional
 from libs.messaging import StreamPublisher
-from libs.storage._redis_client import RedisClient
 from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.position_repo import PositionRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
@@ -61,7 +61,7 @@ def _to_decimal(value) -> Optional[Decimal]:
         return None
 
 
-async def _attach_unrealized_pnl(rows: list[dict], redis: RedisClient) -> list[dict]:
+async def _attach_unrealized_pnl(rows: list[dict], redis: Redis) -> list[dict]:
     """Merge the latest unrealized PnL snapshot from Redis into each open position row.
 
     PnL service writes pnl:<profile>:<position>:latest on every tick. We MGET them all
@@ -172,7 +172,7 @@ async def list_positions(
     user_id: str = Depends(get_current_user),
     repo: PositionRepository = Depends(get_position_repo),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
-    redis: RedisClient = Depends(get_redis),
+    redis: Redis = Depends(get_redis),
 ):
     """List positions, default to open. Optionally scoped to a profile and/or symbol.
 
@@ -230,7 +230,7 @@ async def list_positions(
 
 
 async def _latest_mark_price(
-    redis: RedisClient,
+    redis: Redis,
     profile_id: str,
     position_id: str,
     entry_price: Decimal,
@@ -263,7 +263,7 @@ async def close_position(
     repo: PositionRepository = Depends(get_position_repo),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
     closed_trade_repo: ClosedTradeRepository = Depends(get_closed_trade_repo),
-    redis: RedisClient = Depends(get_redis),
+    redis: Redis = Depends(get_redis),
 ):
     """Manually close an OPEN position.
 

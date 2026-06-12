@@ -1,10 +1,10 @@
 import os
 import threading
 from decimal import Decimal
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator, root_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .enums import (
     EventType,
@@ -444,10 +444,10 @@ def walk_forward_grid_combinations(
 
 
 class BacktestRequest(BaseModel):
-    symbol: str = Field(..., example="BTC/USDT")
+    symbol: str = Field(..., json_schema_extra={"example": "BTC/USDT"})
     strategy_rules: "StrategyRulesInput"
-    start_date: str = Field(..., example="2025-01-01T00:00:00")
-    end_date: str = Field(..., example="2025-06-01T00:00:00")
+    start_date: str = Field(..., json_schema_extra={"example": "2025-01-01T00:00:00"})
+    end_date: str = Field(..., json_schema_extra={"example": "2025-06-01T00:00:00"})
     timeframe: Literal["1m", "5m", "15m", "1h", "1d"] = Field(default="1m")
     slippage_pct: Percentage = Field(default=Decimal("0.001"), ge=0, le=Decimal("0.05"))
     # EN-W1 exit fidelity: profile whose risk_limits drive the SL/TP/time-exit
@@ -634,8 +634,9 @@ class RuleCondition(BaseModel):
     operator: str
     value: float
 
-    @root_validator(pre=True)
-    def check_support(cls, values):
+    @model_validator(mode="before")
+    @classmethod
+    def check_support(cls, values: Any) -> Any:
         errors = []
         if values.get("indicator") not in SUPPORTED_INDICATORS:
             errors.append(f"Unsupported indicator: {values.get('indicator')}")
@@ -652,8 +653,9 @@ class RuleSchema(BaseModel):
     direction: SignalDirection
     base_confidence: float
 
-    @root_validator(pre=True)
-    def check_logic(cls, values):
+    @model_validator(mode="before")
+    @classmethod
+    def check_logic(cls, values: Any) -> Any:
         if values.get("logic") not in {"AND", "OR"}:
             raise ValueError("Logic must be AND or OR")
         if not (0.0 <= values.get("base_confidence", -1) <= 1.0):
@@ -670,7 +672,28 @@ class RuleSchema(BaseModel):
 # above) is what hot_path / RuleCompiler consume. The API gateway accepts
 # StrategyRulesInput, transforms to canonical at write time, and reverses on read.
 
-_INDICATOR_USER_TO_CANONICAL: Dict[str, str] = {
+# Typing-only aliases for the user-facing vocabulary. They mirror (and must
+# stay in sync with) the StrategySignal / StrategyRulesInput field Literals so
+# the reverse-lookup dicts below yield correctly-narrowed values under mypy.
+_UserIndicatorName = Literal[
+    "rsi",
+    "atr",
+    "macd_line",
+    "macd_signal",
+    "macd_histogram",
+    "vwap",
+    "keltner.upper",
+    "keltner.middle",
+    "keltner.lower",
+    "rvol",
+    "z_score",
+    "hurst",
+]
+_ComparisonName = Literal["above", "below", "at_or_above", "at_or_below", "equals"]
+_TradeDirection = Literal["long", "short"]
+_MatchMode = Literal["all", "any"]
+
+_INDICATOR_USER_TO_CANONICAL: Dict[_UserIndicatorName, str] = {
     "rsi": "rsi",
     "atr": "atr",
     "macd_line": "macd.macd_line",
@@ -685,46 +708,38 @@ _INDICATOR_USER_TO_CANONICAL: Dict[str, str] = {
     "z_score": "z_score",
     "hurst": "hurst",
 }
-_INDICATOR_CANONICAL_TO_USER: Dict[str, str] = {
+_INDICATOR_CANONICAL_TO_USER: Dict[str, _UserIndicatorName] = {
     v: k for k, v in _INDICATOR_USER_TO_CANONICAL.items()
 }
 
-_COMPARISON_TO_OPERATOR: Dict[str, str] = {
+_COMPARISON_TO_OPERATOR: Dict[_ComparisonName, str] = {
     "above": "GT",
     "below": "LT",
     "at_or_above": "GTE",
     "at_or_below": "LTE",
     "equals": "EQ",
 }
-_OPERATOR_TO_COMPARISON: Dict[str, str] = {
+_OPERATOR_TO_COMPARISON: Dict[str, _ComparisonName] = {
     v: k for k, v in _COMPARISON_TO_OPERATOR.items()
 }
 
-_DIRECTION_USER_TO_CANONICAL: Dict[str, str] = {"long": "BUY", "short": "SELL"}
-_DIRECTION_CANONICAL_TO_USER: Dict[str, str] = {
+_DIRECTION_USER_TO_CANONICAL: Dict[_TradeDirection, str] = {
+    "long": "BUY",
+    "short": "SELL",
+}
+_DIRECTION_CANONICAL_TO_USER: Dict[str, _TradeDirection] = {
     v: k for k, v in _DIRECTION_USER_TO_CANONICAL.items()
 }
 
-_MATCH_MODE_TO_LOGIC: Dict[str, str] = {"all": "AND", "any": "OR"}
-_LOGIC_TO_MATCH_MODE: Dict[str, str] = {v: k for k, v in _MATCH_MODE_TO_LOGIC.items()}
+_MATCH_MODE_TO_LOGIC: Dict[_MatchMode, str] = {"all": "AND", "any": "OR"}
+_LOGIC_TO_MATCH_MODE: Dict[str, _MatchMode] = {
+    v: k for k, v in _MATCH_MODE_TO_LOGIC.items()
+}
 
 
 class StrategySignal(BaseModel):
-    indicator: Literal[
-        "rsi",
-        "atr",
-        "macd_line",
-        "macd_signal",
-        "macd_histogram",
-        "vwap",
-        "keltner.upper",
-        "keltner.middle",
-        "keltner.lower",
-        "rvol",
-        "z_score",
-        "hurst",
-    ]
-    comparison: Literal["above", "below", "at_or_above", "at_or_below", "equals"]
+    indicator: _UserIndicatorName
+    comparison: _ComparisonName
     threshold: float
 
 
@@ -827,11 +842,18 @@ def strategy_rules_to_canonical(rules: StrategyRulesInput) -> Dict[str, Any]:
     use_both_legs = rules.entry_long is not None or rules.entry_short is not None
 
     if use_both_legs:
-        primary_signals = rules.entry_long if rules.entry_long else rules.entry_short
-        primary_mode = (
-            rules.match_mode_long if rules.entry_long else rules.match_mode_short
+        # The _at_least_one_leg validator guarantees every declared leg carries
+        # its match_mode (and the legacy shape carries direction/match_mode),
+        # so the cast() narrows below are typing-only — no runtime change.
+        primary_signals = cast(
+            List[StrategySignal],
+            rules.entry_long if rules.entry_long else rules.entry_short,
         )
-        primary_direction = "long" if rules.entry_long else "short"
+        primary_mode = cast(
+            _MatchMode,
+            rules.match_mode_long if rules.entry_long else rules.match_mode_short,
+        )
+        primary_direction: _TradeDirection = "long" if rules.entry_long else "short"
         canonical: Dict[str, Any] = {
             "direction": _DIRECTION_USER_TO_CANONICAL[primary_direction],
             "logic": _MATCH_MODE_TO_LOGIC[primary_mode],
@@ -840,18 +862,20 @@ def strategy_rules_to_canonical(rules: StrategyRulesInput) -> Dict[str, Any]:
         }
         if rules.entry_long:
             canonical["entry_long"] = {
-                "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode_long],
+                "logic": _MATCH_MODE_TO_LOGIC[cast(_MatchMode, rules.match_mode_long)],
                 "conditions": _signals_to_canonical_conditions(rules.entry_long),
             }
         if rules.entry_short:
             canonical["entry_short"] = {
-                "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode_short],
+                "logic": _MATCH_MODE_TO_LOGIC[cast(_MatchMode, rules.match_mode_short)],
                 "conditions": _signals_to_canonical_conditions(rules.entry_short),
             }
     else:
         canonical = {
-            "direction": _DIRECTION_USER_TO_CANONICAL[rules.direction],
-            "logic": _MATCH_MODE_TO_LOGIC[rules.match_mode],
+            "direction": _DIRECTION_USER_TO_CANONICAL[
+                cast(_TradeDirection, rules.direction)
+            ],
+            "logic": _MATCH_MODE_TO_LOGIC[cast(_MatchMode, rules.match_mode)],
             "base_confidence": rules.confidence,
             "conditions": _signals_to_canonical_conditions(rules.signals),
         }
@@ -1130,7 +1154,9 @@ class UserRiskDefaultsPayload(BaseModel):
         description="Halts new orders for the day once breached.",
     )
     rate_limit_orders_per_min: int = Field(
-        default=DEFAULT_USER_RISK_DEFAULTS["rate_limit_orders_per_min"],
+        # int() narrows the Dict[str, float] view back to the declared int
+        # field type; the stored default is 30, so the value is unchanged.
+        default=int(DEFAULT_USER_RISK_DEFAULTS["rate_limit_orders_per_min"]),
         ge=1,
         le=600,
         description="Sliding-window cap enforced by rate_limiter service.",

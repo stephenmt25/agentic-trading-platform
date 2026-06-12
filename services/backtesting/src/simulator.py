@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from libs.core.enums import Regime
 from libs.core.exit_policy import decide_exit, thresholds_from_risk_limits
@@ -139,7 +139,9 @@ def compute_trade_metrics(trades: List[SimulatedTrade]) -> Dict[str, Decimal]:
         sharpe = _ZERO
 
     gross_profit = sum(t.pnl_pct for t in wins) if wins else _ZERO
-    gross_loss = abs(sum(t.pnl_pct for t in losses)) if losses else _ZERO
+    # cast: sum() over Decimals types as Decimal | Literal[0], which abs()
+    # joins to object; the runtime value here is always a Decimal.
+    gross_loss = cast(Decimal, abs(sum(t.pnl_pct for t in losses))) if losses else _ZERO
     profit_factor = (
         min(gross_profit / gross_loss, PROFIT_FACTOR_CAP)
         if gross_loss > 0

@@ -1,5 +1,6 @@
 from fastapi import HTTPException, Request
 from fastapi.security import HTTPBearer
+from redis.asyncio import Redis
 
 from libs.config import settings
 from libs.storage import RedisClient, TimescaleClient
@@ -22,7 +23,9 @@ from .middleware.auth import verify_jwt
 security = HTTPBearer()
 
 
-def get_redis() -> RedisClient:
+def get_redis() -> Redis:
+    # get_connection() hands back the underlying redis.asyncio.Redis — the
+    # RedisClient wrapper is only the pool/singleton holder.
     return RedisClient.get_instance(settings.REDIS_URL).get_connection()
 
 

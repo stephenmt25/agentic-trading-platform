@@ -1,9 +1,14 @@
 import asyncio
-from typing import Any, Callable, Coroutine, Dict, List, Optional
+from typing import Any, Callable, Coroutine, Dict, List, Optional, cast
 
 from libs.core.models import NormalisedCandle, NormalisedTick
 from libs.exchange import ExchangeAdapter
 from libs.exchange._base import NormalisedOrderBook, NormalisedTrade
+
+TickCallback = Callable[[NormalisedTick], Coroutine[Any, Any, None]]
+CandleCallback = Callable[[NormalisedCandle], Coroutine[Any, Any, None]]
+OrderBookCallback = Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]]
+TradeCallback = Callable[[NormalisedTrade], Coroutine[Any, Any, None]]
 
 
 class WebSocketManager:
@@ -12,14 +17,10 @@ class WebSocketManager:
         self.symbols = symbols
         self.retry_count: Dict[str, int] = {adapter.name: 0 for adapter in adapters}
         self._tasks: List[asyncio.Task] = []
-        self._tick_cb: Callable[[NormalisedTick], Coroutine[Any, Any, None]] = None
-        self._candle_cb: Callable[[NormalisedCandle], Coroutine[Any, Any, None]] = None
-        self._orderbook_cb: Optional[
-            Callable[[NormalisedOrderBook], Coroutine[Any, Any, None]]
-        ] = None
-        self._trade_cb: Optional[
-            Callable[[NormalisedTrade], Coroutine[Any, Any, None]]
-        ] = None
+        self._tick_cb: Optional[TickCallback] = None
+        self._candle_cb: Optional[CandleCallback] = None
+        self._orderbook_cb: Optional[OrderBookCallback] = None
+        self._trade_cb: Optional[TradeCallback] = None
 
     async def start(
         self,
@@ -56,7 +57,10 @@ class WebSocketManager:
     async def _run_ticks(self, adapter: ExchangeAdapter):
         while True:
             try:
-                await adapter.connect_websocket(self.symbols, self._tick_cb)
+                # start() always sets _tick_cb before spawning this task.
+                await adapter.connect_websocket(
+                    self.symbols, cast(TickCallback, self._tick_cb)
+                )
                 break
             except Exception:
                 if not await self._should_retry(adapter, stream="ticks"):
@@ -65,7 +69,10 @@ class WebSocketManager:
     async def _run_candles(self, adapter: ExchangeAdapter):
         while True:
             try:
-                await adapter.stream_candles(self.symbols, self._candle_cb)
+                # start() only spawns this task when candle_callback is not None.
+                await adapter.stream_candles(
+                    self.symbols, cast(CandleCallback, self._candle_cb)
+                )
                 break
             except Exception:
                 if not await self._should_retry(adapter, stream="candles"):
@@ -74,7 +81,10 @@ class WebSocketManager:
     async def _run_orderbook(self, adapter: ExchangeAdapter):
         while True:
             try:
-                await adapter.stream_orderbook(self.symbols, self._orderbook_cb)
+                # start() only spawns this task when orderbook_callback is not None.
+                await adapter.stream_orderbook(
+                    self.symbols, cast(OrderBookCallback, self._orderbook_cb)
+                )
                 break
             except NotImplementedError:
                 # Adapter doesn't expose depth — skip silently rather than retry.
@@ -86,7 +96,10 @@ class WebSocketManager:
     async def _run_trades(self, adapter: ExchangeAdapter):
         while True:
             try:
-                await adapter.stream_trades(self.symbols, self._trade_cb)
+                # start() only spawns this task when trade_callback is not None.
+                await adapter.stream_trades(
+                    self.symbols, cast(TradeCallback, self._trade_cb)
+                )
                 break
             except NotImplementedError:
                 return

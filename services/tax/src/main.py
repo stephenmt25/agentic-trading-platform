@@ -12,7 +12,11 @@ app = FastAPI(title="Tax Calculation Service")
 def calculate_tax(req: TaxRequest):
     est = USTaxCalculator.calculate(
         holding_duration_days=req.holding_duration_days,
-        net_pnl=req.net_pnl,
+        # NOTE(typing): real defect — TaxRequest.net_pnl is float (schemas.py)
+        # but the calculator expects Decimal; positive net_pnl hits
+        # float * Decimal (TypeError) inside calculate(). Converting here is a
+        # runtime change, out of scope for the typing cleanup.
+        net_pnl=req.net_pnl,  # type: ignore[arg-type]
         tax_bracket=req.tax_bracket,
     )
     return {

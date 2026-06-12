@@ -2,6 +2,7 @@ import time
 
 from fastapi import HTTPException, Request, Response
 from fastapi.routing import APIRoute
+from redis.asyncio import Redis
 
 from libs.config import settings
 from libs.observability import get_logger
@@ -82,7 +83,9 @@ def user_rate_limit(scope: str, limit: int, window_s: int):
 class RateLimiterMiddleware:
     def __init__(
         self,
-        redis_client: RedisClient,
+        # The wired-in object is RedisClient.get_connection()'s underlying
+        # redis.asyncio.Redis (see main.py create_app), not the wrapper.
+        redis_client: Redis,
         limit: int = 60,
         window: int = 60,
         auth_limit: int = 10,
@@ -106,7 +109,10 @@ class RateLimiterMiddleware:
         if request.url.path in ["/health", "/ready", "/auth/callback", "/auth/refresh"]:
             return await call_next(request)
 
-        identifier = getattr(request.state, "user_id", request.client.host)
+        # request.client is None only for synthetic ASGI scopes (e.g. bare test
+        # clients); a None-guard here would silently change the bucket key, so
+        # keep runtime behavior and silence the optional-access warning only.
+        identifier = getattr(request.state, "user_id", request.client.host)  # type: ignore[union-attr]
 
         is_auth_route = request.url.path.startswith("/auth/")
         current_limit = self._auth_limit if is_auth_route else self._limit

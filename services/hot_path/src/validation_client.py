@@ -36,7 +36,10 @@ class ValidationClient:
 
         # BLPOP blocks until the validation service LPUSHes a response
         timeout_s = self._timeout_ms / 1000.0
-        result = await self._redis.blpop(resp_key, timeout=timeout_s)
+        # Ignore below is typing-only — redis-py stubs over-narrow: runtime blpop
+        # accepts a single str key and a float timeout (Redis 6+ double), and the
+        # asyncio client's return is awaitable. Runtime untouched.
+        result = await self._redis.blpop(resp_key, timeout=timeout_s)  # type: ignore[misc,arg-type]
 
         if result is None:
             logger.warning(f"Validation fast_gate timeout for {request.event_id}")

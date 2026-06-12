@@ -1,3 +1,5 @@
+from typing import cast
+
 import httpx
 
 from libs.observability import get_logger
@@ -90,7 +92,9 @@ class Alerter:
             f"*Timestamp:* {payload['timestamp']}",
         }
         async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.post(self.slack_webhook, json=slack_payload)
+            # send_alert only calls this when self.slack_webhook is truthy;
+            # cast() restates that guard for mypy (runtime no-op).
+            resp = await client.post(cast(str, self.slack_webhook), json=slack_payload)
             if resp.status_code != 200:
                 logger.error(
                     "Slack returned non-OK status",

@@ -78,6 +78,13 @@ class RegimeDampener:
         if resolved == Regime.CRISIS:
             return DampenerResult(proceed=False, confidence_multiplier=0.0)
 
+        if resolved is None:
+            # Typing-only None-guard: dict.get(None, default) returned the
+            # default before this guard existed — behavior is identical.
+            return DampenerResult(
+                proceed=True, confidence_multiplier=_DEFAULT_CONFIDENCE_MULTIPLIER
+            )
+
         multiplier = _REGIME_CONFIDENCE_MULTIPLIER.get(
             resolved, _DEFAULT_CONFIDENCE_MULTIPLIER
         )

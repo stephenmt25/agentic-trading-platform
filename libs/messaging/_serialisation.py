@@ -77,7 +77,9 @@ def decode_event(data: bytes) -> BaseEvent:
             f"Unsupported schema version: {schema_version}"
         )
 
-    models = {
+    # Explicit annotation: mypy otherwise joins the heterogeneous class
+    # objects to ModelMetaclass, which lacks model_validate.
+    models: Dict[str, type[BaseEvent]] = {
         "BaseEvent": BaseEvent,
         "MarketTickEvent": MarketTickEvent,
         "SignalEvent": SignalEvent,

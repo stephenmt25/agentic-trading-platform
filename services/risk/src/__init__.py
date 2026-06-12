@@ -6,7 +6,7 @@ Provides position size limits, concentration limits, and portfolio-level guards.
 import json
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
 from libs.config import settings
 from libs.core.notional import profile_notional
@@ -59,7 +59,7 @@ class RiskService:
             )
 
         # 2. Load profile risk limits from DB
-        risk_limits = {}
+        risk_limits: dict[str, Any] = {}
         portfolio_value = Decimal("0")
         if self._profile_repo:
             try:

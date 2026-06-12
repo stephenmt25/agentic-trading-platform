@@ -43,7 +43,10 @@ class StrategyEvaluator:
     @staticmethod
     def evaluate(
         state: ProfileState, tick: NormalisedTick
-    ) -> Optional[tuple[SignalResult, EvaluatedIndicators]]:
+    ) -> Optional[tuple[Optional[SignalResult], EvaluatedIndicators]]:
+        """Returns None while core indicators prime; otherwise
+        (signal_or_None, indicators) — the signal element is None when no
+        rule matched (mirrors evaluate_with_trace)."""
         price = float(tick.price)  # float-ok: indicator library requires float
 
         # 1. Update Indicators Incrementally

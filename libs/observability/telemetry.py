@@ -18,7 +18,7 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from libs.messaging.channels import PUBSUB_AGENT_TELEMETRY
 
@@ -47,7 +47,7 @@ class TelemetryPublisher:
     ) -> None:
         """Publish a telemetry event to the agent telemetry channel."""
         self._message_count += 1
-        event = {
+        event: Dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "agent_id": self._agent_id,

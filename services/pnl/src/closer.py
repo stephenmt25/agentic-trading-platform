@@ -156,7 +156,9 @@ class PositionCloser:
                 symbol=position.symbol,
                 position_id=str(position.position_id),
                 outcome=outcome,
-                pnl_pct=snapshot.pct_return,
+                # Tracker's hint says float but it only str()-encodes the value;
+                # converting would break the Decimal contract (no float() in pnl).
+                pnl_pct=snapshot.pct_return,  # type: ignore[arg-type]
                 agent_scores=agent_scores,
                 trade_direction=str(getattr(position.side, "value", position.side)),
             )

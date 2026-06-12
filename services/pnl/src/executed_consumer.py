@@ -23,6 +23,8 @@ import asyncio
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import cast
+from uuid import UUID
 
 from libs.core.enums import EventType
 from libs.core.schemas import AlertEvent, OrderExecutedEvent, OrderRejectedEvent
@@ -126,7 +128,9 @@ class ExecutedEventConsumer:
     async def _on_fill(self, ev: OrderExecutedEvent):
         if self._is_stale(ev):
             return
-        rec = await self._position_repo.get_by_id(ev.close_position_id)
+        # _handle only dispatches here when close_position_id is not None;
+        # cast() restates that invariant for mypy (runtime no-op).
+        rec = await self._position_repo.get_by_id(cast(UUID, ev.close_position_id))
         if rec is None:
             logger.warning(
                 "close_fill_position_missing",
@@ -153,7 +157,10 @@ class ExecutedEventConsumer:
         )
 
     async def _on_reject(self, ev: OrderRejectedEvent):
-        reverted = await self._position_repo.revert_close(ev.close_position_id)
+        # Same invariant as _on_fill: _handle guarantees close_position_id is set.
+        reverted = await self._position_repo.revert_close(
+            cast(UUID, ev.close_position_id)
+        )
         logger.error(
             "close_order_rejected",
             close_position_id=str(ev.close_position_id),

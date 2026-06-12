@@ -1,6 +1,7 @@
-from typing import List
+from typing import Dict, List
 
 import redis.asyncio as redis
+from redis.typing import KeyT, StreamIdT
 
 from libs.core.schemas import BaseEvent
 
@@ -55,12 +56,14 @@ class StreamConsumer:
         block_ms: int = 100,
     ) -> List[tuple[str, BaseEvent]]:
         await self._ensure_group(channel, group)
-        streams = {channel: ">"}
+        # Annotated with redis-py's own aliases: dict is invariant, so the
+        # inferred dict[str, str] would not match the stub's parameter type.
+        streams: Dict[KeyT, StreamIdT] = {channel: ">"}
         results = await self._redis.xreadgroup(
             group, consumer, streams, count=count, block=block_ms
         )
 
-        events = []
+        events: List[tuple[str, BaseEvent]] = []
         for stream_name, messages in results:
             for message_id, data in messages:
                 try:
@@ -68,7 +71,11 @@ class StreamConsumer:
                     events.append((message_id, event))
                 except Exception:
                     # Logging missing here but schema errors can be sent to DLQ
-                    events.append((message_id, None))
+                    # Ignore justified: the decode-failure None sentinel is
+                    # pre-existing runtime behaviour (docs/modules/messaging.md);
+                    # widening the return type to Optional[BaseEvent] would
+                    # ripple new mypy errors into every consumer service.
+                    events.append((message_id, None))  # type: ignore[arg-type]
         return events
 
     async def ack(self, channel: str, group: str, message_ids: List[str]):

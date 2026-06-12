@@ -2,6 +2,7 @@
 
 import copy
 import json
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -15,7 +16,9 @@ from ..deps import get_current_user, get_profile_repo, get_redis
 router = APIRouter()
 
 # Default linear pipeline — the 9-gate sequence from processor.py
-DEFAULT_PIPELINE = {
+# dict[str, Any]: node/edge dicts are heterogeneous JSON shapes; without the
+# annotation mypy infers `object` values and rejects iterating pipeline["nodes"].
+DEFAULT_PIPELINE: dict[str, Any] = {
     "nodes": [
         {
             "id": "market_tick",

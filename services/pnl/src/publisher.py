@@ -2,10 +2,11 @@ import json
 import time
 from decimal import Decimal
 
+from redis.asyncio import Redis
+
 from libs.core.schemas import DrawdownPayload, PnlUpdateEvent
 from libs.messaging import PubSubBroadcaster
 from libs.messaging.channels import PUBSUB_PNL_UPDATES
-from libs.storage._redis_client import RedisClient
 from libs.storage.repositories import PnlRepository
 
 _ZERO = Decimal("0")
@@ -27,7 +28,9 @@ class _DecimalEncoder(json.JSONEncoder):
 class PnLPublisher:
     def __init__(
         self,
-        redis_client: RedisClient,
+        # The raw redis.asyncio connection (RedisClient.get_connection()), not
+        # the libs.storage RedisClient pool wrapper — main.py passes the former.
+        redis_client: Redis,
         pubsub: PubSubBroadcaster,
         pnl_repo: PnlRepository,
     ):

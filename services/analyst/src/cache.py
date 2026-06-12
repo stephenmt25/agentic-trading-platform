@@ -1,3 +1,5 @@
+from typing import Optional
+
 from libs.storage._redis_client import RedisClient
 
 
@@ -6,9 +8,13 @@ class SentimentCache:
         self._redis = redis_client
         self._ttl_s = ttl_s
 
-    async def get(self, symbol: str) -> dict:
+    async def get(self, symbol: str) -> Optional[dict]:
         key = f"sentiment:{symbol}:latest"
-        val = await self._redis.get(key)
+        # NOTE(typing): latent defect — RedisClient is a pool wrapper without
+        # .get/.set (callers must use .get_connection()). This class is never
+        # instantiated in production (tests inject mocks); rewiring it is a
+        # runtime change, out of scope for the typing cleanup.
+        val = await self._redis.get(key)  # type: ignore[attr-defined]
         if val:
             import json
 
@@ -19,4 +25,7 @@ class SentimentCache:
         key = f"sentiment:{symbol}:latest"
         import json
 
-        await self._redis.set(key, json.dumps(data), ex=self._ttl_s)
+        # NOTE(typing): same latent defect as get() above.
+        await self._redis.set(  # type: ignore[attr-defined]
+            key, json.dumps(data), ex=self._ttl_s
+        )

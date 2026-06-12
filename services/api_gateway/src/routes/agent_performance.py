@@ -459,7 +459,9 @@ async def get_gate_efficacy(
             out[key] = float(v) if v is not None else None
         for ts_key in ("window_start", "window_end", "created_at"):
             v = out.get(ts_key)
-            if hasattr(v, "isoformat"):
+            # `v is not None` is implied by hasattr(None, "isoformat") being
+            # False — spelled out so mypy narrows away the Optional.
+            if v is not None and hasattr(v, "isoformat"):
                 out[ts_key] = v.isoformat()
         return out
 

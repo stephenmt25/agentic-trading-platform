@@ -893,7 +893,9 @@ class HotPathProcessor:
         order_ev = OrderApprovedEvent(
             profile_id=profile_state.profile_id,
             symbol=tick.symbol,
-            side=SignalDirection(sig_res.direction),
+            # str-enum BUY/SELL values coerce to OrderSide during pydantic
+            # validation; typing-only ignore, runtime untouched.
+            side=SignalDirection(sig_res.direction),  # type: ignore[arg-type]
             quantity=qty,
             price=tick.price,
             decision_event_id=trace.get("event_id"),

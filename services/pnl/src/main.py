@@ -32,7 +32,7 @@ logger = get_logger("pnl")
 # Cached map in memory for active positions to avoid constant db roundtrips
 # Mapping {symbol: [Positions]}. Only OPEN positions are cached; a position in
 # PENDING_CLOSE (close order in flight) is excluded so it is not re-closed.
-active_positions_cache = {}
+active_positions_cache: dict[str, list[Position]] = {}
 
 
 async def hydrate_positions(position_repo: PositionRepository):

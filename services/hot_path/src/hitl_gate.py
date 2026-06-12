@@ -153,7 +153,9 @@ class HITLGate:
         request = HITLApprovalRequest(
             profile_id=state.profile_id,
             symbol=tick.symbol,
-            side=SignalDirection(signal.direction),
+            # str-enum BUY/SELL values coerce to OrderSide during pydantic
+            # validation; typing-only ignore, runtime untouched.
+            side=SignalDirection(signal.direction),  # type: ignore[arg-type]
             quantity=risk_result.suggested_quantity,
             price=tick.price,
             confidence=signal.confidence,

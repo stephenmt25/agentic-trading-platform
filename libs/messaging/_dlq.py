@@ -1,4 +1,7 @@
+from typing import Dict
+
 import redis.asyncio as redis
+from redis.typing import EncodableT, FieldT
 
 
 class DeadLetterQueue:
@@ -7,7 +10,9 @@ class DeadLetterQueue:
         self._dlq_channel = dlq_channel
 
     async def send_to_dlq(self, original_channel: str, event_data: bytes, error: str):
-        payload = {
+        # Annotated with redis-py's own aliases: dict is invariant, so the
+        # inferred dict[str, Sequence[object]] would not match the xadd stub.
+        payload: Dict[FieldT, EncodableT] = {
             "original_channel": original_channel,
             "error": error,
             "payload": event_data,

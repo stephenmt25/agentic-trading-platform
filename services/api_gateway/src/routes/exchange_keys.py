@@ -1,5 +1,5 @@
 import json
-from typing import List
+from typing import Any, List
 
 import ccxt.async_support as ccxt
 from fastapi import APIRouter, Depends, HTTPException
@@ -61,7 +61,9 @@ async def test_exchange_connection(data: ExchangeKeyTest):
         )
 
     exchange_class = getattr(ccxt, data.exchange_id)
-    exchange_params = {
+    # dict[str, Any]: values are heterogeneous (str / bool / nested options dict)
+    # and the nested "options" dict is mutated below for the testnet path.
+    exchange_params: dict[str, Any] = {
         "apiKey": data.api_key,
         "secret": data.api_secret,
         "enableRateLimit": True,

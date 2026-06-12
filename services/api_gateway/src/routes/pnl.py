@@ -1,10 +1,10 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from typing import Optional, Tuple
+from typing import Any, Awaitable, Optional, Tuple, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from redis.asyncio import Redis
 
-from libs.storage._redis_client import RedisClient
 from libs.storage.repositories import PnlRepository
 from libs.storage.repositories.closed_trade_repo import ClosedTradeRepository
 from libs.storage.repositories.profile_repo import ProfileRepository
@@ -23,7 +23,7 @@ _MICRO = Decimal("1000000")
 
 
 async def _read_daily_loss(
-    redis: RedisClient, profile_id: str
+    redis: Optional[Redis], profile_id: str
 ) -> Tuple[float, Optional[str]]:
     """Read the per-profile daily-loss counter written by services/pnl/src/closer.py.
 
@@ -37,8 +37,17 @@ async def _read_daily_loss(
     if redis is None:
         return 0.0, None
     try:
-        raw_micro = await redis.hget(f"pnl:daily:{profile_id}", "total_pct_micro")
-        raw_date = await redis.hget(f"pnl:daily:{profile_id}", "date")
+        # redis-py shares command stubs between sync and async clients, so hget
+        # is typed `Awaitable[str|None] | str|None`; on redis.asyncio it is
+        # always awaitable. Cast to Awaitable[Any] (not str — values arrive as
+        # bytes without decode_responses; the isinstance checks below narrow).
+        raw_micro = await cast(
+            Awaitable[Any],
+            redis.hget(f"pnl:daily:{profile_id}", "total_pct_micro"),
+        )
+        raw_date = await cast(
+            Awaitable[Any], redis.hget(f"pnl:daily:{profile_id}", "date")
+        )
     except Exception:
         return 0.0, None
     if isinstance(raw_micro, (bytes, bytearray)):
@@ -77,7 +86,7 @@ def _snapshot_to_dict(row) -> Optional[dict]:
 @router.get("/summary")
 async def get_pnl_summary(
     user_id: str = Depends(get_current_user),
-    redis: RedisClient = Depends(get_redis),
+    redis: Redis = Depends(get_redis),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
     repo: PnlRepository = Depends(get_pnl_repo),
 ):
@@ -205,7 +214,7 @@ async def get_profile_pnl(
     profile_id: str,
     user_id: str = Depends(get_current_user),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
-    redis: RedisClient = Depends(get_redis),
+    redis: Redis = Depends(get_redis),
     repo: PnlRepository = Depends(get_pnl_repo),
 ):
     """Current P&L snapshot for a profile owned by the current user."""

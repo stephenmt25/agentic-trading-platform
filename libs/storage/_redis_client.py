@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Dict, Optional
 
 import redis.asyncio as redis
 
@@ -16,7 +16,7 @@ class RedisClient:
     _long_instance: Optional["RedisClient"] = None
 
     def __init__(self, url: str, *, long_blocking: bool = False):
-        kwargs = {"max_connections": 100}
+        kwargs: Dict[str, Any] = {"max_connections": 100}
         if not long_blocking:
             kwargs.update(
                 socket_timeout=_DEFAULT_SOCKET_TIMEOUT_S,

@@ -9,7 +9,7 @@ import json
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, cast
 
 import numpy as np
 
@@ -312,6 +312,9 @@ class VectorBTRunner:
             # — the live engine never closes a position on a signal.
             # ------------------------------------------------------------
             if in_position:
+                # Typing narrow only: entry_price is always set while
+                # in_position is True (assigned together at open/close).
+                assert entry_price is not None
                 if direction == "BUY":
                     pct_return = (close_d - entry_price) / entry_price
                 else:
@@ -364,6 +367,8 @@ class VectorBTRunner:
 
         # Close remaining position (sim artefact — tagged distinctly).
         if in_position:
+            # Typing narrow only: same in_position/entry_price invariant.
+            assert entry_price is not None
             i = n - 1
             close_d = _D(str(closes[i]))
             slip = close_d * job.slippage_pct
@@ -491,7 +496,7 @@ def run_sweep(
     # risk_limits untouched (pre-grid behaviour).
     risk_combos = list(itertools.product(*risk_values))
 
-    results = []
+    results: List[Dict[str, Any]] = []
     for combo in combos:
         # Deep-copy rules and apply parameter overrides
         rules = _deep_copy_rules(base_rules)
@@ -506,7 +511,12 @@ def run_sweep(
                 symbol=symbol,
                 strategy_rules=rules,
                 slippage_pct=slippage_pct,
-                risk_limits=merge_risk_limits(risk_limits, risk_params),
+                # cast: base is Optional[Dict] here, so the str branch of
+                # merge_risk_limits (JSON-string base) is unreachable.
+                risk_limits=cast(
+                    Optional[Dict[str, Any]],
+                    merge_risk_limits(risk_limits, risk_params),
+                ),
             )
             result = VectorBTRunner.run(job, data)
             results.append(
@@ -538,7 +548,8 @@ def _set_nested(rules: Dict[str, Any], key: str, value: Any):
     if parts[0].isdigit():
         parts = ["conditions"] + parts
 
-    obj = rules
+    # Any: traversal alternates dicts (str keys) and lists (int indices).
+    obj: Any = rules
     for part in parts[:-1]:
         if part.isdigit():
             obj = obj[int(part)]

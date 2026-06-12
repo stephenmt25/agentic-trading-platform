@@ -24,7 +24,9 @@ class UserSessionRepository(BaseRepository):
         browser: Optional[str],
     ) -> Dict[str, Any]:
         """Create a new session row on /auth/callback. Returns the row."""
-        row = await self._fetchrow(
+        # Annotated Any: INSERT ... RETURNING always yields a row, so the
+        # Optional from _fetchrow never materialises here.
+        row: Any = await self._fetchrow(
             """
             INSERT INTO user_sessions
                 (user_id, jti, user_agent, ip_inet, device, browser)
