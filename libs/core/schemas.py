@@ -572,20 +572,6 @@ class TaxRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Service Models — Backtesting
-# ---------------------------------------------------------------------------
-
-
-class SweepRequest(BaseModel):
-    symbol: str = "BTC/USDT"
-    strategy_rules: Dict[str, Any]
-    param_grid: Dict[str, List[Any]]
-    slippage_pct: float = Field(default=0.001)
-    start_date: str = ""
-    end_date: str = ""
-
-
-# ---------------------------------------------------------------------------
 # Service Models — SLM Inference
 # ---------------------------------------------------------------------------
 
@@ -996,17 +982,6 @@ class TaxEstimateResponse(BaseModel):
     classification: str
 
 
-class SweepResultItem(BaseModel):
-    model_config = ConfigDict(extra="allow")
-
-
-class BacktestSweepResponse(BaseModel):
-    job_id: str
-    symbol: str
-    num_combinations: int
-    results: List[Any]
-
-
 # ---------------------------------------------------------------------------
 # Phase D: Validated financial JSON structures (replacing raw json.loads)
 # ---------------------------------------------------------------------------
@@ -1057,38 +1032,62 @@ class AllocationPayload(BaseModel):
         return Decimal(self.allocation_pct)
 
 
-# Single source of truth for risk-limits defaults. Stored as str so consumers
-# can lift directly into Decimal without losing precision.
+# Risk-limit defaults. The SINGLE authority is `libs.config.settings`
+# (registry row 67 / locked ruling D-D, 2026-06-13): the live ExitMonitor,
+# the shared exit_policy, and both backtest engines already resolve missing
+# keys from settings. This mapping is a str-encoded VIEW of those settings,
+# kept for consumers that lift values straight into Decimal — do NOT hardcode
+# numbers here, and do not add keys that settings does not define.
+# Import is region-local so this lane's edits stay inside the
+# RiskLimitsPayload/DEFAULT_RISK_LIMITS region (parallel-lane file ownership).
+from libs.config import settings as _settings  # noqa: E402
+
 DEFAULT_RISK_LIMITS: Dict[str, str] = {
-    "max_drawdown_pct": "0.10",
-    "stop_loss_pct": "0.05",
-    "take_profit_pct": "0.015",
-    "max_holding_hours": "48.0",
-    "max_allocation_pct": "1.0",
-    "circuit_breaker_daily_loss_pct": "0.02",
+    "max_drawdown_pct": str(_settings.DEFAULT_MAX_DRAWDOWN_PCT),
+    "stop_loss_pct": str(_settings.DEFAULT_STOP_LOSS_PCT),
+    "take_profit_pct": str(_settings.DEFAULT_TAKE_PROFIT_PCT),
+    "max_holding_hours": str(_settings.DEFAULT_MAX_HOLDING_HOURS),
+    "max_allocation_pct": str(_settings.DEFAULT_MAX_ALLOCATION_PCT),
+    "circuit_breaker_daily_loss_pct": str(_settings.CIRCUIT_BREAKER_DAILY_LOSS_PCT),
 }
 
 
 class RiskLimitsPayload(BaseModel):
-    """Validated risk limits JSON from profile. Defaults sourced from DEFAULT_RISK_LIMITS."""
+    """Validated risk limits JSON from a profile (also the BacktestRequest
+    risk_limits override shape). Defaults source from settings via
+    DEFAULT_RISK_LIMITS — settings is the single authority (ruling D-D).
+
+    Domain bounds (registry row 66 / ruling D-E): pcts in (0, 1], hours > 0.
+    Every existing trading_profiles.risk_limits row was verified in-bounds
+    before tightening (2026-06-13: 9/9 rows pass). Floats here are the
+    documented JSON-boundary convention — downstream consumers convert to
+    Decimal at the calculation site (see exit_policy.thresholds_from_risk_limits).
+    """
 
     max_drawdown_pct: float = Field(
-        default=float(DEFAULT_RISK_LIMITS["max_drawdown_pct"])
+        default=float(DEFAULT_RISK_LIMITS["max_drawdown_pct"]), gt=0, le=1  # float-ok
     )
-    stop_loss_pct: float = Field(default=float(DEFAULT_RISK_LIMITS["stop_loss_pct"]))
+    stop_loss_pct: float = Field(
+        default=float(DEFAULT_RISK_LIMITS["stop_loss_pct"]), gt=0, le=1  # float-ok
+    )
     take_profit_pct: float = Field(
-        default=float(DEFAULT_RISK_LIMITS["take_profit_pct"])
+        default=float(DEFAULT_RISK_LIMITS["take_profit_pct"]), gt=0, le=1  # float-ok
     )
     max_holding_hours: float = Field(
-        default=float(DEFAULT_RISK_LIMITS["max_holding_hours"])
+        default=float(DEFAULT_RISK_LIMITS["max_holding_hours"]), gt=0  # float-ok
     )
     max_allocation_pct: float = Field(
-        default=float(DEFAULT_RISK_LIMITS["max_allocation_pct"])
+        default=float(DEFAULT_RISK_LIMITS["max_allocation_pct"]), gt=0, le=1  # float-ok
     )
     circuit_breaker_daily_loss_pct: float = Field(
-        default=float(DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"])
+        default=float(  # float-ok: JSON-boundary payload convention
+            DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"]
+        ),
+        gt=0,
+        le=1,
     )
-    model_config = ConfigDict(extra="allow")
+    # extra="allow" dropped per ruling D-E — unknown keys are now ignored
+    # (Pydantic default) instead of being carried as untyped extras.
 
 
 # Sensible defaults for user-level risk caps; expressed in the same units as the

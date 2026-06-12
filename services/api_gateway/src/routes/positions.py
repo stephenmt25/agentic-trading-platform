@@ -168,12 +168,13 @@ def _enrich_with_profile_context(
 async def list_positions(
     status: str = Query(default="open", pattern="^(open|all)$"),
     profile_id: Optional[str] = Query(default=None),
+    symbol: Optional[str] = Query(default=None),
     user_id: str = Depends(get_current_user),
     repo: PositionRepository = Depends(get_position_repo),
     profile_repo: ProfileRepository = Depends(get_profile_repo),
     redis: RedisClient = Depends(get_redis),
 ):
-    """List positions, default to open. Optionally scoped to a profile.
+    """List positions, default to open. Optionally scoped to a profile and/or symbol.
 
     Response shape: position rows with entry_price, quantity, opened_at, status,
     plus unrealized_net_pnl / unrealized_gross_pnl / unrealized_pct_return for OPEN
@@ -181,16 +182,30 @@ async def list_positions(
     notional, profile_notional, allocation_used_pct, mark_price, stop_loss_price,
     stop_loss_pct, take_profit_price, take_profit_pct.
     """
+    if symbol:
+        # Read-side mirror of the submit_order / market_data.py normalization
+        # (registry row 72): URL-safe `BTC-USDT` → canonical `BTC/USDT` so a
+        # dash filter matches the slash-form rows in the DB instead of
+        # silently returning empty (same failure shape as the
+        # positions.status case-sensitivity incident).
+        symbol = symbol.rstrip("/").replace("-", "/")
+
     if status == "open":
         rows = await repo.get_open_positions(profile_id=profile_id)
+        if symbol:
+            rows = [r for r in rows if r["symbol"] == symbol]
     else:
+        conditions: list[str] = []
+        params: list = []
         if profile_id:
-            query = "SELECT * FROM positions WHERE profile_id = $1 ORDER BY opened_at DESC LIMIT 200"
-            rows = await repo._fetch(query, profile_id)
-        else:
-            rows = await repo._fetch(
-                "SELECT * FROM positions ORDER BY opened_at DESC LIMIT 200"
-            )
+            params.append(profile_id)
+            conditions.append(f"profile_id = ${len(params)}")
+        if symbol:
+            params.append(symbol)
+            conditions.append(f"symbol = ${len(params)}")
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        query = f"SELECT * FROM positions{where} ORDER BY opened_at DESC LIMIT 200"
+        rows = await repo._fetch(query, *params)
 
     serialised = [_serialise(dict(r)) for r in rows]
     serialised = await _attach_unrealized_pnl(serialised, redis)

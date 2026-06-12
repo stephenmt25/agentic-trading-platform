@@ -1,12 +1,82 @@
 import time
 
-from fastapi import Request, Response
+from fastapi import HTTPException, Request, Response
 from fastapi.routing import APIRoute
 
+from libs.config import settings
 from libs.observability import get_logger
 from libs.storage._redis_client import RedisClient
 
 logger = get_logger("api-gateway.rate-limit")
+
+
+def user_rate_limit(scope: str, limit: int, window_s: int):
+    """Route-level post-auth per-user rate bucket (registry row 64c).
+
+    `RateLimiterMiddleware` below runs BEFORE the router-level auth dependency,
+    so `request.state.user_id` is never set when it executes and its bucket
+    keys on client IP only — a shared bucket behind any proxy. This factory
+    returns a FastAPI dependency that runs AFTER auth (router deps populate
+    `request.state.user_id` first), giving destructive routes a true
+    per-user sliding window.
+
+    Fail-OPEN on Redis errors: an unreachable limiter must never lock an
+    operator out of POST /commands/kill-switch — the exact endpoint needed
+    during a Redis outage (mirrors the middleware's fail-open contract).
+    """
+
+    async def _enforce(request: Request) -> None:
+        user_id = getattr(request.state, "user_id", None)
+        if not user_id:
+            # Router-level auth should have rejected already; defense in depth.
+            raise HTTPException(status_code=401, detail="Authentication required")
+
+        redis = RedisClient.get_instance(settings.REDIS_URL).get_connection()
+        key = f"rate_limit:user:{scope}:{user_id}"
+        now_ms = int(time.time() * 1000)
+        window_ms = window_s * 1000
+        min_time = now_ms - window_ms
+
+        try:
+            pipe = redis.pipeline()
+            pipe.zremrangebyscore(key, 0, min_time)
+            pipe.zcard(key)
+            results = await pipe.execute()
+            current_count = results[1]
+        except Exception as e:
+            logger.warning(
+                "Per-user rate limiter Redis unreachable — failing open",
+                scope=scope,
+                error=str(e),
+            )
+            return
+
+        if current_count >= limit:
+            retry_after_sec = 1
+            try:
+                oldest = await redis.zrange(key, 0, 0, withscores=True)
+                if oldest:
+                    oldest_ts = int(oldest[0][1])
+                    retry_after_sec = max(
+                        1, int((window_ms - (now_ms - oldest_ts)) / 1000)
+                    )
+            except Exception:
+                pass
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={"Retry-After": str(retry_after_sec)},
+            )
+
+        try:
+            pipe = redis.pipeline()
+            pipe.zadd(key, {str(now_ms): now_ms})
+            pipe.expire(key, window_s)
+            await pipe.execute()
+        except Exception:
+            pass  # Best-effort — request was already permitted above
+
+    return _enforce
 
 
 class RateLimiterMiddleware:

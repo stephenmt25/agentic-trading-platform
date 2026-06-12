@@ -20,6 +20,7 @@ import json
 from fastapi import APIRouter, Depends
 
 from libs.config import settings
+from libs.core.portfolio import DECAY_SNAPSHOT_KEY
 from libs.core.portfolio import SNAPSHOT_KEY as PORTFOLIO_SNAPSHOT_KEY
 from libs.observability import get_logger
 from libs.storage.repositories.profile_repo import ProfileRepository
@@ -30,10 +31,6 @@ from .commands import is_operator
 router = APIRouter(tags=["risk"])
 
 logger = get_logger("api_gateway.risk")
-
-# Written by services/analyst/src/decay_tracker.py (SNAPSHOT_KEY). Defined
-# locally to avoid importing a service module into the gateway.
-DECAY_SNAPSHOT_KEY = "analyst:decay:snapshot"
 
 
 def _decode(raw) -> str | None:

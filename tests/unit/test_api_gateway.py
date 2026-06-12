@@ -296,3 +296,534 @@ class TestVerifyJwt:
         )
         request = self._run(tok)
         assert request.state.user_id == "u1"
+
+
+# ---------------------------------------------------------------------------
+# Row 70 — WS pnl per-user filter (PnlProfileFilter)
+# ---------------------------------------------------------------------------
+
+
+class _FakeProfileRepo:
+    """ProfileRepository stand-in: user_id -> list of profile_ids."""
+
+    def __init__(self, profiles_by_user: dict):
+        self.profiles_by_user = profiles_by_user
+        self.call_count = 0
+
+    async def get_all_profiles_for_user(self, user_id: str):
+        self.call_count += 1
+        return [{"profile_id": pid} for pid in self.profiles_by_user.get(user_id, [])]
+
+
+class _FakeClock:
+    def __init__(self, t: float = 0.0):
+        self.t = t
+
+    def __call__(self) -> float:
+        return self.t
+
+
+class TestPnlProfileFilter:
+    """Row 70: pubsub:pnl_updates must be filtered by profile ownership —
+    the old filter keyed on a `user_id` field PnlUpdateEvent never carried."""
+
+    def _make(self, user_id, repo, clock):
+        import asyncio
+
+        from services.api_gateway.src.routes.ws import PnlProfileFilter
+
+        f = PnlProfileFilter(user_id, repo, clock=clock)
+        asyncio.run(f.prime())
+        return f
+
+    def test_cross_user_pnl_events_are_filtered(self):
+        import asyncio
+
+        repo = _FakeProfileRepo({"alice": ["p1"], "bob": ["p2"]})
+        clock = _FakeClock()
+        f_alice = self._make("alice", repo, clock)
+        f_bob = self._make("bob", repo, clock)
+
+        ev_p1 = {"profile_id": "p1", "symbol": "BTC/USDT", "net_pnl": "1.23"}
+        ev_p2 = {"profile_id": "p2", "symbol": "ETH/USDT", "net_pnl": "-0.5"}
+
+        assert asyncio.run(f_alice.should_forward(ev_p1)) is True
+        assert asyncio.run(f_alice.should_forward(ev_p2)) is False
+        assert asyncio.run(f_bob.should_forward(ev_p2)) is True
+        assert asyncio.run(f_bob.should_forward(ev_p1)) is False
+
+    def test_lazy_refresh_picks_up_newly_created_profile(self):
+        import asyncio
+
+        repo = _FakeProfileRepo({"alice": ["p1"]})
+        clock = _FakeClock()
+        f = self._make("alice", repo, clock)
+
+        repo.profiles_by_user["alice"].append("p_new")  # created after connect
+        clock.t = 10.0  # past the refresh throttle window
+        assert asyncio.run(f.should_forward({"profile_id": "p_new"})) is True
+
+    def test_misses_do_not_hammer_the_db(self):
+        import asyncio
+
+        repo = _FakeProfileRepo({"alice": ["p1"]})
+        clock = _FakeClock()
+        f = self._make("alice", repo, clock)
+        assert repo.call_count == 1  # prime
+
+        foreign = {"profile_id": "someone-elses"}
+        for _ in range(3):
+            assert asyncio.run(f.should_forward(foreign)) is False
+        assert repo.call_count == 1  # throttled — no refresh inside the window
+
+        clock.t = 6.0  # window elapsed → exactly one more refresh
+        assert asyncio.run(f.should_forward(foreign)) is False
+        assert repo.call_count == 2
+
+    def test_fail_closed_without_repo_or_profile_id(self):
+        import asyncio
+
+        clock = _FakeClock()
+        f = self._make("alice", None, clock)
+        assert asyncio.run(f.should_forward({"profile_id": "p1"})) is False
+        repo = _FakeProfileRepo({"alice": ["p1"]})
+        f2 = self._make("alice", repo, clock)
+        assert asyncio.run(f2.should_forward({"no_profile": True})) is False
+        assert asyncio.run(f2.should_forward("not-a-dict")) is False
+
+
+# ---------------------------------------------------------------------------
+# Rows 72 + 73 — read-side dash normalization + symbol-universe validation
+# ---------------------------------------------------------------------------
+
+
+class _FakeOrderRepo:
+    def __init__(self):
+        self.calls: list[dict] = []
+
+    async def get_orders_for_user(self, **kwargs):
+        self.calls.append(kwargs)
+        return [{"order_id": "o1", "symbol": kwargs.get("symbol")}]
+
+
+class TestOrdersSymbolHandling:
+    def _app(self, order_repo, profile):
+        from services.api_gateway.src import deps
+        from services.api_gateway.src.routes.orders import router as orders_router
+
+        app = FastAPI()
+        app.include_router(orders_router, prefix="/orders")
+        app.dependency_overrides[deps.get_current_user] = lambda: "u1"
+        app.dependency_overrides[deps.get_order_repo] = lambda: order_repo
+
+        class _ProfileRepo:
+            async def get_profile_for_user(self, profile_id, user_id):
+                return profile
+
+        app.dependency_overrides[deps.get_profile_repo] = lambda: _ProfileRepo()
+        app.dependency_overrides[deps.get_redis] = lambda: MagicMock()
+        return app
+
+    def test_get_orders_normalizes_dash_symbol(self):
+        """Row 72: GET /orders?symbol=BTC-USDT must query the repo with the
+        canonical slash form so it matches stored rows."""
+        repo = _FakeOrderRepo()
+        client = TestClient(self._app(repo, profile={"profile_id": "p1"}))
+        resp = client.get("/orders/?symbol=BTC-USDT")
+        assert resp.status_code == 200
+        assert repo.calls[0]["symbol"] == "BTC/USDT"
+        assert resp.json()[0]["symbol"] == "BTC/USDT"
+
+    def _submit(self, symbol):
+        from unittest.mock import AsyncMock
+
+        from services.api_gateway.src.routes import orders as orders_module
+
+        repo = _FakeOrderRepo()
+        client = TestClient(self._app(repo, profile={"profile_id": "p1"}))
+        body = {
+            "profile_id": "p1",
+            "symbol": symbol,
+            "side": "BUY",
+            "type": "limit",
+            "quantity": "1",
+            "price": "100",
+        }
+        with (
+            patch.object(
+                orders_module.KillSwitch, "is_active", new=AsyncMock(return_value=False)
+            ),
+            patch.object(orders_module, "StreamPublisher") as mock_pub,
+            patch.object(
+                orders_module.settings, "TRADING_SYMBOLS", ["BTC/USDT", "ETH/USDT"]
+            ),
+        ):
+            mock_pub.return_value.publish = AsyncMock()
+            resp = client.post("/orders/", json=body)
+        return resp, mock_pub
+
+    def test_submit_order_accepts_universe_symbol_and_normalizes(self):
+        """Row 73 accept path: dash form of a tracked symbol passes and the
+        published event carries the canonical slash form."""
+        resp, mock_pub = self._submit("BTC-USDT")
+        assert resp.status_code == 202
+        published_event = mock_pub.return_value.publish.await_args[0][1]
+        assert published_event.symbol == "BTC/USDT"
+
+    def test_submit_order_rejects_symbol_outside_universe(self):
+        """Row 73 reject path: a symbol not in settings.TRADING_SYMBOLS is a
+        422 — it must never reach stream:orders."""
+        resp, mock_pub = self._submit("DOGE-USDT")
+        assert resp.status_code == 422
+        assert "universe" in resp.json()["detail"]
+        mock_pub.return_value.publish.assert_not_awaited()
+
+
+class TestPositionsSymbolFilter:
+    def test_list_positions_dash_filter_returns_slash_rows(self):
+        """Row 72: GET /positions?symbol=BTC-USDT returns the BTC/USDT rows."""
+        from datetime import datetime, timezone
+        from decimal import Decimal
+
+        from services.api_gateway.src import deps
+        from services.api_gateway.src.routes.positions import router as positions_router
+
+        rows = [
+            {
+                "profile_id": "p1",
+                "position_id": "x1",
+                "symbol": "BTC/USDT",
+                "status": "OPEN",
+                "side": "BUY",
+                "entry_price": Decimal("100"),
+                "quantity": Decimal("1"),
+                "opened_at": datetime.now(timezone.utc),
+            },
+            {
+                "profile_id": "p1",
+                "position_id": "x2",
+                "symbol": "ETH/USDT",
+                "status": "OPEN",
+                "side": "BUY",
+                "entry_price": Decimal("10"),
+                "quantity": Decimal("2"),
+                "opened_at": datetime.now(timezone.utc),
+            },
+        ]
+
+        class _PositionRepo:
+            async def get_open_positions(self, profile_id=None):
+                return rows
+
+        class _ProfileRepo:
+            async def get_profile(self, pid):
+                return None
+
+        class _Redis:
+            async def mget(self, keys):
+                return [None] * len(keys)
+
+        app = FastAPI()
+        app.include_router(positions_router, prefix="/positions")
+        app.dependency_overrides[deps.get_current_user] = lambda: "u1"
+        app.dependency_overrides[deps.get_position_repo] = lambda: _PositionRepo()
+        app.dependency_overrides[deps.get_profile_repo] = lambda: _ProfileRepo()
+        app.dependency_overrides[deps.get_redis] = lambda: _Redis()
+        client = TestClient(app)
+
+        resp = client.get("/positions/?symbol=BTC-USDT")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["symbol"] == "BTC/USDT"
+
+
+# ---------------------------------------------------------------------------
+# Row 64 — kill-switch hardening trio
+# ---------------------------------------------------------------------------
+
+
+class TestOperatorAllowlistSetting:
+    """Row 64a: PRAXIS_KILL_SWITCH_OPERATORS is a typed Pydantic setting and
+    commands.py no longer reads raw os.environ."""
+
+    def test_typed_setting_declared(self):
+        from libs.config.settings import Settings
+
+        assert "KILL_SWITCH_OPERATORS" in Settings.model_fields
+
+    def test_unconfigured_means_single_operator_mode(self):
+        from services.api_gateway.src.routes import commands
+
+        with patch.object(commands.settings, "KILL_SWITCH_OPERATORS", None):
+            assert commands.is_operator("anyone") is True
+        with patch.object(commands.settings, "KILL_SWITCH_OPERATORS", "  "):
+            assert commands.is_operator("anyone") is True
+
+    def test_configured_allowlist_gates_operators(self):
+        from services.api_gateway.src.routes import commands
+
+        with patch.object(commands.settings, "KILL_SWITCH_OPERATORS", "u1, u2"):
+            assert commands.is_operator("u1") is True
+            assert commands.is_operator("u2") is True
+            assert commands.is_operator("u3") is False
+
+    def test_no_raw_environ_read_remains(self):
+        import inspect
+
+        from services.api_gateway.src.routes import commands
+
+        assert "os.environ" not in inspect.getsource(commands)
+
+
+class _FakeKillSwitchRedis:
+    def __init__(self):
+        self.store: dict = {}
+        self.lists: dict = {}
+
+    async def set(self, k, v):
+        self.store[k] = v
+
+    async def delete(self, k):
+        self.store.pop(k, None)
+
+    async def get(self, k):
+        return self.store.get(k)
+
+    async def lpush(self, k, v):
+        self.lists.setdefault(k, []).insert(0, v)
+
+    async def ltrim(self, k, a, b):
+        pass
+
+
+class TestKillSwitchReasonTruncation:
+    """Row 64b: set_level truncates `reason` server-side as defense in depth
+    for non-API writers (the API bounds it at 256 via KillSwitchRequest)."""
+
+    def test_long_reason_truncated_to_256(self):
+        import asyncio
+        import json as _json
+
+        from libs.core.enums import HaltLevel
+        from services.hot_path.src.kill_switch import KILL_SWITCH_LOG_KEY, KillSwitch
+
+        r = _FakeKillSwitchRedis()
+        asyncio.run(
+            KillSwitch.set_level(
+                r, HaltLevel.STOP_OPENING, reason="x" * 1000, actor="t"
+            )
+        )
+        entry = _json.loads(r.lists[KILL_SWITCH_LOG_KEY][0])
+        assert len(entry["reason"]) == 256
+        assert entry["reason"] == "x" * 256
+
+    def test_none_reason_is_safe(self):
+        import asyncio
+        import json as _json
+
+        from libs.core.enums import HaltLevel
+        from services.hot_path.src.kill_switch import KILL_SWITCH_LOG_KEY, KillSwitch
+
+        r = _FakeKillSwitchRedis()
+        asyncio.run(KillSwitch.set_level(r, HaltLevel.STOP_OPENING, reason=None))
+        entry = _json.loads(r.lists[KILL_SWITCH_LOG_KEY][0])
+        assert entry["reason"] == ""
+
+
+class _FakeRateLimitRedis:
+    def __init__(self, current_count=0, fail=False):
+        self.current_count = current_count
+        self.fail = fail
+        self.zadd_calls: list = []
+        self.zrange_result: list = []
+
+    def pipeline(self):
+        outer = self
+
+        class _Pipe:
+            def zremrangebyscore(self, *a):
+                pass
+
+            def zcard(self, k):
+                pass
+
+            def zadd(self, k, m):
+                outer.zadd_calls.append((k, m))
+
+            def expire(self, k, s):
+                pass
+
+            async def execute(self):
+                if outer.fail:
+                    raise ConnectionError("redis down")
+                return [0, outer.current_count]
+
+        return _Pipe()
+
+    async def zrange(self, *a, **kw):
+        return self.zrange_result
+
+
+class TestUserRateLimitDependency:
+    """Row 64c: post-auth per-user sliding window for kill-switch writes —
+    the pre-auth middleware only ever keys on client IP."""
+
+    def _request(self, user_id="u1"):
+        request = MagicMock(spec=Request)
+        request.state = (
+            SimpleNamespace(user_id=user_id) if user_id else SimpleNamespace()
+        )
+        return request
+
+    def _run(self, fake_redis, user_id="u1", limit=2):
+        import asyncio
+
+        from services.api_gateway.src.middleware import rate_limit as rl
+
+        dep = rl.user_rate_limit("test-scope", limit=limit, window_s=60)
+        with patch.object(rl, "RedisClient") as mock_rc:
+            mock_rc.get_instance.return_value.get_connection.return_value = fake_redis
+            return asyncio.run(dep(self._request(user_id)))
+
+    def test_under_limit_passes_and_records(self):
+        fake = _FakeRateLimitRedis(current_count=0)
+        self._run(fake)
+        assert len(fake.zadd_calls) == 1
+        assert fake.zadd_calls[0][0] == "rate_limit:user:test-scope:u1"
+
+    def test_at_limit_raises_429_with_retry_after(self):
+        from fastapi import HTTPException
+
+        fake = _FakeRateLimitRedis(current_count=2)
+        fake.zrange_result = [("1000", 1000)]
+        with pytest.raises(HTTPException) as exc:
+            self._run(fake, limit=2)
+        assert exc.value.status_code == 429
+        assert "Retry-After" in exc.value.headers
+        assert len(fake.zadd_calls) == 0  # rejected request not recorded
+
+    def test_redis_failure_fails_open(self):
+        fake = _FakeRateLimitRedis(fail=True)
+        self._run(fake)  # must not raise
+
+    def test_missing_user_id_is_401(self):
+        from fastapi import HTTPException
+
+        fake = _FakeRateLimitRedis()
+        with pytest.raises(HTTPException) as exc:
+            self._run(fake, user_id=None)
+        assert exc.value.status_code == 401
+
+    def test_kill_switch_post_route_carries_the_bucket(self):
+        from services.api_gateway.src.routes.commands import router
+
+        route = next(
+            r for r in router.routes if r.path == "/kill-switch" and "POST" in r.methods
+        )
+        assert len(route.dependencies) >= 1
+
+
+# ---------------------------------------------------------------------------
+# D-F — the 501 LLM intent-classification stub is gone (wontfix ruling)
+# ---------------------------------------------------------------------------
+
+
+class TestNlCommandStubRemoved:
+    def test_post_commands_root_no_longer_exists(self):
+        from services.api_gateway.src.routes.commands import router
+
+        post_root = [
+            r
+            for r in router.routes
+            if getattr(r, "path", None) == "/"
+            and "POST" in getattr(r, "methods", set())
+        ]
+        assert post_root == []
+
+
+# ---------------------------------------------------------------------------
+# Rows 66 + 67 — RiskLimitsPayload bounds + settings as the single authority
+# ---------------------------------------------------------------------------
+
+
+class TestRiskLimitsDefaultsAuthority:
+    """Row 67 / ruling D-D: DEFAULT_RISK_LIMITS is a str-encoded view of
+    settings — settings is the single authority."""
+
+    def test_default_risk_limits_mirror_settings(self):
+        from libs.config import settings as s
+        from libs.core.schemas import DEFAULT_RISK_LIMITS
+
+        assert DEFAULT_RISK_LIMITS["stop_loss_pct"] == str(s.DEFAULT_STOP_LOSS_PCT)
+        assert DEFAULT_RISK_LIMITS["take_profit_pct"] == str(s.DEFAULT_TAKE_PROFIT_PCT)
+        assert DEFAULT_RISK_LIMITS["max_holding_hours"] == str(
+            s.DEFAULT_MAX_HOLDING_HOURS
+        )
+        assert DEFAULT_RISK_LIMITS["max_drawdown_pct"] == str(
+            s.DEFAULT_MAX_DRAWDOWN_PCT
+        )
+        assert DEFAULT_RISK_LIMITS["max_allocation_pct"] == str(
+            s.DEFAULT_MAX_ALLOCATION_PCT
+        )
+        assert DEFAULT_RISK_LIMITS["circuit_breaker_daily_loss_pct"] == str(
+            s.CIRCUIT_BREAKER_DAILY_LOSS_PCT
+        )
+
+    def test_payload_defaults_follow_settings(self):
+        from libs.config import settings as s
+        from libs.core.schemas import RiskLimitsPayload
+
+        p = RiskLimitsPayload()
+        assert p.stop_loss_pct == float(str(s.DEFAULT_STOP_LOSS_PCT))
+        assert p.take_profit_pct == float(str(s.DEFAULT_TAKE_PROFIT_PCT))
+
+
+class TestRiskLimitsPayloadBounds:
+    """Row 66 / ruling D-E: pcts in (0, 1], hours > 0, extra='allow' dropped.
+    Tightened only after a 2026-06-13 SELECT confirmed all 9 existing
+    trading_profiles.risk_limits rows are in-bounds."""
+
+    def test_out_of_bounds_values_rejected(self):
+        from pydantic import ValidationError
+
+        from libs.core.schemas import RiskLimitsPayload
+
+        for bad in (
+            {"stop_loss_pct": 0},
+            {"stop_loss_pct": 1.5},
+            {"take_profit_pct": -0.01},
+            {"max_drawdown_pct": 2},
+            {"max_allocation_pct": 0},
+            {"circuit_breaker_daily_loss_pct": 1.01},
+            {"max_holding_hours": 0},
+            {"max_holding_hours": -5},
+        ):
+            with pytest.raises(ValidationError):
+                RiskLimitsPayload.model_validate(bad)
+
+    def test_existing_db_row_shapes_accepted(self):
+        from libs.core.schemas import RiskLimitsPayload
+
+        # Exact shapes observed in trading_profiles.risk_limits (2026-06-13).
+        RiskLimitsPayload.model_validate(
+            {
+                "stop_loss_pct": 0.05,
+                "take_profit_pct": 0.015,
+                "max_drawdown_pct": 0.1,
+                "max_holding_hours": 48,
+                "max_allocation_pct": 1,
+                "circuit_breaker_daily_loss_pct": 0.02,
+            }
+        )
+        RiskLimitsPayload.model_validate(
+            {"max_drawdown_pct": 0.05, "max_allocation_pct": 0.2}
+        )
+
+    def test_extra_keys_ignored_not_carried(self):
+        from libs.core.schemas import RiskLimitsPayload
+
+        p = RiskLimitsPayload.model_validate(
+            {"stop_loss_pct": 0.05, "mystery_extra": 123}
+        )
+        assert not hasattr(p, "mystery_extra")

@@ -1,6 +1,7 @@
 import asyncio
 import json
-from typing import Any, Dict, List
+import time
+from typing import Any, Dict, List, Optional, Set
 
 import jwt
 import msgpack
@@ -16,6 +17,7 @@ from libs.messaging.channels import (
     PUBSUB_TRADES,
 )
 from libs.observability import get_logger
+from libs.storage.repositories.profile_repo import ProfileRepository
 
 from ..deps import get_redis
 
@@ -63,6 +65,77 @@ router = APIRouter(tags=["ws"])
 
 MAX_RECONNECT_DELAY = 30
 INITIAL_RECONNECT_DELAY = 1
+
+# Minimum seconds between profile-set refreshes per connection. A stream of
+# other users' pnl events would otherwise trigger a DB query per message
+# (CWE-400) — within this window, misses are simply dropped.
+PNL_FILTER_REFRESH_MIN_S = 5.0
+
+
+class PnlProfileFilter:
+    """Server-side per-user filter for `pubsub:pnl_updates` (registry row 70).
+
+    `PnlUpdateEvent` carries `profile_id` but deliberately NOT `user_id`
+    (producers stay tenant-agnostic), so ownership is resolved at the WS edge:
+    the authenticated user's profile_id set is loaded from the profile
+    repository at connect, and each pnl message is forwarded only when its
+    `profile_id` is in that set. On a miss the set is lazily refreshed once
+    (rate-limited to one refresh per `refresh_min_s`) before deciding — this
+    covers profiles created after the socket connected.
+
+    Fail-closed: if the profile set has never loaded (DB down at connect and
+    on every retry), pnl events are NOT forwarded — privacy over liveness;
+    all other channels keep flowing.
+    """
+
+    def __init__(
+        self,
+        user_id: str,
+        profile_repo: Optional[ProfileRepository],
+        refresh_min_s: float = PNL_FILTER_REFRESH_MIN_S,
+        clock=time.monotonic,
+    ):
+        self._user_id = user_id
+        self._repo = profile_repo
+        self._refresh_min_s = refresh_min_s
+        self._clock = clock
+        self._profile_ids: Optional[Set[str]] = None  # None = never loaded
+        self._last_refresh_attempt = float("-inf")
+
+    async def _refresh(self) -> None:
+        self._last_refresh_attempt = self._clock()
+        if self._repo is None:
+            return
+        try:
+            profiles = await self._repo.get_all_profiles_for_user(self._user_id)
+            self._profile_ids = {
+                str(p.get("profile_id")) for p in profiles if p.get("profile_id")
+            }
+        except Exception as exc:
+            logger.warning(
+                "pnl filter profile-set load failed",
+                user_id=self._user_id,
+                error=str(exc),
+            )
+
+    async def prime(self) -> None:
+        """Load the profile set once at connect."""
+        await self._refresh()
+
+    async def should_forward(self, data: Any) -> bool:
+        """True when `data` is a pnl payload owned by this connection's user."""
+        if not isinstance(data, dict):
+            return False
+        profile_id = str(data.get("profile_id") or "")
+        if not profile_id:
+            return False
+        if self._profile_ids is not None and profile_id in self._profile_ids:
+            return True
+        # Miss (or never loaded) → lazily refresh once before deciding,
+        # rate-limited so foreign events can't hammer the DB.
+        if self._clock() - self._last_refresh_attempt >= self._refresh_min_s:
+            await self._refresh()
+        return self._profile_ids is not None and profile_id in self._profile_ids
 
 
 class ConnectionManager:
@@ -138,6 +211,14 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
 
     await manager.connect(websocket, user_id)
 
+    # Registry row 70: pnl events are filtered to the user's own profiles.
+    # The lifespan-managed TimescaleClient lives on app.state (see deps.py);
+    # absent (e.g. bare test app) → repo None → filter fails closed for pnl.
+    ts_client = getattr(websocket.app.state, "timescale_client", None)
+    profile_repo = ProfileRepository(ts_client) if ts_client is not None else None
+    pnl_filter = PnlProfileFilter(user_id, profile_repo)
+    await pnl_filter.prime()
+
     redis_instance = get_redis()
     channels = [
         PUBSUB_PNL_UPDATES,
@@ -177,10 +258,11 @@ async def websocket_endpoint(websocket: WebSocket, token: str = None):
                         msg_text = json.dumps(env, default=str)
 
                         if channel_str == PUBSUB_PNL_UPDATES:
-                            msg_user_id = (
-                                data.get("user_id") if isinstance(data, dict) else None
-                            )
-                            if msg_user_id and msg_user_id != user_id:
+                            # Row 70 fix: the old filter keyed on a `user_id`
+                            # field that PnlUpdateEvent never carried — a
+                            # permanent no-op that broadcast every profile's
+                            # pnl to every user. Filter by profile ownership.
+                            if not await pnl_filter.should_forward(data):
                                 continue
 
                         try:

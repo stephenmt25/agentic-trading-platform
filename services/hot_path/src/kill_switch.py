@@ -94,6 +94,11 @@ class KillSwitch:
         """Set the tiered halt level. NONE clears the halt; any other level
         engages it. NEUTRALIZE+ is logged CRITICAL (it triggers position closes
         via the HaltController)."""
+        # Defense in depth for non-API writers (registry row 64b): the API
+        # bounds `reason` at 256 chars (KillSwitchRequest), but direct callers
+        # could otherwise bloat the safety-critical praxis:kill_switch:log
+        # read path with an unbounded string (CWE-400).
+        reason = (reason or "")[:256]
         if level == HaltLevel.NONE:
             await redis_client.delete(KILL_SWITCH_KEY)
         else:

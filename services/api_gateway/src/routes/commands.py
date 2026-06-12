@@ -1,4 +1,3 @@
-import os
 from typing import FrozenSet, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -6,17 +5,21 @@ from pydantic import BaseModel, Field
 
 from libs.config import settings
 from libs.core.enums import HaltLevel
-from libs.core.schemas import (
-    CommandIntent,
-    KillSwitchStatusResponse,
-    KillSwitchToggleResponse,
-)
+from libs.core.schemas import KillSwitchStatusResponse, KillSwitchToggleResponse
 from libs.storage import RedisClient
 from services.hot_path.src.kill_switch import KillSwitch
 
 from ..deps import get_current_user
+from ..middleware.rate_limit import user_rate_limit
 
 router = APIRouter(tags=["commands"])
+
+# Post-auth per-user bucket for kill-switch WRITES (registry row 64c): the
+# pre-auth RateLimiterMiddleware keys on client IP (shared behind a proxy),
+# so a single authenticated account could flood the safety-critical halt log.
+# 10 writes/min is generous for frantic-but-legitimate operator use while
+# stopping scripted log-flooding. Fail-open on Redis errors (see factory).
+_kill_switch_write_bucket = user_rate_limit("kill-switch", limit=10, window_s=60)
 
 
 def _get_redis():
@@ -26,19 +29,16 @@ def _get_redis():
 def _operator_allowlist() -> Optional[FrozenSet[str]]:
     """Per-deployment operator allowlist for destructive halt control.
 
-    Sources, in order: `settings.KILL_SWITCH_OPERATORS` if the setting exists
-    (future home — settings.py is owned by another lane), else the raw
-    `PRAXIS_KILL_SWITCH_OPERATORS` env var (comma-separated user_ids; read
-    directly because Settings uses extra="ignore" and does not declare it).
+    Source: the typed `settings.KILL_SWITCH_OPERATORS` Pydantic setting
+    (env `PRAXIS_KILL_SWITCH_OPERATORS`, comma-separated user_ids) —
+    registry row 64a; the raw environment-variable fallback is gone.
 
     Returns None when unconfigured — single-operator mode: every authenticated
     user is the operator. This preserves the current single-user deployment
     (a halt control that nobody can pull is worse than one without tiers) but
     MUST be configured before the gateway serves more than one human.
     """
-    raw = getattr(settings, "KILL_SWITCH_OPERATORS", None)
-    if raw is None:
-        raw = os.environ.get("PRAXIS_KILL_SWITCH_OPERATORS")
+    raw = settings.KILL_SWITCH_OPERATORS
     if raw is None or not str(raw).strip():
         return None
     return frozenset(x.strip() for x in str(raw).split(",") if x.strip())
@@ -65,19 +65,11 @@ class KillSwitchRequest(BaseModel):
     level: Optional[str] = Field(None, max_length=32)
 
 
-@router.post("/")
-async def handle_command(
-    cmd: CommandIntent,
-    user_id: str = Depends(get_current_user),
-):
-    """
-    LLM intent classification mapping sentences into executable payloads.
-    NOTE: This endpoint is a placeholder for the LLM integration.
-    """
-    raise HTTPException(
-        status_code=501,
-        detail="Natural language command processing is not yet implemented",
-    )
+# NOTE: the former `POST /commands/` LLM intent-classification endpoint (a
+# permanent 501 stub) was removed per ruling D-F (2026-06-13, wontfix): the
+# command palette shipped without natural-language commands and nothing calls
+# the route. If NL command processing is ever built, design it fresh against
+# `CommandIntent` in libs/core/schemas.py rather than reviving the stub.
 
 
 @router.get("/kill-switch", response_model=KillSwitchStatusResponse)
@@ -95,7 +87,11 @@ async def get_kill_switch_status(user_id: str = Depends(get_current_user)):
     return status
 
 
-@router.post("/kill-switch", response_model=KillSwitchToggleResponse)
+@router.post(
+    "/kill-switch",
+    response_model=KillSwitchToggleResponse,
+    dependencies=[Depends(_kill_switch_write_bucket)],
+)
 async def set_kill_switch(
     body: KillSwitchRequest,
     user_id: str = Depends(get_current_user),
@@ -109,6 +105,9 @@ async def set_kill_switch(
     position-destructive levels (NEUTRALIZE / FLATTEN close other users'
     positions via the HaltController) and CLEARING a halt (NONE — silently
     resumes trading someone else stopped) require operator authorization.
+
+    Rate limit (row 64c): writes pass a post-auth per-user sliding window
+    (10/min) — see `_kill_switch_write_bucket`.
     """
     redis = _get_redis()
     reason = body.reason or "manual"

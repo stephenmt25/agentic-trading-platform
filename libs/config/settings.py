@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import List
+from typing import List, Optional
 
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -76,10 +76,22 @@ class Settings(BaseSettings):
     FAST_GATE_TIMEOUT_MS: int = Field(default=50)
     CIRCUIT_BREAKER_DAILY_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
 
+    # Kill-switch operator allowlist (registry row 64a): comma-separated
+    # user_ids permitted to perform destructive/clearing halt actions
+    # (NEUTRALIZE / FLATTEN / clearing a halt). None or empty = single-operator
+    # mode — every authenticated user is the operator. Consumed by
+    # services/api_gateway/src/routes/commands.py. Env: PRAXIS_KILL_SWITCH_OPERATORS.
+    KILL_SWITCH_OPERATORS: Optional[str] = Field(default=None)
+
     # Position exit policy defaults (overridable per-profile via risk_limits JSONB)
     DEFAULT_STOP_LOSS_PCT: Decimal = Field(default=Decimal("0.02"))
     DEFAULT_TAKE_PROFIT_PCT: Decimal = Field(default=Decimal("0.015"))
     DEFAULT_MAX_HOLDING_HOURS: float = Field(default=48.0)
+    # Remaining risk-limit defaults (registry row 67 / ruling D-D 2026-06-13):
+    # settings is the SINGLE authority for risk-limit defaults —
+    # libs/core/schemas.py DEFAULT_RISK_LIMITS is a str-encoded view of these.
+    DEFAULT_MAX_DRAWDOWN_PCT: Decimal = Field(default=Decimal("0.10"))
+    DEFAULT_MAX_ALLOCATION_PCT: Decimal = Field(default=Decimal("1.0"))
     HOT_DATA_RETENTION_DAYS: int = Field(default=7)
     SENTIMENT_CACHE_TTL_S: int = Field(default=900)
 

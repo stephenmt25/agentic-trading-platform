@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from libs.config import settings
 from libs.core.enums import OrderSide
 from libs.core.schemas import OrderApprovedEvent
 from libs.messaging import ORDERS_STREAM, StreamPublisher
@@ -104,6 +105,17 @@ async def submit_order(
     # correlation-cluster risk checks (same normalization as market_data.py).
     symbol = body.symbol.rstrip("/").replace("-", "/")
 
+    # Defense in depth on a financial route (registry row 73): only symbols in
+    # the tracked/ingested universe may enter stream:orders. Without this, a
+    # typo'd symbol flows through validation/execution to the exchange adapter
+    # before rejection. Reflection is truncated so an unbounded request string
+    # can't bloat the 422 detail.
+    if symbol not in settings.TRADING_SYMBOLS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Symbol not in the tracked trading universe: {symbol[:32]}",
+        )
+
     order_id = uuid4()
     submitted_at = datetime.now(timezone.utc)
 
@@ -141,6 +153,12 @@ async def get_orders(
     """List orders for the current user, with optional filters."""
     if limit > 200:
         limit = 200
+    if symbol:
+        # Read-side mirror of the submit_order / market_data.py normalization
+        # (registry row 72): URL-safe `BTC-USDT` → canonical `BTC/USDT` so a
+        # dash filter matches the slash-form rows in the DB instead of
+        # silently returning empty.
+        symbol = symbol.rstrip("/").replace("-", "/")
     orders = await repo.get_orders_for_user(
         user_id=user_id,
         profile_id=profile_id,
