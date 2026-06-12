@@ -646,3 +646,52 @@ relaunch.
 Claude Code (lane B6), executing pre-made ruling D-A from the 2026-06-13
 debt burn-down handoff (user-directed session); semantics pinned by
 `tests/unit/test_dynamic_weights.py::TestDirectionAwareScoring`.
+
+---
+
+## 2026-06-13 — D-B: service-local POST /backtest/sweep retired
+
+### Context
+
+`services/backtesting/src/main.py` exposed an unauthenticated `/backtest/sweep`
+route taking float `slippage_pct`, supporting neither `risk_limits` nor
+`risk_limits_grid` (registry row 71). The gateway `POST /backtest` (auth'd,
+Decimal, ownership-checked, grid-capable) duplicates everything it did.
+
+### Decision
+
+Retire rather than align: route + `SweepRequest` schema + tests deleted
+(lane B4). FE caller grep confirmed zero callers — the backtest page already
+uses the gateway. One entry point means the auth/Decimal/cardinality-cap
+invariants live in exactly one place. README + pyproject E402 leftover updated.
+
+### Approved by
+
+Pre-made ruling D-B from the 2026-06-13 debt burn-down handoff (user-directed).
+
+---
+
+## 2026-06-13 — D-D: settings is the single authority for risk-limit defaults
+
+### Context
+
+`DEFAULT_RISK_LIMITS["stop_loss_pct"]="0.05"` (schemas.py) disagreed with
+`settings.DEFAULT_STOP_LOSS_PCT=0.02` (registry row 67). Live behavior already
+resolved missing keys from settings (ExitMonitor, shared exit_policy, both
+backtest engines) — the schemas constant only shaped Pydantic defaults that
+were explicitly ignored, plus one divergent fallback in stop_loss_monitor.
+
+### Decision
+
+Settings wins. `DEFAULT_RISK_LIMITS` repointed/removed so `RiskLimitsPayload`
+defaults source from settings (lane B2); `stop_loss_monitor`'s local
+`Decimal("0.05")` fallback repointed to the settings authority (orchestrator).
+Zero live behavior change — verified via the exit_policy suite (19/19) and the
+full unit suite. Alongside D-E bounds: `RiskLimitsPayload` now enforces
+pcts in (0,1], hours > 0, `extra="allow"` dropped — applied only after a live
+SELECT confirmed every existing `trading_profiles.risk_limits` row in-bounds.
+
+### Approved by
+
+Pre-made rulings D-D/D-E from the 2026-06-13 debt burn-down handoff
+(user-directed); behavior pinned by tests/unit/test_exit_policy.py.
