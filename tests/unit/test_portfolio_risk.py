@@ -33,6 +33,20 @@ class TestClusterFor:
     def test_empty_symbol(self):
         assert cluster_for("", CLUSTERS) == DEFAULT_ALT_CLUSTER
 
+    def test_dash_pair_matches_slash_keyed_map(self):
+        # Legacy/URL-safe dash symbols must classify like their slash twins
+        # (live bug: 'BTC-USDT' positions were falling into the ALT cluster).
+        assert cluster_for("BTC-USDT", CLUSTERS) == "MAJORS"
+
+    def test_dash_pair_matches_base_keyed_map(self):
+        assert cluster_for("BTC-USDT", {"BTC": "MAJORS"}) == "MAJORS"
+
+    def test_unmapped_dash_pair_falls_in_alt(self):
+        assert cluster_for("DOGE-USDT", CLUSTERS) == DEFAULT_ALT_CLUSTER
+
+    def test_naked_base_symbol_matches_base_keyed_map(self):
+        assert cluster_for("BTC", {"BTC": "MAJORS"}) == "MAJORS"
+
 
 class TestPortfolioExposure:
     def _positions(self):

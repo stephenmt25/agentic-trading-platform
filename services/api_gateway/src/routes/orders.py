@@ -98,12 +98,18 @@ async def submit_order(
         # the frontend doesn't need a re-deploy when it lands.
         price = Decimal("0")
 
+    # Normalize URL-safe `BTC-USDT` (the /hot page's symbol shape) to the
+    # canonical `BTC/USDT` form before it enters stream:orders — otherwise the
+    # dash symbol lands verbatim in orders/positions and misclassifies in the
+    # correlation-cluster risk checks (same normalization as market_data.py).
+    symbol = body.symbol.rstrip("/").replace("-", "/")
+
     order_id = uuid4()
     submitted_at = datetime.now(timezone.utc)
 
     event = OrderApprovedEvent(
         profile_id=body.profile_id,
-        symbol=body.symbol,
+        symbol=symbol,
         side=OrderSide(body.side),
         quantity=quantity,
         price=price,

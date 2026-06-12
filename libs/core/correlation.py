@@ -17,12 +17,19 @@ DEFAULT_ALT_CLUSTER = "ALT"
 
 def cluster_for(symbol: str, cluster_map: dict) -> str:
     """Return the correlation cluster for `symbol`. Matches the full pair first
-    (e.g. 'BTC/USDT'), then the base asset ('BTC'), else the shared ALT cluster."""
+    (e.g. 'BTC/USDT'), then the base asset ('BTC'), else the shared ALT cluster.
+
+    `cluster_map` keys are canonical slash-format pairs (or bare base assets);
+    dash-separated input ('BTC-USDT') is tolerated and normalized to slash form
+    so legacy/URL-safe symbols classify into the same cluster."""
     if not symbol:
         return DEFAULT_ALT_CLUSTER
     if symbol in cluster_map:
         return cluster_map[symbol]
-    base = symbol.split("/")[0] if "/" in symbol else symbol
+    normalized = symbol.replace("-", "/")
+    if normalized in cluster_map:
+        return cluster_map[normalized]
+    base = normalized.split("/")[0]
     if base in cluster_map:
         return cluster_map[base]
     return DEFAULT_ALT_CLUSTER
