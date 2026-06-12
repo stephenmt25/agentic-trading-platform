@@ -159,10 +159,10 @@ class CoinbaseAdapter(ExchangeAdapter):
     async def get_balance(self, profile_id: ProfileId) -> Any:
         return await self.exchange.fetch_balance()
 
-    async def cancel_order(self, order_id: str, symbol: str):
+    async def cancel_order(self, order_id: str, symbol: SymbolPair):
         await self.exchange.cancel_order(order_id, symbol)
 
-    async def get_order_status(self, order_id: str, symbol: str) -> OrderStatus:
+    async def get_order_status(self, order_id: str, symbol: SymbolPair) -> OrderStatus:
         order = await self.exchange.fetch_order(order_id, symbol)
         ccxt_stat = order.get("status", "unknown")
         if ccxt_stat == "open":

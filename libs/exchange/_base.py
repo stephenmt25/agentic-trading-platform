@@ -127,13 +127,23 @@ class ExchangeAdapter(ABC):
         pass
 
     @abstractmethod
-    async def cancel_order(self, order_id: str):
-        """Cancels an order."""
+    async def cancel_order(self, order_id: str, symbol: SymbolPair):
+        """Cancels an order.
+
+        `symbol` is required by the contract because CCXT venues
+        (Binance/Coinbase) cannot cancel by order_id alone — the pair routes
+        the request. Paper ignores it.
+        """
         pass
 
     @abstractmethod
-    async def get_order_status(self, order_id: str) -> OrderStatus:
-        """Gets current status of an order."""
+    async def get_order_status(self, order_id: str, symbol: SymbolPair) -> OrderStatus:
+        """Gets current status of an order.
+
+        `symbol` is required by the contract because CCXT venues cannot fetch
+        an order by order_id alone — the pair routes the request. Paper
+        ignores it.
+        """
         pass
 
     @abstractmethod

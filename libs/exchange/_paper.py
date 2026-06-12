@@ -111,12 +111,13 @@ class PaperTradingAdapter(ExchangeAdapter):
         # Paper balances are tracked in the positions/PnL tables, not here
         return {"info": "paper_trading", "total": {}}
 
-    async def cancel_order(self, order_id: str):
-        # Paper orders fill instantly — nothing to cancel
+    async def cancel_order(self, order_id: str, symbol: SymbolPair):
+        # Paper orders fill instantly — nothing to cancel (symbol unused;
+        # required by the base contract because CCXT venues route by pair)
         pass
 
-    async def get_order_status(self, order_id: str) -> OrderStatus:
-        # All paper orders are immediately confirmed
+    async def get_order_status(self, order_id: str, symbol: SymbolPair) -> OrderStatus:
+        # All paper orders are immediately confirmed (symbol unused)
         return OrderStatus.CONFIRMED
 
     async def close(self):

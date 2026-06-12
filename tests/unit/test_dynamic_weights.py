@@ -277,6 +277,197 @@ class TestAgentPerformanceTracker:
 
 
 # ---------------------------------------------------------------------------
+# Direction-aware EWMA scoring (ruling D-A, 2026-06-13)
+# ---------------------------------------------------------------------------
+
+# One EWMA step from the 0.5 prior: hit → 0.55, miss → 0.45 (EWMA_ALPHA=0.1)
+_EWMA_AFTER_HIT = 0.55
+_EWMA_AFTER_MISS = 0.45
+
+
+class TestDirectionAwareScoring:
+    """recompute_weights scores each agent on whether ITS OWN call was right:
+    hit iff (agent direction == executed direction AND win) OR
+    (agent direction == opposite AND loss); missing/ABSTAIN direction skips
+    the agent for that trade entirely (no EWMA update, no sample counted)."""
+
+    @pytest.fixture
+    def redis(self):
+        return FakeRedis()
+
+    @pytest.fixture
+    def tracker(self, redis):
+        return AgentPerformanceTracker(redis)
+
+    async def _close(
+        self, tracker, outcome, agents, trade_direction="", pos_id="pos-1"
+    ):
+        await tracker.record_position_close(
+            symbol="BTC/USDT",
+            position_id=pos_id,
+            outcome=outcome,
+            pnl_pct=0.01 if outcome == "win" else -0.01,
+            agent_scores=agents,
+            trade_direction=trade_direction,
+        )
+
+    @staticmethod
+    def _tracker_hash(redis, agent="ta"):
+        return redis._store.get(f"agent:tracker:BTC/USDT:{agent}")
+
+    @pytest.mark.asyncio
+    async def test_direction_match_win_is_hit(self, tracker, redis):
+        """Agent voted the executed side and the trade won → hit.
+        Legacy entry shape (no trade_direction): executed side is inferred
+        from the unanimous recorded agent direction."""
+        await self._close(tracker, "win", {"ta": {"direction": "BUY", "score": 0.6}})
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        h = self._tracker_hash(redis)
+        assert h is not None
+        assert float(h["ewma_accuracy"]) == pytest.approx(_EWMA_AFTER_HIT)
+        assert int(h["sample_count"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_direction_match_loss_is_miss(self, tracker, redis):
+        """Agent voted the executed side and the trade lost → miss."""
+        await self._close(tracker, "loss", {"ta": {"direction": "BUY", "score": 0.6}})
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        h = self._tracker_hash(redis)
+        assert h is not None
+        assert float(h["ewma_accuracy"]) == pytest.approx(_EWMA_AFTER_MISS)
+        assert int(h["sample_count"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_contrarian_correct_is_hit(self, tracker, redis):
+        """Agent voted OPPOSITE the executed side and the trade lost → the
+        agent was right → hit. Requires the explicit trade_direction field
+        (an opposed vote can't be inferred from the agents themselves)."""
+        await self._close(
+            tracker,
+            "loss",
+            {"ta": {"direction": "SELL", "score": 0.6}},
+            trade_direction="BUY",
+        )
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        h = self._tracker_hash(redis)
+        assert h is not None
+        assert float(h["ewma_accuracy"]) == pytest.approx(_EWMA_AFTER_HIT)
+        assert int(h["sample_count"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_wrong_side_win_is_miss(self, tracker, redis):
+        """Agent voted OPPOSITE the executed side and the trade won → the
+        agent was wrong (the ensemble won despite it) → miss."""
+        await self._close(
+            tracker,
+            "win",
+            {"ta": {"direction": "SELL", "score": 0.6}},
+            trade_direction="BUY",
+        )
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        h = self._tracker_hash(redis)
+        assert h is not None
+        assert float(h["ewma_accuracy"]) == pytest.approx(_EWMA_AFTER_MISS)
+        assert int(h["sample_count"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_missing_direction_skips_agent(self, tracker, redis):
+        """Agent recorded without a direction → SKIP: no EWMA update at all,
+        no sample counted, weight stays at the default."""
+        await self._close(
+            tracker,
+            "win",
+            {"ta": {"score": 0.6}},  # no direction key
+            trade_direction="BUY",
+        )
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        assert self._tracker_hash(redis) is None  # never hset — no update
+        weights = redis._store["agent:weights:BTC/USDT"]
+        assert float(weights["ta"]) == AGENT_DEFAULTS["ta"]
+
+    @pytest.mark.asyncio
+    async def test_abstain_direction_skips_agent(self, tracker, redis):
+        """ABSTAIN normalizes to no-direction → SKIP (no update)."""
+        await self._close(
+            tracker,
+            "loss",
+            {"ta": {"direction": "ABSTAIN", "score": 0.6}},
+            trade_direction="BUY",
+        )
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        assert self._tracker_hash(redis) is None
+
+    @pytest.mark.asyncio
+    async def test_unresolvable_executed_direction_skips_trade(self, tracker, redis):
+        """No trade_direction field AND mixed agent directions → the executed
+        side cannot be resolved → the whole trade is unscorable for every
+        agent (no updates)."""
+        await self._close(
+            tracker,
+            "win",
+            {
+                "ta": {"direction": "BUY", "score": 0.6},
+                "sentiment": {"direction": "SELL", "score": 0.4},
+            },
+        )
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta", "sentiment"])
+        assert self._tracker_hash(redis, "ta") is None
+        assert self._tracker_hash(redis, "sentiment") is None
+
+    @pytest.mark.asyncio
+    async def test_breakeven_counts_as_miss_not_skip(self, tracker, redis):
+        """Breakeven outcome: the agent had a usable direction, so the sample
+        IS counted, scored 0.0 (ruling D-A 'otherwise hit = 0.0')."""
+        await self._close(
+            tracker,
+            "breakeven",
+            {"ta": {"direction": "BUY", "score": 0.6}},
+            trade_direction="BUY",
+        )
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        h = self._tracker_hash(redis)
+        assert h is not None
+        assert float(h["ewma_accuracy"]) == pytest.approx(_EWMA_AFTER_MISS)
+        assert int(h["sample_count"]) == 1
+
+    @pytest.mark.asyncio
+    async def test_bytes_stream_fields_parse_defensively(self, tracker, redis):
+        """Real Redis returns stream entries with bytes keys/values; the
+        trade_direction read and direction normalization must cope."""
+        redis._streams["agent:closed:BTC/USDT"] = [
+            (
+                "0-0",
+                {
+                    b"position_id": b"pos-raw",
+                    b"outcome": b"loss",
+                    b"pnl_pct": b"-0.01",
+                    b"trade_direction": b"buy",  # lowercase on purpose
+                    b"agents_json": b'{"ta": {"direction": "SELL", "score": 0.5}}',
+                    b"timestamp": b"1.0",
+                },
+            )
+        ]
+        await tracker.recompute_weights("BTC/USDT", agent_names=["ta"])
+        h = self._tracker_hash(redis)
+        assert h is not None
+        # SELL vote vs executed BUY on a loss → contrarian-correct → hit
+        assert float(h["ewma_accuracy"]) == pytest.approx(_EWMA_AFTER_HIT)
+
+    @pytest.mark.asyncio
+    async def test_record_position_close_writes_normalized_trade_direction(
+        self, tracker, redis
+    ):
+        await self._close(
+            tracker,
+            "win",
+            {"ta": {"direction": "BUY", "score": 0.6}},
+            trade_direction="buy",
+        )
+        entry = redis._streams["agent:closed:BTC/USDT"][0][1]
+        assert entry["trade_direction"] == "BUY"
+
+
+# ---------------------------------------------------------------------------
 # AgentModifier dynamic weight tests
 # ---------------------------------------------------------------------------
 

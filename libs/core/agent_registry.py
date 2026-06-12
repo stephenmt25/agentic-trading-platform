@@ -29,11 +29,27 @@ AGENT_DEFAULTS = {
 WEIGHTS_KEY = "agent:weights:{symbol}"  # Hash: agent_name -> weight (float)
 OUTCOMES_KEY = "agent:outcomes:{symbol}"  # Stream: {agent, direction, score, timestamp}
 CLOSED_KEY = (
-    "agent:closed:{symbol}"  # Stream: {position_id, outcome, pnl_pct, agents_json}
+    # Stream: {position_id, outcome, pnl_pct, trade_direction, agents_json}
+    # (trade_direction added 2026-06-13 per ruling D-A; older entries lack it
+    # and recompute_weights infers it from the recorded agent directions)
+    "agent:closed:{symbol}"
 )
 TRACKER_KEY = (
     "agent:tracker:{symbol}:{agent}"  # Hash: ewma_accuracy, sample_count, last_updated
 )
+
+
+def _norm_direction(raw) -> str:
+    """Normalize a direction value to "BUY"/"SELL"; anything else → "".
+
+    Defensive: accepts bytes (raw Redis), None, mixed case. ABSTAIN, empty,
+    and unknown values normalize to "" — the caller treats that as
+    "no usable direction" (per ruling D-A the agent is skipped, not scored).
+    """
+    if isinstance(raw, (bytes, bytearray)):
+        raw = raw.decode()
+    d = str(raw or "").strip().upper()
+    return d if d in ("BUY", "SELL") else ""
 
 
 def _decode_hash(d):
@@ -111,12 +127,21 @@ class AgentPerformanceTracker:
         outcome: str,
         pnl_pct: float,
         agent_scores: Dict[str, dict],
+        trade_direction: str = "",
     ):
-        """Record a closed position outcome for weight feedback."""
+        """Record a closed position outcome for weight feedback.
+
+        trade_direction is the EXECUTED side of the closed trade
+        ("BUY"/"SELL"). When omitted (legacy callers — see ruling D-A),
+        recompute_weights falls back to inferring it from the recorded
+        per-agent directions, which the executor historically stamped with
+        the executed side.
+        """
         entry = {
             "position_id": position_id,
             "outcome": outcome,
             "pnl_pct": str(pnl_pct),
+            "trade_direction": _norm_direction(trade_direction),
             "agents_json": json.dumps(agent_scores),
             "timestamp": str(time.time()),
         }
@@ -169,12 +194,49 @@ class AgentPerformanceTracker:
                 if isinstance(outcome, bytes):
                     outcome = outcome.decode()
 
-                # Score: 1.0 for a winning trade, else 0.0. NOTE: this credits the
-                # agent for the trade outcome regardless of whether its own voted
-                # direction matched — direction-aware scoring is unimplemented
-                # (see TECH-DEBT-REGISTRY 2026-06-10).
+                # --- Direction-aware scoring (ruling D-A, 2026-06-13) -----
+                # Resolve the EXECUTED trade direction: prefer the explicit
+                # trade_direction stream field (producer shape from the same
+                # ruling); legacy entries lack it, so fall back to inferring
+                # it from the recorded agent directions — the executor
+                # stamped every agent with the executed side, so a unanimous
+                # direction IS the executed direction. If neither yields
+                # BUY/SELL the trade is unscorable: skip it (no update).
+                executed = _norm_direction(
+                    data.get(b"trade_direction", data.get("trade_direction", ""))
+                )
+                if not executed:
+                    inferred = {
+                        _norm_direction(a.get("direction"))
+                        for a in agents.values()
+                        if isinstance(a, dict)
+                    }
+                    inferred.discard("")
+                    if len(inferred) == 1:
+                        executed = inferred.pop()
+                if not executed:
+                    continue
+
+                agent_data = agents.get(agent_name)
+                agent_dir = _norm_direction(
+                    agent_data.get("direction") if isinstance(agent_data, dict) else ""
+                )
+                if not agent_dir:
+                    # Missing / ABSTAIN / unparseable own-direction: skip
+                    # this agent for this trade — no EWMA update, no sample
+                    # counted (ruling D-A).
+                    continue
+
+                # hit = the agent's OWN call was right: it voted the executed
+                # direction and the trade won, or it voted against the
+                # executed direction and the trade lost. Everything else
+                # (wrong call, breakeven, unknown outcome) scores 0.0.
+                # Directions are normalized to exactly BUY/SELL above, so
+                # "!= executed" means "voted the opposite side".
                 if outcome == "win":
-                    hit = 1.0
+                    hit = 1.0 if agent_dir == executed else 0.0
+                elif outcome == "loss":
+                    hit = 1.0 if agent_dir != executed else 0.0
                 else:
                     hit = 0.0
 

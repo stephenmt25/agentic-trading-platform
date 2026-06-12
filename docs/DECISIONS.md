@@ -579,3 +579,70 @@ the first strategy with a defensible edge. Flagged for architect prioritization.
 
 Claude Code (handler), executing locked decision #3. Kill verdicts +
 prioritization flag for architect sign-off with this session's brief.
+
+## 2026-06-13 — D-A: direction-aware EWMA agent scoring + meta-learning state reset
+
+### Context
+
+`AgentPerformanceTracker.recompute_weights` (`libs/core/agent_registry.py`)
+scored each agent's contribution to a closed trade as `hit = 1.0 if outcome
+== "win"` — direction-blind (TECH-DEBT row 50). An agent that voted SELL was
+credited for a winning BUY trade; agent weights converged on "was the trade a
+win", not "was this agent right". Direction-aware scoring was intended from
+the start (the dead `direction` read removed in the 2026-06-10 lint cleanup)
+but never implemented.
+
+### Decision — scoring semantics (pre-made ruling D-A, debt burn-down handoff 2026-06-13)
+
+Score each agent on whether ITS OWN call was right:
+
+- `hit = 1.0` iff (agent direction == executed trade direction AND outcome
+  == win) OR (agent direction == opposite of executed direction AND outcome
+  == loss); otherwise `hit = 0.0` (wrong call, breakeven, unknown outcome).
+- If the agent's direction is missing or ABSTAIN, that agent is SKIPPED for
+  that trade — no EWMA update, no sample counted.
+
+Executed-direction resolution is defensive, because today's producer
+(`services/execution/src/executor.py::_record_agent_scores`) stamps every
+agent's `direction` with the EXECUTED side (not the agent's own vote) and
+the `agent:closed:{symbol}` entry carried no executed-direction field:
+
+1. Prefer the new explicit `trade_direction` stream field
+   (`record_position_close` now accepts and writes it, normalized BUY/SELL).
+2. Legacy entries: infer the executed side from the recorded agent
+   directions — unanimous non-empty direction IS the executed side (the
+   historical stamp guarantees unanimity).
+3. Neither resolvable (e.g. mixed directions, no field): the trade is
+   unscorable — skipped for every agent.
+
+The contrarian-correct branch becomes reachable for real once producers (a)
+pass `trade_direction` at close (`services/pnl/src/closer.py`) and (b) record
+each agent's OWN vote instead of stamping the executed side (executor) —
+both flagged as follow-ups in the burn-down report, out of lane B6 ownership.
+
+### Decision — EWMA state reset at the Wave-2 relaunch
+
+Per the 2026-05-05 clean-baseline precedent: the interpretation of every
+prior sample changed, so the accumulated EWMA state is semantically stale.
+The ruling's floor is flushing `agent:tracker:*` (per-agent EWMA accuracy /
+sample_count / last_updated; 6 live keys: {BTC/USDT,ETH/USDT} ×
+{ta,sentiment,debate}) and `agent:weights:*` (computed weights; 15-min TTL
+anyway — hot path falls back to `AGENT_DEFAULTS`). But deleting trackers
+ALONE is not a clean baseline: legacy `agent:closed` entries re-score
+IDENTICALLY under the new rule (the executor stamped every agent with the
+executed side, so direction-match-on-win == plain win), and a deleted
+tracker resets `last_updated` to 0 — the next ~5-min analyst recompute
+would re-consume the retained last-500 window and rebuild the old
+outcome-based EWMA. The precedent's actual mechanism already handles this:
+`python scripts/reset_clean_baseline.py --apply` ARCHIVES
+`agent:closed:{symbol}` / `agent:outcomes:{symbol}` via atomic RENAME to
+`agent:archive:<ts>:…` (history preserved for diagnostics) and DELETES
+`agent:tracker:{symbol}:*` + `agent:weights:{symbol}` (plus the
+sentiment/debate caches). The orchestrator runs that script at the Wave-2
+relaunch.
+
+### Approved by
+
+Claude Code (lane B6), executing pre-made ruling D-A from the 2026-06-13
+debt burn-down handoff (user-directed session); semantics pinned by
+`tests/unit/test_dynamic_weights.py::TestDirectionAwareScoring`.
