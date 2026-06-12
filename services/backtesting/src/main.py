@@ -12,7 +12,6 @@ from libs.storage.repositories.backtest_repo import BacktestRepository
 
 from .data_loader import BacktestDataLoader
 from .job_runner import JobRunner
-from .vectorbt_runner import run_sweep
 
 logger = get_logger("backtesting")
 
@@ -37,7 +36,6 @@ async def lifespan(app: FastAPI):
     backtest_repo = BacktestRepository(timescale_client)
 
     loader = BacktestDataLoader(market_repo)
-    _app_state["loader"] = loader
     runner = JobRunner(
         consumer,
         publisher,
@@ -61,46 +59,16 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Backtesting Agent", lifespan=lifespan)
 
-# Store references for endpoint access
-_app_state = {}
+# NOTE (2026-06-13, ruling D-B): the service-local POST /backtest/sweep was
+# RETIRED — it was unauthenticated, took float slippage_pct, and supported
+# neither risk_limits nor risk_limits_grid. The gateway's POST /backtest
+# (auth'd, Decimal, grids via walk_forward) is the sole entry point; run_sweep
+# remains reachable only as walk_forward's per-window train fit.
 
 
 @app.get("/health")
 def health():
     return {"status": "healthy"}
-
-
-from datetime import datetime
-
-from libs.core.schemas import BacktestSweepResponse, SweepRequest
-
-
-@app.post("/backtest/sweep", response_model=BacktestSweepResponse)
-async def backtest_sweep(req: SweepRequest):
-    """Run a vectorized parameter grid sweep."""
-    loader = _app_state.get("loader")
-    if not loader:
-        return {"error": "Service not initialized"}
-
-    start = (
-        datetime.fromisoformat(req.start_date) if req.start_date else datetime.utcnow()
-    )
-    end = datetime.fromisoformat(req.end_date) if req.end_date else datetime.utcnow()
-
-    data = await loader.load(req.symbol, start, end)
-    result = run_sweep(
-        symbol=req.symbol,
-        base_rules=req.strategy_rules,
-        param_grid=req.param_grid,
-        data=data,
-        slippage_pct=req.slippage_pct,
-    )
-    return {
-        "job_id": result.job_id,
-        "symbol": result.symbol,
-        "num_combinations": len(result.param_results),
-        "results": result.param_results,
-    }
 
 
 if __name__ == "__main__":

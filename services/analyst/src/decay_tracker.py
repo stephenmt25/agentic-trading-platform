@@ -20,17 +20,19 @@ from datetime import datetime, timezone
 from libs.config import settings
 from libs.core.decay import assess_decay
 from libs.core.enums import EventType
+from libs.core.portfolio import DECAY_SNAPSHOT_KEY
 from libs.core.schemas import AlertEvent
 from libs.messaging.channels import PUBSUB_SYSTEM_ALERTS
 from libs.observability import get_logger
 
 logger = get_logger("analyst.decay")
 
-SNAPSHOT_KEY = "analyst:decay:snapshot"
-
 
 def _f(v):
-    return float(v) if v is not None else None
+    """Downcast at the decay-scoring boundary: assess_decay (libs/core/decay)
+    is float-typed by design (rates/ratios, not money) and the report is
+    json.dumps'd to the Redis snapshot — Decimal must not leak through."""
+    return float(v) if v is not None else None  # float-ok: scoring/JSON boundary
 
 
 class DecayTracker:
@@ -75,8 +77,10 @@ class DecayTracker:
             bt = await self._backtest_repo.latest_for_profile(pid)
             assessment = assess_decay(
                 live_trades=lv.get("trade_count", 0) or 0,
-                live_win_rate=lv.get("win_rate"),
-                live_avg_pct=lv.get("avg_pnl_pct"),
+                live_win_rate=_f(lv.get("win_rate")),
+                # net_of_cost_by_profile returns exact Decimal (row 61);
+                # downcast only here, at the float-typed scoring boundary.
+                live_avg_pct=_f(lv.get("avg_pnl_pct")),
                 backtest_win_rate=_f(bt.get("win_rate")) if bt else None,
                 backtest_avg_return=_f(bt.get("avg_return")) if bt else None,
                 min_live_trades=int(settings.DECAY_MIN_LIVE_TRADES),
@@ -108,7 +112,7 @@ class DecayTracker:
 
         if self._redis is not None:
             try:
-                await self._redis.set(SNAPSHOT_KEY, json.dumps(reports), ex=86400)
+                await self._redis.set(DECAY_SNAPSHOT_KEY, json.dumps(reports), ex=86400)
             except Exception:
                 logger.warning("failed to write decay snapshot")
         return reports

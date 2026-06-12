@@ -1,10 +1,13 @@
 """Unit tests for PR7 — live-vs-backtest decay tracking + shadow consumption."""
 
+import json
+from decimal import Decimal
 from unittest.mock import AsyncMock
 
 import pytest
 
 from libs.core.decay import assess_decay
+from libs.core.portfolio import DECAY_SNAPSHOT_KEY
 
 
 class TestAssessDecay:
@@ -70,13 +73,15 @@ class TestDecayTracker:
         from services.analyst.src.decay_tracker import DecayTracker
 
         ctr = AsyncMock()
+        # Row 61: the repo now returns exact Decimal for the money fields —
+        # the tracker must downcast at its float-typed scoring boundary.
         ctr.net_of_cost_by_profile = AsyncMock(
             return_value=[
                 {
                     "profile_id": "p1",
                     "trade_count": 30,
                     "win_rate": 0.40,
-                    "avg_pnl_pct": 0.001,
+                    "avg_pnl_pct": Decimal("0.001"),
                 }
             ]
         )
@@ -85,8 +90,9 @@ class TestDecayTracker:
             return_value=[{"profile_id": "p1", "shadow_count": 5, "shadow_share": 0.2}]
         )
         backtest_repo = AsyncMock()
+        # asyncpg decodes the NUMERIC baseline columns as Decimal too.
         backtest_repo.latest_for_profile = AsyncMock(
-            return_value={"win_rate": 0.62, "avg_return": 0.01}
+            return_value={"win_rate": Decimal("0.62"), "avg_return": Decimal("0.01")}
         )
         profile_repo = AsyncMock()
         profile_repo.get_active_profiles = AsyncMock(
@@ -110,8 +116,18 @@ class TestDecayTracker:
         assert r["profile_id"] == "p1"
         assert r["decayed"] is True
         assert r["shadow_count"] == 5
+        # Decimal inputs were downcast — the report carries plain floats.
+        assert isinstance(r["live_avg_pct"], float)
+        assert isinstance(r["backtest_win_rate"], float)
         pubsub.publish.assert_awaited_once()  # decay alert raised
-        redis.set.assert_awaited_once()  # snapshot written
+        # Snapshot lands on the SHARED libs constant (row 65) and must be
+        # valid JSON — i.e. no Decimal leaked into the report dicts.
+        redis.set.assert_awaited_once()
+        set_args, set_kwargs = redis.set.call_args
+        assert set_args[0] == DECAY_SNAPSHOT_KEY
+        decoded = json.loads(set_args[1])
+        assert decoded[0]["profile_id"] == "p1"
+        assert set_kwargs.get("ex") == 86400
 
     @pytest.mark.asyncio
     async def test_assess_all_no_baseline_does_not_alert(self):

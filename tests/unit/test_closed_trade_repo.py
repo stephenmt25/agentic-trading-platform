@@ -141,6 +141,99 @@ class TestWriteClosedTrade:
         assert decoded == {"ta": 0.7, "debate": 0.55}
 
 
+class TestNetOfCostByProfile:
+    @staticmethod
+    def _row(pid, **overrides):
+        row = {
+            "profile_id": pid,
+            "trade_count": 4,
+            "win_count": 1,
+            "loss_count": 3,
+            "net_pnl": Decimal("-12.34567891"),
+            "total_fees": Decimal("1.00000001"),
+            "total_slippage": Decimal("0.50000000"),
+            "total_funding": Decimal("0"),
+            "avg_pnl_pct": Decimal("-0.012345"),
+        }
+        row.update(overrides)
+        return row
+
+    @pytest.mark.asyncio
+    async def test_money_fields_stay_decimal(self):
+        """Registry row 61: NUMERIC(20,8) sums cross the repo boundary as the
+        exact Decimal asyncpg decoded — no float() downcast."""
+        pid = uuid.uuid4()
+        db = AsyncMock()
+        db.fetch = AsyncMock(return_value=[self._row(pid)])
+        repo = ClosedTradeRepository(db)
+        out = await repo.net_of_cost_by_profile(window_hours=24)
+        row = out[0]
+        for key in (
+            "net_pnl",
+            "total_fees",
+            "total_slippage",
+            "total_funding",
+            "avg_pnl_pct",
+        ):
+            assert isinstance(row[key], Decimal), key
+        # Exact — a float round-trip would not represent this value.
+        assert row["net_pnl"] == Decimal("-12.34567891")
+        assert row["win_rate"] == 0.25
+        assert row["profile_id"] == str(pid)
+        assert row["net_negative"] is True
+
+    @pytest.mark.asyncio
+    async def test_net_negative_false_on_positive_decimal(self):
+        db = AsyncMock()
+        db.fetch = AsyncMock(
+            return_value=[
+                self._row(uuid.uuid4(), net_pnl=Decimal("3.14000000"), win_count=3)
+            ]
+        )
+        repo = ClosedTradeRepository(db)
+        out = await repo.net_of_cost_by_profile()
+        assert out[0]["net_negative"] is False
+        assert out[0]["net_pnl"] == Decimal("3.14000000")
+
+    @pytest.mark.asyncio
+    async def test_null_sums_pass_through_as_none(self):
+        db = AsyncMock()
+        db.fetch = AsyncMock(
+            return_value=[
+                self._row(
+                    uuid.uuid4(),
+                    trade_count=0,
+                    win_count=0,
+                    loss_count=0,
+                    net_pnl=None,
+                    total_fees=None,
+                    total_slippage=None,
+                    total_funding=None,
+                    avg_pnl_pct=None,
+                )
+            ]
+        )
+        repo = ClosedTradeRepository(db)
+        out = await repo.net_of_cost_by_profile()
+        row = out[0]
+        assert row["net_pnl"] is None
+        assert row["avg_pnl_pct"] is None
+        assert row["win_rate"] is None
+        assert row["net_negative"] is False
+
+    @pytest.mark.asyncio
+    async def test_sql_filters_window_and_optional_profile(self):
+        repo = ClosedTradeRepository(db := AsyncMock())
+        db.fetch = AsyncMock(return_value=[])
+        pid = uuid.uuid4()
+        await repo.net_of_cost_by_profile(profile_id=pid, window_hours=72)
+        sql, *args = db.fetch.call_args.args
+        assert "FROM closed_trades" in sql
+        assert "profile_id = $2" in sql
+        assert "GROUP BY profile_id" in sql
+        assert args == ["72", pid]
+
+
 class TestQueries:
     @pytest.mark.asyncio
     async def test_get_recent_no_filters(self):

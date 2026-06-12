@@ -39,10 +39,11 @@ def resolve_walk_forward_raw(payload: dict) -> Optional[Dict[str, Any]]:
     payload key; the worker merges it into the walk-forward config unless the
     walk_forward dict already embeds its own grid (more specific wins —
     mirrors the API-edge validator in libs/core/schemas.py). The queue serves
-    no plain-sweep path (run_sweep is only reachable via the backtesting
-    service's own POST /backtest/sweep), so a risk_limits_grid without
-    walk_forward has no engine to act on it — fail the job loudly instead of
-    silently ignoring the grid.
+    no plain-sweep path (run_sweep is only reachable as walk_forward's
+    per-window train fit — the service-local POST /backtest/sweep was retired
+    per ruling D-B, 2026-06-13), so a risk_limits_grid without walk_forward
+    has no engine to act on it — fail the job loudly instead of silently
+    ignoring the grid.
     """
     wf_raw = payload.get("walk_forward")
     rl_grid = payload.get("risk_limits_grid")
@@ -279,12 +280,15 @@ class JobRunner:
             else:
                 result = await asyncio.to_thread(TradingSimulator.run, job, data)
 
-        def _dec(v):
-            """Convert Decimal to float for JSON serialization (Redis status /
-            trades JSONB); the DB metric columns stay DECIMAL."""
+        def _wire(v):
+            """Decimal → float ONLY for the JSON wire/JSONB display copies
+            (the Redis status payload the FE polls as JSON numbers, and the
+            equity_curve/trades JSONB columns). The five DECIMAL(20,8) metric
+            columns receive the exact Decimal via save_result — no float
+            round-trip on the DB path (registry row 68)."""
             if not isinstance(v, Decimal):
                 return v
-            return float(v)  # float-ok: JSON boundary
+            return float(v)  # float-ok: JSON wire/display boundary
 
         res_payload = {
             "job_id": result.job_id,
@@ -292,25 +296,27 @@ class JobRunner:
             "symbol": sym,
             "strategy_rules": strategy_rules,
             "total_trades": result.total_trades,
-            "win_rate": _dec(result.win_rate),
-            "avg_return": _dec(result.avg_return),
-            "max_drawdown": _dec(result.max_drawdown),
-            "sharpe": _dec(result.sharpe),
-            "profit_factor": _dec(result.profit_factor),
-            "equity_curve": [_dec(v) for v in result.equity_curve],
+            # Exact Decimals — save_result inserts these into the
+            # DECIMAL(20,8) metric columns untouched (row 68).
+            "win_rate": result.win_rate,
+            "avg_return": result.avg_return,
+            "max_drawdown": result.max_drawdown,
+            "sharpe": result.sharpe,
+            "profit_factor": result.profit_factor,
+            "equity_curve": [_wire(v) for v in result.equity_curve],
             "trades": [
                 {
                     "entry_time": t.entry_time,
                     "exit_time": t.exit_time,
                     "direction": t.direction,
-                    "entry_price": _dec(t.entry_price),
-                    "exit_price": _dec(t.exit_price),
-                    "pnl_pct": _dec(t.pnl_pct),
+                    "entry_price": _wire(t.entry_price),
+                    "exit_price": _wire(t.exit_price),
+                    "pnl_pct": _wire(t.pnl_pct),
                     # EN-W1: close_reason persists per trade — required for
                     # the close-reason-distribution convergence check (PR7
                     # decay cross-check); slippage_cost for cost audit.
                     "close_reason": t.close_reason,
-                    "slippage_cost": _dec(t.slippage_cost),
+                    "slippage_cost": _wire(t.slippage_cost),
                 }
                 for t in result.trades
             ],
@@ -334,10 +340,14 @@ class JobRunner:
         # Coverage (B8) + walk-forward window report (B7) ride the Redis
         # status payload / GET response only — no DB columns, no migration.
         if self._redis:
+            # The status payload is the FE's poll contract — JSON numbers, not
+            # Decimal-strings (frontend BacktestResult types + the equity-curve
+            # chart consume numbers). _wire downcasts the five Decimal metrics
+            # here, AFTER the exact values were persisted above.
             status_payload = {
                 "status": "completed",
                 "user_id": user_id,
-                **res_payload,
+                **{k: _wire(v) for k, v in res_payload.items()},
                 **coverage,
             }
             if walk_forward_report is not None:

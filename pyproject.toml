@@ -80,6 +80,6 @@ ignore = ["E741"]
 
 [tool.ruff.lint.per-file-ignores]
 # Imports intentionally follow runtime setup: slm_inference sets the Windows DLL
-# search path for llama.cpp before importing it; backtesting has route-local imports.
+# search path for llama.cpp before importing it. (backtesting's E402 entry was
+# removed 2026-06-13 with the retired /backtest/sweep route's mid-file imports.)
 "services/slm_inference/src/main.py" = ["E402"]
-"services/backtesting/src/main.py" = ["E402"]

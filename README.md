@@ -35,7 +35,7 @@ A high-performance, agentic cryptocurrency trading engine with ML prediction age
     ┌─────────▼──────────┐     ┌──────────────▼───────────┐     ┌────────────▼──────────┐
     │   Hot Path :8082    │     │   Backtesting :8086      │     │  ML Agents            │
     │ (11-stage pipeline) │     │   Sequential + VectorBT  │     │  TA :8090             │
-    │                     │     │   /backtest/sweep         │     │  HMM :8091            │
+    │                     │     │   (via gateway /backtest) │     │  HMM :8091            │
     │ Reads agent scores  │     │                          │     │  Sentiment :8092      │
     │ + dynamic weights   │     │                          │     │  SLM Inference :8095  │
     │ from Redis          │     │                          │     │  Debate :8096         │
@@ -208,9 +208,8 @@ Open [http://localhost:3000](http://localhost:3000)
 ### Backtesting
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| POST | `/backtest` | Submit backtest job (sequential or vectorbt engine) |
+| POST | `/backtest` | Submit backtest job (sequential or vectorbt engine; supports `param_grid`/`risk_limits_grid` sweeps) |
 | GET | `/backtest/{job_id}` | Get backtest results |
-| POST | `/backtest/sweep` | Parameter grid sweep using vectorized engine |
 
 ### ML Agents & Risk
 | Method | Endpoint | Description |
@@ -280,7 +279,7 @@ FastAPI service hosting quantized GGUF models via `llama-cpp-python`. Sentiment 
 Bull and Bear agents argue for/against positions using market context (indicators, regime, agent scores). A Judge synthesizes the debate into a `debate_score` (-1 to +1) and `debate_confidence`. Runs every 5 minutes per symbol. Output feeds into agent_modifier with dynamic weight.
 
 ### Vectorized Backtesting (Phase 6)
-Numpy-based vectorized backtesting engine alongside the sequential simulator. Converts strategy rules into vectorized signal arrays for 100-1000x faster parameter sweeps. `POST /backtest/sweep` endpoint supports grid search over any rule parameter.
+Numpy-based vectorized backtesting engine alongside the sequential simulator. Converts strategy rules into vectorized signal arrays for 100-1000x faster parameter sweeps. Grid search over rule parameters (and risk-limit bands) runs through the authenticated gateway `POST /backtest` (`param_grid`/`risk_limits_grid`); the unauthenticated service-local `/backtest/sweep` endpoint was retired 2026-06-13.
 
 ---
 

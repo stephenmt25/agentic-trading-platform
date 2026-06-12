@@ -110,6 +110,12 @@ class ClosedTradeRepository(BaseRepository):
         via the real fill). This breaks the costs out per profile so a net-negative
         strategy is visible: net P&L, gross fees, attributed slippage, funding
         (0 on spot), trade count, win rate, and a `net_negative` flag.
+
+        Money fields (net_pnl, total_fees, total_slippage, total_funding,
+        avg_pnl_pct) are returned as exact Decimal — never IEEE float — per
+        the repo Decimal contract (registry row 61). Callers convert at their
+        own JSON/display boundaries (the gateway serializes Decimal-as-string;
+        the decay tracker downcasts into its float-typed scoring inputs).
         """
         conditions: list = ["closed_at >= NOW() - ($1 || ' hours')::INTERVAL"]
         params: list = [str(window_hours)]
@@ -144,16 +150,8 @@ class ClosedTradeRepository(BaseRepository):
             net = d.get("net_pnl")
             d["win_rate"] = (d["win_count"] / n) if n else None
             d["profile_id"] = str(d["profile_id"])
-            for key in (
-                "net_pnl",
-                "total_fees",
-                "total_slippage",
-                "total_funding",
-                "avg_pnl_pct",
-            ):
-                v = d.get(key)
-                if v is not None:
-                    d[key] = float(v)
+            # Money fields pass through as the Decimal asyncpg decoded from
+            # NUMERIC(20,8) — no float() at the repo boundary (row 61).
             # The honest flag: is this strategy net-negative after all costs?
             d["net_negative"] = net is not None and net < 0
             out.append(d)

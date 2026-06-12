@@ -407,7 +407,9 @@ class TestParameterSweep:
 
 _WIDE_LIMITS = {
     "stop_loss_pct": 0.99,
-    "take_profit_pct": 99.0,
+    # take_profit_pct=1.0 (+100%) is the RiskLimitsPayload le=1 boundary and is
+    # still unreachable for these fixtures (mirrors test_backtesting.py).
+    "take_profit_pct": 1.0,
     "max_holding_hours": 1e9,
 }
 

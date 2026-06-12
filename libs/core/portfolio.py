@@ -29,6 +29,8 @@ def realized_slippage(
 
 # Redis key the risk-service aggregator writes and the hot-path gate reads.
 SNAPSHOT_KEY = "risk:portfolio:snapshot"
+# Redis key the analyst decay-tracker writes and the gateway risk route reads.
+DECAY_SNAPSHOT_KEY = "analyst:decay:snapshot"
 _ZERO = Decimal("0")
 
 

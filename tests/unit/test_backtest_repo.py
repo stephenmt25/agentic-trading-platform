@@ -5,6 +5,7 @@ returns canned rows."""
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 
 import pytest
@@ -137,6 +138,47 @@ class TestGetHistory:
         # Strip the SELECT-list section before asserting on the WHERE clause.
         where_clause = client.last_query.split("WHERE", 1)[1]
         assert "created_by" not in where_clause
+
+
+# ---------------------------------------------------------------------------
+# latest_for_profile tenant scoping (registry row 59)
+# ---------------------------------------------------------------------------
+
+
+class TestLatestForProfile:
+    @pytest.mark.asyncio
+    async def test_baseline_query_is_tenant_scoped_to_profile_owner(self):
+        """The decay baseline row must be joined against trading_profiles and
+        constrained to created_by = tp.user_id — a foreign user's row (or an
+        ownerless NULL-created_by row) can never become the baseline."""
+        client = FakeTimescale(fetchrow_row=None)
+        repo = BacktestRepository(client)
+        out = await repo.latest_for_profile("prof-1")
+        assert out is None
+        q = client.last_query
+        assert "JOIN trading_profiles tp" in q
+        assert "br.created_by = tp.user_id" in q
+        assert "br.profile_id = $1" in q
+        assert "ORDER BY br.created_at DESC" in q
+        assert "LIMIT 1" in q
+        assert client.last_args == ("prof-1",)
+
+    @pytest.mark.asyncio
+    async def test_profile_id_coerced_to_str(self):
+        """backtest_results.profile_id is TEXT — UUID inputs match on the
+        string form."""
+        client = FakeTimescale(fetchrow_row=None)
+        repo = BacktestRepository(client)
+        await repo.latest_for_profile(uuid.UUID("11111111-2222-3333-4444-555555555555"))
+        assert client.last_args == ("11111111-2222-3333-4444-555555555555",)
+
+    @pytest.mark.asyncio
+    async def test_returns_dict_row_when_owner_matches(self):
+        row = {"job_id": "j1", "profile_id": "p1", "win_rate": 0.5}
+        client = FakeTimescale(fetchrow_row=row)
+        repo = BacktestRepository(client)
+        out = await repo.latest_for_profile("p1")
+        assert out == row
 
 
 # ---------------------------------------------------------------------------

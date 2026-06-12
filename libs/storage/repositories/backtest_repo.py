@@ -139,13 +139,23 @@ class BacktestRepository(BaseRepository):
     async def latest_for_profile(self, profile_id: str) -> Optional[Dict[str, Any]]:
         """Most recent backtest result for a profile — the baseline the decay
         tracker (PR7) compares live performance against. profile_id is stored as
-        TEXT in backtest_results, so we match on the string form."""
+        TEXT in backtest_results, so we match on the string form.
+
+        Tenant-scoped (registry row 59): a row only qualifies as the baseline
+        when its created_by matches the profile owner (trading_profiles.user_id),
+        so a foreign user's run — or an ownerless pre-migration-020 row — can
+        never become this profile's decay baseline. Defense-in-depth on top of
+        the gateway POST /backtest route-level ownership validation.
+        """
         query = """
-        SELECT job_id, profile_id, symbol, total_trades,
-               win_rate, avg_return, max_drawdown, sharpe, profit_factor, created_at
-        FROM backtest_results
-        WHERE profile_id = $1
-        ORDER BY created_at DESC
+        SELECT br.job_id, br.profile_id, br.symbol, br.total_trades,
+               br.win_rate, br.avg_return, br.max_drawdown, br.sharpe,
+               br.profit_factor, br.created_at
+        FROM backtest_results br
+        JOIN trading_profiles tp ON tp.profile_id::text = br.profile_id
+        WHERE br.profile_id = $1
+          AND br.created_by = tp.user_id
+        ORDER BY br.created_at DESC
         LIMIT 1
         """
         row = await self._fetchrow(query, str(profile_id))

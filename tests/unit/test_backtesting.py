@@ -2,12 +2,18 @@
 
 EN-W1 additions: opposing-signal close removal, look-ahead prefix
 invariance, and the survivorship/coverage guard.
+Row 68 addition: _process_job persistence — exact Decimal to the
+DECIMAL(20,8) columns, JSON numbers on the Redis status wire.
 """
 
+import json
 from datetime import datetime, timedelta
 from decimal import Decimal
+from unittest.mock import AsyncMock
 
-from services.backtesting.src.job_runner import compute_coverage
+import pytest
+
+from services.backtesting.src.job_runner import JobRunner, compute_coverage
 from services.backtesting.src.simulator import (
     CLOSE_END_OF_DATA,
     PROFIT_FACTOR_CAP,
@@ -273,8 +279,13 @@ class TestRegimeGating:
 
 _WIDE_LIMITS = {
     # Thresholds no synthetic path can hit — isolates signal behaviour.
+    # Values must stay INSIDE RiskLimitsPayload's domain bounds (gt=0, le=1
+    # on pcts, gt=0 on hours — rows 66/67): out-of-bounds limits silently
+    # fall back to the tight settings defaults and the test stops testing
+    # what it claims to. take_profit_pct=1.0 (+100%) is the le=1 boundary
+    # and unreachable on _make_candles data (max gain ≈ 70%).
     "stop_loss_pct": 0.99,
-    "take_profit_pct": 99.0,
+    "take_profit_pct": 1.0,
     "max_holding_hours": 1e9,
 }
 
@@ -417,6 +428,78 @@ class TestCoverageGuard:
         assert cov["coverage_pct"] == 0.0
         assert cov["coverage_warning"] is True
         assert cov["data_start"] is None
+
+
+# ---------------------------------------------------------------------------
+# Row 68 — _process_job: Decimal to DB, JSON numbers on the wire
+# ---------------------------------------------------------------------------
+
+
+class TestProcessJobPersistence:
+    """The five DECIMAL(20,8) metric columns must receive the engine's exact
+    Decimal values (no float round-trip), while the Redis status payload —
+    the FE poll contract (BacktestResult types + equity-curve chart) — stays
+    plain JSON numbers."""
+
+    @pytest.mark.asyncio
+    async def test_metrics_reach_repo_as_decimal_and_wire_as_numbers(self):
+        repo = AsyncMock()
+        redis = AsyncMock()
+        loader = AsyncMock()
+        loader.load = AsyncMock(return_value=_make_candles(200))
+        runner = JobRunner(
+            consumer=None,
+            publisher=None,
+            data_loader=loader,
+            backtest_repo=repo,
+            redis_client=redis,
+        )
+        payload = {
+            "symbol": "BTC/USDT",
+            "strategy_rules": {
+                "conditions": [{"indicator": "rsi", "operator": "LT", "value": 45}],
+                "logic": "AND",
+                "direction": "BUY",
+                "base_confidence": 0.85,
+            },
+            "slippage_pct": "0.001",
+            "start_date": "2025-01-01T00:00:00",
+            "end_date": "2025-01-01T03:20:00",
+        }
+        await runner._process_job(payload, "job-row68", "user-1")
+
+        # DB path: exact Decimal, untouched by any JSON conversion.
+        repo.save_result.assert_awaited_once()
+        saved = repo.save_result.call_args.args[0]
+        for key in (
+            "win_rate",
+            "avg_return",
+            "max_drawdown",
+            "sharpe",
+            "profit_factor",
+        ):
+            assert isinstance(saved[key], Decimal), key
+        # JSONB display columns are JSON-native numbers (json.dumps-able).
+        assert all(isinstance(v, float) for v in saved["equity_curve"])
+        json.dumps({"equity_curve": saved["equity_curve"], "trades": saved["trades"]})
+
+        # Wire path: the completed status payload is valid JSON with the
+        # metrics as numbers, NOT Decimal-strings.
+        status_args = redis.set.call_args_list[-1].args
+        assert status_args[0] == "backtest:status:job-row68"
+        decoded = json.loads(status_args[1])
+        assert decoded["status"] == "completed"
+        for key in (
+            "win_rate",
+            "avg_return",
+            "max_drawdown",
+            "sharpe",
+            "profit_factor",
+        ):
+            assert isinstance(decoded[key], (int, float)), key
+        assert all(isinstance(v, (int, float)) for v in decoded["equity_curve"])
+        # And the DB value really is the wire value, just exact.
+        assert float(saved["win_rate"]) == decoded["win_rate"]
 
 
 def _winning_trade(pnl="0.02"):
