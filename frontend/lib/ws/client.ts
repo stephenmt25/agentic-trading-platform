@@ -24,19 +24,21 @@ function toNumberOrNull(value: unknown): number | null {
 
 // Exported for tests. Returns null when the message has no position_id —
 // PNL_UPDATE events are per-position and the store keys on it.
-export function parsePnlMessage(data: any): PnLPositionSnapshot | null {
-    if (!data || typeof data !== 'object' || !data.position_id) return null;
+export function parsePnlMessage(data: unknown): PnLPositionSnapshot | null {
+    if (!data || typeof data !== 'object') return null;
+    const msg = data as Record<string, unknown>;
+    if (!msg.position_id) return null;
     return {
-        position_id: String(data.position_id),
-        profile_id: data.profile_id ? String(data.profile_id) : '',
-        symbol: data.symbol ? String(data.symbol) : '',
-        gross_pnl: toNumberOrNull(data.gross_pnl),
-        fees: toNumberOrNull(data.fees),
-        net_pre_tax: toNumberOrNull(data.net_pre_tax),
-        net_post_tax: toNumberOrNull(data.net_post_tax),
-        tax_estimate: toNumberOrNull(data.tax_estimate),
-        pct_return: toNumberOrNull(data.pct_return),
-        timestamp_us: toNumberOrNull(data.timestamp_us) ?? Date.now() * 1000,
+        position_id: String(msg.position_id),
+        profile_id: msg.profile_id ? String(msg.profile_id) : '',
+        symbol: msg.symbol ? String(msg.symbol) : '',
+        gross_pnl: toNumberOrNull(msg.gross_pnl),
+        fees: toNumberOrNull(msg.fees),
+        net_pre_tax: toNumberOrNull(msg.net_pre_tax),
+        net_post_tax: toNumberOrNull(msg.net_post_tax),
+        tax_estimate: toNumberOrNull(msg.tax_estimate),
+        pct_return: toNumberOrNull(msg.pct_return),
+        timestamp_us: toNumberOrNull(msg.timestamp_us) ?? Date.now() * 1000,
     };
 }
 

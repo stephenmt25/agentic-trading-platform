@@ -11,15 +11,15 @@ import { TemplateGallery } from "@/components/strategies/TemplateGallery";
 
 const BuilderContent = dynamic(() => import("../pipeline/page"), {
   ssr: false,
-  loading: () => <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto mt-12" />,
+  loading: () => <Loader2 className="w-5 h-5 animate-spin will-change-transform text-muted-foreground mx-auto mt-12" />,
 });
 const VerifyContent = dynamic(() => import("../backtest/page"), {
   ssr: false,
-  loading: () => <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto mt-12" />,
+  loading: () => <Loader2 className="w-5 h-5 animate-spin will-change-transform text-muted-foreground mx-auto mt-12" />,
 });
 const ProfilesContent = dynamic(() => import("../profiles/page"), {
   ssr: false,
-  loading: () => <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mx-auto mt-12" />,
+  loading: () => <Loader2 className="w-5 h-5 animate-spin will-change-transform text-muted-foreground mx-auto mt-12" />,
 });
 
 const TABS = [
@@ -46,7 +46,7 @@ export default function StrategiesPage() {
         Build your strategy on the canvas. Verify with a backtest before running.
       </p>
 
-      <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin text-muted-foreground" /></div>}>
+      <Suspense fallback={<div className="flex justify-center py-12"><Loader2 className="w-5 h-5 animate-spin will-change-transform text-muted-foreground" /></div>}>
         <TabLayout tabs={TABS} defaultTab="profiles">
           {(activeTab) => (
             <>

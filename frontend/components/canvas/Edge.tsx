@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, type SVGAttributes } from "react";
-import { cn } from "@/lib/utils";
 
 /**
  * Edge per docs/design/04-component-specs/canvas.md.

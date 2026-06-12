@@ -213,7 +213,14 @@ export const NodePalette = forwardRef<HTMLDivElement, NodePaletteProps>(
             filtered.map((cat) => {
               const ic = isCollapsed(cat.id);
               return (
-                <div key={cat.id} role="treeitem" aria-expanded={!ic}>
+                <div
+                  key={cat.id}
+                  role="treeitem"
+                  aria-expanded={!ic}
+                  // Category headers expand/collapse but are never "selected";
+                  // ARIA requires the attribute to be present on treeitem.
+                  aria-selected={false}
+                >
                   <button
                     type="button"
                     onClick={() => toggleCategory(cat.id)}

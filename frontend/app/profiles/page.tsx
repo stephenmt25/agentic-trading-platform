@@ -42,6 +42,11 @@ const RISK_FIELDS: Array<{
   { key: "max_holding_hours", label: "Max hold (hours)", help: "Force-close any position held longer than this.", isPct: false, min: 0.5, max: 720, step: 0.5 },
 ];
 
+/** Narrow an unknown thrown value to a usable message ("" when not an Error). */
+function errMessage(e: unknown): string {
+  return e instanceof Error ? e.message : "";
+}
+
 function readNumber(rl: Record<string, unknown>, key: string, fallback: number): number {
   const v = rl[key];
   if (typeof v === "number" && Number.isFinite(v)) return v;
@@ -94,6 +99,9 @@ export default function ProfilesPage() {
 
   useEffect(() => {
     loadProfiles();
+    // Mount-only fetch by design: loadProfiles reads searchParams/selection to
+    // preselect, and re-running it on those changes would refetch on every click.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional mount-only load
   }, []);
 
   const loadProfiles = async () => {
@@ -108,8 +116,8 @@ export default function ProfilesPage() {
       } else if (fetched.length > 0 && !selectedProfileId) {
         setSelectedProfileId(fetched[0].profile_id);
       }
-    } catch (e: any) {
-      if (!e.message?.includes("Unauthorized")) {
+    } catch (e) {
+      if (!errMessage(e).includes("Unauthorized")) {
         console.error("Failed to load profiles:", e);
         toast.error("Could not load profiles. Is the backend running?");
       }
@@ -154,11 +162,11 @@ export default function ProfilesPage() {
       });
       toast.success("Profile saved!");
       await loadProfiles();
-    } catch (e: any) {
+    } catch (e) {
       if (e instanceof SyntaxError) {
         toast.error("Invalid JSON format");
       } else {
-        toast.error(e.message || "Failed to save profile");
+        toast.error(errMessage(e) || "Failed to save profile");
       }
     } finally {
       setIsSaving(false);
@@ -171,8 +179,8 @@ export default function ProfilesPage() {
       await api.profiles.toggle(selectedProfile.profile_id, !selectedProfile.is_active);
       toast.success(selectedProfile.is_active ? "Profile deactivated" : "Profile activated");
       await loadProfiles();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to toggle profile");
+    } catch (e) {
+      toast.error(errMessage(e) || "Failed to toggle profile");
     }
   };
 
@@ -197,8 +205,8 @@ export default function ProfilesPage() {
       if (result.id) {
         setSelectedProfileId(result.id);
       }
-    } catch (e: any) {
-      toast.error(e.message || "Failed to create profile");
+    } catch (e) {
+      toast.error(errMessage(e) || "Failed to create profile");
     } finally {
       setIsCreating(false);
     }
@@ -213,8 +221,8 @@ export default function ProfilesPage() {
       setShowDeleteConfirm(false);
       // Refresh from backend so deleted_at is reflected
       await loadProfiles();
-    } catch (e: any) {
-      toast.error(e.message || "Failed to delete profile");
+    } catch (e) {
+      toast.error(errMessage(e) || "Failed to delete profile");
     } finally {
       setIsDeleting(false);
     }
@@ -383,7 +391,7 @@ export default function ProfilesPage() {
                         className="bg-primary hover:bg-primary/90 text-primary-foreground font-medium min-h-[44px]"
                       >
                         {isSaving ? (
-                          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                          <><Loader2 className="w-4 h-4 mr-2 animate-spin will-change-transform" /> Saving...</>
                         ) : (
                           <><Save className="w-4 h-4 mr-2" /> Save</>
                         )}
@@ -522,7 +530,7 @@ export default function ProfilesPage() {
                 className="bg-primary text-primary-foreground hover:bg-primary/90 font-medium min-h-[44px]"
               >
                 {isCreating ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...</>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin will-change-transform" /> Creating...</>
                 ) : (
                   <><Plus className="w-4 h-4 mr-2" /> Create Profile</>
                 )}
@@ -552,7 +560,7 @@ export default function ProfilesPage() {
                 className="flex-1 bg-red-600 hover:bg-red-500 text-white font-medium min-h-[44px]"
               >
                 {isDeleting ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Deleting...</>
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin will-change-transform" /> Deleting...</>
                 ) : (
                   "Delete"
                 )}

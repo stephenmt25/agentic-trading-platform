@@ -1768,7 +1768,9 @@ function StreamingDemo() {
   const [running, setRunning] = useState(false);
   useEffect(() => {
     if (!running) return;
-    let i = text.length;
+    // Streaming always starts from cleared text (reset() empties it in the
+    // same batch that sets running), so the cursor starts at 0.
+    let i = 0;
     const id = window.setInterval(() => {
       i = Math.min(STREAM_FULL.length, i + 4);
       setText(STREAM_FULL.slice(0, i));

@@ -15,12 +15,14 @@ interface Signal {
   threshold: number;
 }
 
-interface StrategyEvalConfig {
+// Type alias (not interface) so it carries an implicit index signature and the
+// drawer can assert from the node's Record<string, unknown> config without `any`.
+export type StrategyEvalConfig = {
   direction?: "long" | "short";
   match_mode?: "all" | "any";
   confidence?: number;
   signals?: Signal[];
-}
+};
 
 interface Props {
   config: StrategyEvalConfig;

@@ -458,7 +458,7 @@ function PipelineCanvasInner() {
             {loading && (
               <div className="absolute inset-0 z-10 flex items-center justify-center bg-bg-canvas/60 backdrop-blur-sm">
                 <div className="flex items-center gap-2 text-[13px] text-fg-muted">
-                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                  <Loader2 className="w-4 h-4 animate-spin will-change-transform" aria-hidden />
                   Loading pipeline…
                 </div>
               </div>

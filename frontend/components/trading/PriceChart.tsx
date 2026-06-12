@@ -213,7 +213,7 @@ export function PriceChart({
     if (!chartRef.current) return;
     const { chart } = chartRef.current;
     chart.applyOptions({ height: plotHeight });
-  }, [plotHeight]);
+  }, [plotHeight, fluid]);
 
   // ---- Re-theme when CSS tokens may have shifted (mode swap, dark-toggle) ----
   // We poll cheaply on a timer instead of subscribing to mutation observers —

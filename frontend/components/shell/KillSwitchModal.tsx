@@ -156,7 +156,6 @@ export function KillSwitchModal() {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, setStoreLevel]);
 
   // Esc closes (kept from the binary modal).
@@ -387,7 +386,7 @@ export function KillSwitchModal() {
                     size="sm"
                     leftIcon={
                       submitting ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+                        <Loader2 className="w-3.5 h-3.5 animate-spin will-change-transform" aria-hidden />
                       ) : (
                         <Play className="w-3.5 h-3.5" strokeWidth={1.5} />
                       )
@@ -461,7 +460,7 @@ export function KillSwitchModal() {
                   size="sm"
                   leftIcon={
                     submitting ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin will-change-transform" aria-hidden />
                     ) : (
                       <OctagonX className="w-3.5 h-3.5" strokeWidth={1.5} />
                     )

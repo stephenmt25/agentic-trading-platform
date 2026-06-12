@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   ReactFlow,
   MiniMap,
@@ -22,7 +22,7 @@ import { usePortfolioStore } from "@/lib/stores/portfolioStore";
 import { GateNode } from "@/components/pipeline/GateNode";
 import { AgentInputNode } from "@/components/pipeline/AgentInputNode";
 import { InputNode, OutputNode } from "@/components/pipeline/IONode";
-import { NodeConfigDrawer } from "@/components/pipeline/NodeConfigDrawer";
+import { NodeConfigDrawer, type NodeCatalog } from "@/components/pipeline/NodeConfigDrawer";
 import { NewProfileModal } from "@/components/strategies/NewProfileModal";
 import { Loader2, Workflow, Save, RotateCcw, Plus } from "lucide-react";
 import { motion } from "framer-motion";
@@ -67,13 +67,12 @@ export default function PipelinePage() {
   const [selectedProfile, setSelectedProfile] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [catalog, setCatalog] = useState<Record<string, unknown> | null>(null);
+  const [catalog, setCatalog] = useState<NodeCatalog>(null);
   const [newProfileOpen, setNewProfileOpen] = useState(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
-  const selectedNodeId = usePipelineStore((s) => s.selectedNodeId);
   const setSelectedNodeId = usePipelineStore((s) => s.setSelectedNodeId);
   const isDirty = usePipelineStore((s) => s.isDirty);
   const markDirty = usePipelineStore((s) => s.markDirty);
@@ -87,20 +86,21 @@ export default function PipelinePage() {
     usePipelineStore.getState().setEdges(edges);
   }, [edges]);
 
-  // Load catalog on mount
+  // Load catalog on mount. The API client types params loosely (extra keys
+  // allowed); the drawer's NodeCatalog is the narrower UI-facing shape.
   useEffect(() => {
-    api.agentConfig.catalog().then(setCatalog).catch(() => {});
+    api.agentConfig.catalog().then((c) => setCatalog(c as NodeCatalog)).catch(() => {});
   }, []);
 
   // Load profiles if not already loaded
   useEffect(() => {
     if (!profiles.length) {
       api.profiles.list().then((p) => {
-        usePortfolioStore.getState().setProfiles(p as any);
-        if (p.length > 0) setSelectedProfile((p[0] as any).profile_id);
+        usePortfolioStore.getState().setProfiles(p);
+        if (p.length > 0) setSelectedProfile(p[0].profile_id);
       }).catch(() => {});
     } else if (!selectedProfile) {
-      setSelectedProfile((profiles[0] as any).profile_id);
+      setSelectedProfile(profiles[0].profile_id);
     }
   }, [profiles, selectedProfile]);
 
@@ -151,7 +151,7 @@ export default function PipelinePage() {
               ...n,
               data: {
                 ...n.data,
-                config: { ...((n.data as any).config || {}), [key]: value },
+                config: { ...((n.data.config as Record<string, unknown> | undefined) ?? {}), [key]: value },
               },
             }
           : n
@@ -172,8 +172,8 @@ export default function PipelinePage() {
         nodes: nodes.map((n) => ({
           id: n.id,
           type: n.type || "gate",
-          label: String((n.data as any).label),
-          config: (n.data as any).config || {},
+          label: String(n.data.label),
+          config: (n.data.config as Record<string, unknown> | undefined) ?? {},
           position: n.position,
         })),
         edges: edges.map((e) => ({
@@ -228,7 +228,7 @@ export default function PipelinePage() {
             onChange={(e) => setSelectedProfile(e.target.value)}
             className="bg-zinc-800 border border-zinc-700 rounded px-2 py-1 text-xs text-zinc-200"
           >
-            {profiles.map((p: any) => (
+            {profiles.map((p) => (
               <option key={p.profile_id} value={p.profile_id}>
                 {p.name}
               </option>
@@ -255,7 +255,7 @@ export default function PipelinePage() {
             disabled={!isDirty || saving}
             className="flex items-center gap-1 px-3 py-1 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+            {saving ? <Loader2 className="w-3 h-3 animate-spin will-change-transform" /> : <Save className="w-3 h-3" />}
             Save
           </button>
         </div>
@@ -265,7 +265,7 @@ export default function PipelinePage() {
       <div className="flex-1 relative">
         {loading ? (
           <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+            <Loader2 className="w-6 h-6 text-amber-400 animate-spin will-change-transform" />
           </div>
         ) : (
           <>
@@ -300,7 +300,7 @@ export default function PipelinePage() {
             </ReactFlow>
 
             {/* Config drawer */}
-            <NodeConfigDrawer catalog={catalog as any} onUpdateNodeConfig={handleUpdateNodeConfig} />
+            <NodeConfigDrawer catalog={catalog} onUpdateNodeConfig={handleUpdateNodeConfig} />
           </>
         )}
       </div>
@@ -312,7 +312,7 @@ export default function PipelinePage() {
           // Refresh profile list and select the new one
           try {
             const list = await api.profiles.list();
-            usePortfolioStore.getState().setProfiles(list as any);
+            usePortfolioStore.getState().setProfiles(list);
             setSelectedProfile(newId);
           } catch {
             toast.error("Profile created but failed to refresh list");

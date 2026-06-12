@@ -70,7 +70,10 @@ export default function AuditLogPage() {
     to: toMs,
     limit: 200,
   });
-  const events: AuditEvent[] = eventsQuery.data?.events ?? [];
+  const events: AuditEvent[] = useMemo(
+    () => eventsQuery.data?.events ?? [],
+    [eventsQuery.data]
+  );
   const availableTypes = useMemo(
     () => new Set(eventsQuery.data?.available_types ?? []),
     [eventsQuery.data]

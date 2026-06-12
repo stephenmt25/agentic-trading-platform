@@ -120,7 +120,7 @@ export const ToolCall = forwardRef<HTMLDivElement, ToolCallProps>(
           <Settings
             className={cn(
               "w-3 h-3",
-              status === "pending" ? "text-accent-500 animate-spin" : "text-fg-muted"
+              status === "pending" ? "text-accent-500 animate-spin will-change-transform" : "text-fg-muted"
             )}
             strokeWidth={1.5}
             aria-hidden
@@ -133,7 +133,7 @@ export const ToolCall = forwardRef<HTMLDivElement, ToolCallProps>(
           )}
           {status === "pending" && (
             <Loader2
-              className="w-3 h-3 text-accent-500 animate-spin"
+              className="w-3 h-3 text-accent-500 animate-spin will-change-transform"
               strokeWidth={1.5}
               aria-hidden
             />

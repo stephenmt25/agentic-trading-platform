@@ -130,7 +130,7 @@ export default function NotificationsPage() {
         <h2 className="text-[14px] font-semibold text-fg">Pending events</h2>
         <p className="text-[13px] text-fg-muted">
           The spec calls for richer per-event delivery (email × push × audible).
-          The backend schema for these isn't wired yet — events below land when
+          The backend schema for these isn&apos;t wired yet — events below land when
           a preferences-matrix endpoint ships.
         </p>
         <ul className="rounded-lg border border-dashed border-border-subtle bg-bg-canvas/40 divide-y divide-border-subtle/60">

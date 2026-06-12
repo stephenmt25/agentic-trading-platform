@@ -55,13 +55,6 @@ function resolveAgentType(agentId: string): AgentType | undefined {
   return AGENT_REGISTRY.find((a) => a.agent_id === agentId)?.agent_type;
 }
 
-function resolveDisplayName(agentId: string): string {
-  return (
-    AGENT_REGISTRY.find((a) => a.agent_id === agentId)?.display_name ??
-    agentId
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Row Component
 // ---------------------------------------------------------------------------

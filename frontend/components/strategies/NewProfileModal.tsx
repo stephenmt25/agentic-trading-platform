@@ -86,8 +86,8 @@ export function NewProfileModal({ open, onClose, onCreated }: Props) {
       setMatchMode("all");
       setConfidence("0.6");
       setSignals([{ ...DEFAULT_SIGNAL }]);
-    } catch (e: any) {
-      toast.error(e.message || "Failed to create profile");
+    } catch (e) {
+      toast.error((e instanceof Error && e.message) || "Failed to create profile");
     } finally {
       setSubmitting(false);
     }
@@ -252,7 +252,7 @@ export function NewProfileModal({ open, onClose, onCreated }: Props) {
           >
             {submitting ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...
+                <Loader2 className="w-4 h-4 mr-2 animate-spin will-change-transform" /> Creating...
               </>
             ) : (
               <>

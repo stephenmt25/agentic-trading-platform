@@ -8,7 +8,6 @@
 
 import type {
   AgentTelemetryEvent,
-  AgentType,
   TelemetryEventType,
   AgentHealthStatus,
 } from '../types/telemetry';

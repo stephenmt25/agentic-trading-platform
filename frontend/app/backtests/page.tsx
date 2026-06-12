@@ -208,10 +208,15 @@ export default function BacktestsListPage() {
     [profiles]
   );
 
+  // Destructured so the memo deps are the stable refetch fns themselves —
+  // depending on `query.refetch` member expressions defeats both
+  // exhaustive-deps and the compiler's memoization analysis.
+  const { refetch: refetchProfiles } = profilesQuery;
+  const { refetch: refetchHistory } = historyQuery;
   const loadHistory = useCallback(() => {
-    void profilesQuery.refetch();
-    void historyQuery.refetch();
-  }, [profilesQuery.refetch, historyQuery.refetch]);
+    void refetchProfiles();
+    void refetchHistory();
+  }, [refetchProfiles, refetchHistory]);
 
   const runs = useMemo<RunRow[]>(() => {
     const items = historyQuery.data?.items ?? [];

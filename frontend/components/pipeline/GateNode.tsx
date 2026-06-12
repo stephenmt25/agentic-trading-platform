@@ -2,7 +2,7 @@
 
 import { memo } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Shield, AlertTriangle, CheckCircle } from "lucide-react";
+import { Shield } from "lucide-react";
 
 interface GateNodeData {
   label: string;

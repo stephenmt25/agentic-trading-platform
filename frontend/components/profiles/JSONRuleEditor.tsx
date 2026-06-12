@@ -28,8 +28,11 @@ export const JSONRuleEditor: React.FC<RuleEditorProps> = ({ initialJson = '{\n  
             console.log('Saved', response);
             if (onSave) onSave();
 
-        } catch (e: any) {
-            setError(e.response ? JSON.stringify(e.response.data.errors) : e.message);
+        } catch (e) {
+            // Server validation errors arrive axios-shaped (err.response.data.errors);
+            // anything else falls back to the Error message.
+            const err = e as { response?: { data: { errors: unknown } }; message?: string };
+            setError(err.response ? JSON.stringify(err.response.data.errors) : err.message ?? String(e));
         } finally {
             setIsSaving(false);
         }

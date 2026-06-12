@@ -113,7 +113,7 @@ export function TemplateGallery({ onCreated }: Props) {
                 >
                   {submittingId === template.id ? (
                     <>
-                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> Creating...
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin will-change-transform" /> Creating...
                     </>
                   ) : (
                     <>

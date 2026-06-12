@@ -33,7 +33,7 @@ export function RawProfileView() {
   if (isLoading) {
     return (
       <div className="flex justify-center py-12">
-        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        <Loader2 className="w-5 h-5 animate-spin will-change-transform text-muted-foreground" />
       </div>
     );
   }

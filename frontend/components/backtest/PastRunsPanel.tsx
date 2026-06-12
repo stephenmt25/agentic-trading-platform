@@ -137,7 +137,7 @@ const PastRunsPanelImpl: React.FC<PastRunsPanelProps> = ({ onLoad, filterSymbol,
             title="Refresh"
           >
             {loading ? (
-              <Loader2 className="w-3 h-3 animate-spin" />
+              <Loader2 className="w-3 h-3 animate-spin will-change-transform" />
             ) : (
               <RefreshCw className="w-3 h-3" />
             )}
@@ -195,7 +195,7 @@ const PastRunsPanelImpl: React.FC<PastRunsPanelProps> = ({ onLoad, filterSymbol,
                         title="Load this run into the comparison panel"
                       >
                         {loadingId === it.job_id ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
+                          <Loader2 className="w-3 h-3 animate-spin will-change-transform" />
                         ) : (
                           <FolderOpen className="w-3 h-3" />
                         )}

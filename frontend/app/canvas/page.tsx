@@ -64,7 +64,7 @@ export default function CanvasIndexPage() {
       <div className="flex-1 min-h-0 overflow-auto px-6 py-6">
         {profiles === null && !error && (
           <div className="rounded-md border border-border-subtle bg-bg-panel p-6 flex items-center gap-3">
-            <Loader2 className="w-4 h-4 text-fg-muted animate-spin" aria-hidden />
+            <Loader2 className="w-4 h-4 text-fg-muted animate-spin will-change-transform" aria-hidden />
             <span className="text-[13px] text-fg-muted">Loading profiles…</span>
           </div>
         )}

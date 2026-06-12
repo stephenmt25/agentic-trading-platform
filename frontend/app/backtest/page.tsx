@@ -330,8 +330,8 @@ export default function BacktestPage() {
       });
       setJobId(res.job_id);
       pollResult(res.job_id);
-    } catch (e: any) {
-      setError(e.message || 'Failed to submit backtest');
+    } catch (e) {
+      setError((e instanceof Error && e.message) || 'Failed to submit backtest');
       setStatus('error');
       stopElapsedTimer();
     }
@@ -530,7 +530,7 @@ export default function BacktestPage() {
                 ))}
               </select>
               <p className="text-[11px] text-muted-foreground mt-1.5">
-                The backtest runs against this profile's saved rules. Edit rules in the Builder tab.
+                The backtest runs against this profile&apos;s saved rules. Edit rules in the Builder tab.
               </p>
             </div>
           ) : (
@@ -574,7 +574,7 @@ export default function BacktestPage() {
           >
             {isRunning ? (
               <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                <Loader2 className="w-4 h-4 mr-2 animate-spin will-change-transform" />
                 {runningLabel} · {formatElapsed(elapsedMs)}
               </>
             ) : (
@@ -662,7 +662,7 @@ export default function BacktestPage() {
             <div className="flex-1 flex flex-col items-center justify-center gap-3 py-16">
               {isRunning && runConfig ? (
                 <div className="flex flex-col items-center gap-4 max-w-md w-full">
-                  <Loader2 className="w-8 h-8 animate-spin text-primary" />
+                  <Loader2 className="w-8 h-8 animate-spin will-change-transform text-primary" />
                   <div className="text-center space-y-1">
                     <p className="text-sm font-medium text-foreground">
                       {runningLabel} · {formatElapsed(elapsedMs)}

@@ -59,7 +59,10 @@ export function PositionsTab({
     refetchInterval: POLL_INTERVAL_MS,
     enabled: !!profileId,
   });
-  const rows = (positionsQuery.data ?? []) as Position[];
+  const rows = useMemo(
+    () => (positionsQuery.data ?? []) as Position[],
+    [positionsQuery.data]
+  );
   const loading = positionsQuery.isPending;
   const refreshing = positionsQuery.isFetching;
   const error = positionsQuery.error

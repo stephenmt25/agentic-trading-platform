@@ -95,7 +95,7 @@ export function useAgentTelemetry(): AgentTelemetryHandle {
       cancelled = true;
       abortController.abort();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   return { slowMode };
 }

@@ -2,7 +2,7 @@ export interface Profile {
   profile_id: string;
   name?: string;
   is_active: boolean;
-  rules_json: any;
+  rules_json: Record<string, unknown>;
   //... other fields
 }
 

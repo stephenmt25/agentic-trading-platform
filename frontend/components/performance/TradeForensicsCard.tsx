@@ -82,7 +82,7 @@ function ApprovedTradesTableLoader({ symbol }: { symbol?: string }) {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-32">
-        <Loader2 className="w-4 h-4 animate-spin text-zinc-500" />
+        <Loader2 className="w-4 h-4 animate-spin will-change-transform text-zinc-500" />
       </div>
     );
   }

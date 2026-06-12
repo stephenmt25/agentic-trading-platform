@@ -91,7 +91,7 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         {...props}
       >
         {loading ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden />
+          <Loader2 className="w-3.5 h-3.5 animate-spin will-change-transform" aria-hidden />
         ) : (
           leftIcon && <span aria-hidden>{leftIcon}</span>
         )}

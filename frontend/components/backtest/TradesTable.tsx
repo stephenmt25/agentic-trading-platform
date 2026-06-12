@@ -2,7 +2,6 @@
 
 import React, { useState } from 'react';
 import { SimulatedTrade } from '../../lib/types';
-import { Badge } from '@/components/ui/badge';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 
 interface TradesTableProps {
