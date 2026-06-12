@@ -183,8 +183,22 @@ class PnlUpdateEvent(BaseEvent):
     profile_id: ProfileId
     symbol: SymbolPair
     gross_pnl: Price
-    net_pnl: Price
+    net_pnl: Price = Field(
+        description=(
+            "PRE-tax net PnL (gross_pnl minus total fees). The publisher has "
+            "always passed PnLSnapshot.net_pre_tax here — kept as-is for "
+            "backward compatibility. Prefer net_pre_tax/net_post_tax."
+        )
+    )
     pct_return: Percentage
+    # FE-W2: per-position identity + full fee/tax breakdown the dashboard
+    # reads. Events are per-position — position_id is the consumer-side key.
+    # Optional so payloads predating 2026-06 still validate.
+    position_id: Optional[str] = None
+    fees: Optional[Price] = None
+    net_pre_tax: Optional[Price] = None
+    net_post_tax: Optional[Price] = None
+    tax_estimate: Optional[Price] = None
 
 
 class CircuitBreakerEvent(BaseEvent):
@@ -357,23 +371,76 @@ class UserProfile(BaseModel):
 WALK_FORWARD_MAX_BARS = 500_000
 WALK_FORWARD_MAX_PARAM_COMBOS = 100
 
+# EN-W2 exit-band sweep: the ONLY risk_limits keys the sweep machinery may
+# vary. These are exactly the keys the shared exit policy
+# (libs/core/exit_policy.thresholds_from_risk_limits) reads — sweeping any
+# other risk_limits key (max_allocation_pct, circuit_breaker_*, ...) would be
+# a silent no-op in the engines, so it is rejected loudly instead.
+RISK_LIMITS_GRID_KEYS = frozenset(
+    {"stop_loss_pct", "take_profit_pct", "max_holding_hours"}
+)
 
-def walk_forward_grid_combinations(param_grid: Optional[Dict[str, Any]]) -> int:
-    """Cartesian-product cardinality of a run_sweep-shaped param_grid.
 
-    Raises ValueError when a value is not a non-empty list — the same shape
-    run_sweep requires (itertools.product over the value lists).
+def risk_limits_grid_combinations(risk_limits_grid: Optional[Dict[str, Any]]) -> int:
+    """Validate a risk_limits_grid and return its cartesian cardinality.
+
+    Shape: {stop_loss_pct|take_profit_pct|max_holding_hours: [positive
+    numbers]}. Values may arrive as JSON numbers or numeric strings; they are
+    str()-converted before Decimal at the merge site (Decimal contract), so
+    only positivity/finiteness is checked here. None/empty contributes 1.
     """
-    if not param_grid:
+    if not risk_limits_grid:
         return 1
     combos = 1
-    for key, values in param_grid.items():
-        if not isinstance(values, list) or not values:
+    for key, values in risk_limits_grid.items():
+        if key not in RISK_LIMITS_GRID_KEYS:
             raise ValueError(
-                f"walk_forward param_grid['{key}'] must be a non-empty list"
+                f"risk_limits_grid key '{key}' is not sweepable; "
+                f"allowed keys: {sorted(RISK_LIMITS_GRID_KEYS)}"
             )
+        if not isinstance(values, list) or not values:
+            raise ValueError(f"risk_limits_grid['{key}'] must be a non-empty list")
+        for v in values:
+            # bool is an int subclass — reject it explicitly.
+            if isinstance(v, bool):
+                raise ValueError(
+                    f"risk_limits_grid['{key}'] values must be positive numbers"
+                )
+            try:
+                d = Decimal(str(v))
+            except (ArithmeticError, TypeError, ValueError):
+                raise ValueError(
+                    f"risk_limits_grid['{key}'] values must be positive numbers"
+                )
+            if not d.is_finite() or d <= 0:
+                raise ValueError(
+                    f"risk_limits_grid['{key}'] values must be positive numbers"
+                )
         combos *= len(values)
     return combos
+
+
+def walk_forward_grid_combinations(
+    param_grid: Optional[Dict[str, Any]],
+    risk_limits_grid: Optional[Dict[str, Any]] = None,
+) -> int:
+    """Combined cartesian cardinality of a run_sweep-shaped param_grid and an
+    optional risk_limits_grid (rule combos x exit-band combos).
+
+    Raises ValueError when a param_grid value is not a non-empty list — the
+    same shape run_sweep requires (itertools.product over the value lists) —
+    or when risk_limits_grid fails risk_limits_grid_combinations validation.
+    An absent/None grid contributes a factor of 1.
+    """
+    combos = 1
+    if param_grid:
+        for key, values in param_grid.items():
+            if not isinstance(values, list) or not values:
+                raise ValueError(
+                    f"walk_forward param_grid['{key}'] must be a non-empty list"
+                )
+            combos *= len(values)
+    return combos * risk_limits_grid_combinations(risk_limits_grid)
 
 
 class BacktestRequest(BaseModel):
@@ -390,8 +457,15 @@ class BacktestRequest(BaseModel):
     # Explicit risk_limits override (RiskLimitsPayload shape: stop_loss_pct /
     # take_profit_pct / max_holding_hours ...). None → exit-policy defaults.
     risk_limits: Optional[Dict[str, Any]] = Field(default=None)
-    # EN-W1 walk-forward config: {train_bars, test_bars, step_bars?, param_grid?}.
+    # EN-W1 walk-forward config: {train_bars, test_bars, step_bars?,
+    # param_grid?, risk_limits_grid?}.
     walk_forward: Optional[Dict[str, Any]] = Field(default=None)
+    # EN-W2 exit-band sweep dimension: {stop_loss_pct|take_profit_pct|
+    # max_holding_hours: [positive numbers]}. Only meaningful with a
+    # walk_forward config (the queue serves no plain-sweep path); the
+    # walk_forward dict may instead embed its own risk_limits_grid, which
+    # wins over this top-level field.
+    risk_limits_grid: Optional[Dict[str, List[Any]]] = Field(default=None)
 
     @model_validator(mode="after")
     def _validate_optional_payloads(self):
@@ -400,6 +474,13 @@ class BacktestRequest(BaseModel):
             # RiskLimitsPayload is defined later in this module, resolved at
             # call time.
             RiskLimitsPayload.model_validate(self.risk_limits)
+        if self.risk_limits_grid is not None:
+            # Validates allowed keys + positive-number values (raises → 422).
+            risk_limits_grid_combinations(self.risk_limits_grid)
+            if self.walk_forward is None:
+                # A grid without walk_forward would be a silent no-op on the
+                # worker (single engine run) — reject loudly at the edge.
+                raise ValueError("risk_limits_grid requires a walk_forward config")
         if self.walk_forward is not None:
             for key in ("train_bars", "test_bars"):
                 if not isinstance(self.walk_forward.get(key), int) or (
@@ -422,11 +503,22 @@ class BacktestRequest(BaseModel):
             grid = self.walk_forward.get("param_grid")
             if grid is not None and not isinstance(grid, dict):
                 raise ValueError("walk_forward.param_grid must be a dict")
-            combos = walk_forward_grid_combinations(grid)
+            wf_risk_grid = self.walk_forward.get("risk_limits_grid")
+            if wf_risk_grid is not None and not isinstance(wf_risk_grid, dict):
+                raise ValueError("walk_forward.risk_limits_grid must be a dict")
+            # Embedded grid wins over the top-level field (mirrors the
+            # worker-side resolution in services/backtesting job_runner).
+            effective_risk_grid = (
+                wf_risk_grid if wf_risk_grid is not None else self.risk_limits_grid
+            )
+            # Budget on the COMBINED cardinality (rule combos x exit-band
+            # combos) — each pair is a full engine pass per window.
+            combos = walk_forward_grid_combinations(grid, effective_risk_grid)
             if combos > WALK_FORWARD_MAX_PARAM_COMBOS:
                 raise ValueError(
-                    f"walk_forward.param_grid expands to {combos} combinations; "
-                    f"maximum is {WALK_FORWARD_MAX_PARAM_COMBOS}"
+                    f"walk_forward param_grid x risk_limits_grid expands to "
+                    f"{combos} combinations; maximum is "
+                    f"{WALK_FORWARD_MAX_PARAM_COMBOS}"
                 )
         return self
 

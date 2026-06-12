@@ -5,14 +5,19 @@ faster parameter sweeps compared to the sequential TradingSimulator.
 Same BacktestJob input / BacktestResult output interface.
 """
 
+import json
 import math
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 
 from libs.core.exit_policy import decide_exit, thresholds_from_risk_limits
+from libs.core.schemas import (
+    WALK_FORWARD_MAX_PARAM_COMBOS,
+    walk_forward_grid_combinations,
+)
 from libs.indicators import (
     ADXCalculator,
     ATRCalculator,
@@ -413,6 +418,36 @@ class SweepResult:
     param_results: List[Dict[str, Any]] = field(default_factory=list)
 
 
+def merge_risk_limits(
+    base: Union[Dict[str, Any], str, None],
+    risk_combo: Dict[str, Any],
+) -> Union[Dict[str, Any], str, None]:
+    """Overlay a risk_limits_grid combo onto base risk_limits.
+
+    Combo values are str()-converted — risk_limits dicts carry STRING values
+    (DEFAULT_RISK_LIMITS convention) so consumers can lift them straight into
+    Decimal without float round-trips. An empty combo returns base unchanged
+    (including JSON-string pass-through, preserving pre-grid behaviour). A
+    base JSON string is parsed first; a malformed base degrades to {} —
+    thresholds_from_risk_limits applies the same defaults-fallback for the
+    no-grid path, so the semantics match.
+    """
+    if not risk_combo:
+        return base
+    base_dict: Dict[str, Any]
+    if isinstance(base, str):
+        try:
+            parsed = json.loads(base) if base else {}
+            base_dict = parsed if isinstance(parsed, dict) else {}
+        except (TypeError, ValueError):
+            base_dict = {}
+    elif isinstance(base, dict):
+        base_dict = base
+    else:
+        base_dict = {}
+    return {**base_dict, **{k: str(v) for k, v in risk_combo.items()}}
+
+
 def run_sweep(
     symbol: str,
     base_rules: Dict[str, Any],
@@ -420,6 +455,7 @@ def run_sweep(
     data: List[Dict[str, Any]],
     slippage_pct: Decimal = Decimal("0.001"),
     risk_limits: Optional[Dict[str, Any]] = None,
+    risk_limits_grid: Optional[Dict[str, List[Any]]] = None,
 ) -> SweepResult:
     """Run a parameter grid sweep using the vectorized engine.
 
@@ -427,14 +463,33 @@ def run_sweep(
     {"0.value": [25, 30, 35]} sweeps the first condition's threshold.
     risk_limits (profile JSONB shape) applies the same exit policy to every
     combination — None → settings defaults.
+    risk_limits_grid (EN-W2) sweeps exit bands: {stop_loss_pct|
+    take_profit_pct|max_holding_hours: [values]}. Total combinations are the
+    PRODUCT of both grids; each result row carries 'params' (rule overrides)
+    and 'risk_params' (the exit-band combo, {} when no grid).
     """
     import itertools
     import uuid
+
+    # Combined compute budget — validates risk_limits_grid keys/values and
+    # bounds rule_combos x risk_combos (each pair is a full engine pass).
+    total_combos = walk_forward_grid_combinations(param_grid, risk_limits_grid)
+    if total_combos > WALK_FORWARD_MAX_PARAM_COMBOS:
+        raise ValueError(
+            f"sweep param_grid x risk_limits_grid expands to {total_combos} "
+            f"combinations; maximum is {WALK_FORWARD_MAX_PARAM_COMBOS}"
+        )
 
     sweep_id = str(uuid.uuid4())[:8]
     keys = list(param_grid.keys())
     values = list(param_grid.values())
     combos = list(itertools.product(*values))
+
+    risk_keys = list(risk_limits_grid.keys()) if risk_limits_grid else []
+    risk_values = list(risk_limits_grid.values()) if risk_limits_grid else []
+    # No grid → a single empty combo: one pass per rule combo with the base
+    # risk_limits untouched (pre-grid behaviour).
+    risk_combos = list(itertools.product(*risk_values))
 
     results = []
     for combo in combos:
@@ -444,25 +499,28 @@ def run_sweep(
         for key, val in params.items():
             _set_nested(rules, key, val)
 
-        job = BacktestJob(
-            job_id=f"{sweep_id}-{len(results)}",
-            symbol=symbol,
-            strategy_rules=rules,
-            slippage_pct=slippage_pct,
-            risk_limits=risk_limits,
-        )
-        result = VectorBTRunner.run(job, data)
-        results.append(
-            {
-                "params": params,
-                "total_trades": result.total_trades,
-                "win_rate": result.win_rate,
-                "sharpe": result.sharpe,
-                "max_drawdown": result.max_drawdown,
-                "profit_factor": result.profit_factor,
-                "avg_return": result.avg_return,
-            }
-        )
+        for risk_combo_vals in risk_combos:
+            risk_params = dict(zip(risk_keys, risk_combo_vals))
+            job = BacktestJob(
+                job_id=f"{sweep_id}-{len(results)}",
+                symbol=symbol,
+                strategy_rules=rules,
+                slippage_pct=slippage_pct,
+                risk_limits=merge_risk_limits(risk_limits, risk_params),
+            )
+            result = VectorBTRunner.run(job, data)
+            results.append(
+                {
+                    "params": params,
+                    "risk_params": risk_params,
+                    "total_trades": result.total_trades,
+                    "win_rate": result.win_rate,
+                    "sharpe": result.sharpe,
+                    "max_drawdown": result.max_drawdown,
+                    "profit_factor": result.profit_factor,
+                    "avg_return": result.avg_return,
+                }
+            )
 
     return SweepResult(job_id=sweep_id, symbol=symbol, param_results=results)
 

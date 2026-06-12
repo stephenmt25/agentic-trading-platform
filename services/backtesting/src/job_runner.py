@@ -32,6 +32,29 @@ def _as_utc(dt: datetime) -> datetime:
     return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt
 
 
+def resolve_walk_forward_raw(payload: dict) -> Optional[Dict[str, Any]]:
+    """Thread the payload-level risk_limits_grid into the walk_forward dict.
+
+    The gateway forwards BacktestRequest.risk_limits_grid as a top-level
+    payload key; the worker merges it into the walk-forward config unless the
+    walk_forward dict already embeds its own grid (more specific wins —
+    mirrors the API-edge validator in libs/core/schemas.py). The queue serves
+    no plain-sweep path (run_sweep is only reachable via the backtesting
+    service's own POST /backtest/sweep), so a risk_limits_grid without
+    walk_forward has no engine to act on it — fail the job loudly instead of
+    silently ignoring the grid.
+    """
+    wf_raw = payload.get("walk_forward")
+    rl_grid = payload.get("risk_limits_grid")
+    if not wf_raw:
+        if rl_grid:
+            raise ValueError("risk_limits_grid requires a walk_forward config")
+        return None
+    if rl_grid and not wf_raw.get("risk_limits_grid"):
+        wf_raw = {**wf_raw, "risk_limits_grid": rl_grid}
+    return wf_raw
+
+
 def compute_coverage(
     requested_start: datetime,
     requested_end: datetime,
@@ -238,7 +261,7 @@ class JobRunner:
         # can actually fire — a timeout on pure on-loop CPU work would never
         # be observed until the computation finished anyway.
         walk_forward_report: Optional[Dict[str, Any]] = None
-        wf_raw = payload.get("walk_forward")
+        wf_raw = resolve_walk_forward_raw(payload)
         if wf_raw:
             wf_config = parse_walk_forward_config(wf_raw)
             print(f"Running walk-forward for {job.job_id} ({wf_config})...")

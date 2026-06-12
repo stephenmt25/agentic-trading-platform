@@ -47,7 +47,7 @@ from .simulator import (
     compute_trade_metrics,
     parse_bar_time,
 )
-from .vectorbt_runner import _deep_copy_rules, _set_nested, run_sweep
+from .vectorbt_runner import _deep_copy_rules, _set_nested, merge_risk_limits, run_sweep
 
 _D = Decimal
 _ZERO = _D("0")
@@ -71,6 +71,9 @@ class WalkForwardConfig:
     step_bars: int
     # Same shape as vectorbt run_sweep's param_grid, e.g. {"0.value": [25, 30]}.
     param_grid: Optional[Dict[str, List[Any]]] = None
+    # EN-W2 exit-band sweep dimension, e.g. {"stop_loss_pct": [0.02, 0.05]}.
+    # Allowed keys: stop_loss_pct / take_profit_pct / max_holding_hours only.
+    risk_limits_grid: Optional[Dict[str, List[Any]]] = None
 
 
 def parse_walk_forward_config(raw: Dict[str, Any]) -> WalkForwardConfig:
@@ -91,18 +94,23 @@ def parse_walk_forward_config(raw: Dict[str, Any]) -> WalkForwardConfig:
     param_grid = raw.get("param_grid") or None
     if param_grid is not None and not isinstance(param_grid, dict):
         raise ValueError("walk_forward param_grid must be a dict")
-    # Raises on non-list/empty values; bounds the sweep cardinality.
-    combos = walk_forward_grid_combinations(param_grid)
+    risk_limits_grid = raw.get("risk_limits_grid") or None
+    if risk_limits_grid is not None and not isinstance(risk_limits_grid, dict):
+        raise ValueError("walk_forward risk_limits_grid must be a dict")
+    # Raises on non-list/empty values and disallowed risk_limits_grid keys;
+    # bounds the COMBINED sweep cardinality (rule combos x exit-band combos).
+    combos = walk_forward_grid_combinations(param_grid, risk_limits_grid)
     if combos > WALK_FORWARD_MAX_PARAM_COMBOS:
         raise ValueError(
-            f"walk_forward param_grid expands to {combos} combinations; "
-            f"maximum is {WALK_FORWARD_MAX_PARAM_COMBOS}"
+            f"walk_forward param_grid x risk_limits_grid expands to {combos} "
+            f"combinations; maximum is {WALK_FORWARD_MAX_PARAM_COMBOS}"
         )
     return WalkForwardConfig(
         train_bars=train_bars,
         test_bars=test_bars,
         step_bars=step_bars,
         param_grid=param_grid,
+        risk_limits_grid=risk_limits_grid,
     )
 
 
@@ -130,6 +138,9 @@ class WalkForwardWindow:
     in_sample_sharpe: Decimal
     oos_trade_count: int
     oos_metrics: Dict[str, Decimal]
+    # EN-W2: the winning exit-band combo (risk_limits_grid). None when no
+    # sweep ran for this window; {} when a sweep ran without a risk grid.
+    chosen_risk_params: Optional[Dict[str, Any]] = None
 
 
 @dataclass
@@ -171,6 +182,7 @@ class WalkForwardResult:
                 "test_bars": self.config.test_bars,
                 "step_bars": self.config.step_bars,
                 "param_grid": self.config.param_grid,
+                "risk_limits_grid": self.config.risk_limits_grid,
             },
             "total_windows": len(self.windows),
             "windows": [
@@ -180,6 +192,7 @@ class WalkForwardResult:
                     "test_start": w.test_start,
                     "test_end": w.test_end,
                     "chosen_params": w.chosen_params,
+                    "chosen_risk_params": w.chosen_risk_params,
                     "in_sample_sharpe": _f(w.in_sample_sharpe),
                     "oos_trades": w.oos_trade_count,
                     "oos_win_rate": _f(w.oos_metrics["win_rate"]),
@@ -228,7 +241,7 @@ def run_walk_forward(
             f"walk_forward produces {len(windows)} windows over {n} bars; "
             f"maximum is {MAX_WINDOWS} (increase step_bars/test_bars)"
         )
-    combos = walk_forward_grid_combinations(config.param_grid)
+    combos = walk_forward_grid_combinations(config.param_grid, config.risk_limits_grid)
     if len(windows) * combos > MAX_TOTAL_RUNS:
         raise ValueError(
             f"walk_forward budget exceeded: {len(windows)} windows x "
@@ -242,23 +255,34 @@ def run_walk_forward(
         train_data = data[train_start:test_start]
         eval_data = data[train_start:test_end]
         rules = job.strategy_rules
+        # The base risk_limits apply unless a risk grid picks a winner below.
+        window_risk_limits = job.risk_limits
         chosen_params: Optional[Dict[str, Any]] = None
+        chosen_risk_params: Optional[Dict[str, Any]] = None
 
-        if config.param_grid:
+        if config.param_grid or config.risk_limits_grid:
+            # Best-by-sharpe across BOTH dimensions (rule values x exit
+            # bands). A risk-grid-only sweep works: param_grid={} yields a
+            # single rule combo with empty params.
             sweep = run_sweep(
                 symbol=job.symbol,
                 base_rules=job.strategy_rules,
-                param_grid=config.param_grid,
+                param_grid=config.param_grid or {},
                 data=train_data,
                 slippage_pct=job.slippage_pct,
                 risk_limits=job.risk_limits,
+                risk_limits_grid=config.risk_limits_grid,
             )
             best = max(sweep.param_results, key=lambda r: r["sharpe"])
             chosen_params = best["params"]
+            chosen_risk_params = best["risk_params"]
             in_sample_sharpe = best["sharpe"]
             rules = _deep_copy_rules(job.strategy_rules)
             for key, val in chosen_params.items():
                 _set_nested(rules, key, val)
+            # Same string-valued merge the sweep applied in-sample, so the
+            # OOS evaluation runs the exact thresholds that won the window.
+            window_risk_limits = merge_risk_limits(job.risk_limits, chosen_risk_params)
         else:
             # Static rules: report the train-slice sharpe as the in-sample
             # reference so IS vs OOS decay is visible per window.
@@ -278,7 +302,7 @@ def run_walk_forward(
             symbol=job.symbol,
             strategy_rules=rules,
             slippage_pct=job.slippage_pct,
-            risk_limits=job.risk_limits,
+            risk_limits=window_risk_limits,
         )
         res = TradingSimulator.run(w_job, eval_data)
         test_start_raw = data[test_start].get("time")
@@ -295,6 +319,7 @@ def run_walk_forward(
                 in_sample_sharpe=in_sample_sharpe,
                 oos_trade_count=len(oos_trades),
                 oos_metrics=compute_trade_metrics(oos_trades),
+                chosen_risk_params=chosen_risk_params,
             )
         )
 

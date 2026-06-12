@@ -83,6 +83,13 @@ async def create_backtest(
         "profile_id": req.profile_id or "",
         "risk_limits": risk_limits,
         "walk_forward": req.walk_forward,
+        # EN-W2 exit-band sweep: validated (allowed keys, positive values,
+        # combined-cardinality budget <= WALK_FORWARD_MAX_PARAM_COMBOS,
+        # walk_forward required) by BacktestRequest's model_validator BEFORE
+        # this handler runs — garbage shapes 422 and never reach the queue.
+        # The worker threads it into the walk-forward config
+        # (services/backtesting/src/job_runner.resolve_walk_forward_raw).
+        "risk_limits_grid": req.risk_limits_grid,
     }
 
     await redis.xadd("auto_backtest_queue", {"data": json.dumps(payload)})
