@@ -5,7 +5,7 @@
 > Phase 2 readiness issues. Each item includes a severity, location, and recommended action.
 
 **Audit date**: 2026-03-19
-**Last updated**: 2026-04-16
+**Last updated**: 2026-06-13
 
 ---
 
@@ -28,17 +28,17 @@ engineering team.
 
 | # | Gap | Impact | Recommended Action |
 |---|-----|--------|--------------------|
-| G-1 | No documented SLA targets for services beyond the fast gate (50ms). | Cannot set alerting thresholds or define "degraded" state for non-hot-path services. | Define P95/P99 latency targets for each service endpoint. |
-| G-2 | No documented capacity planning guidelines. | Unknown how many symbols or profiles the system supports before performance degrades. | Run load tests and publish results with recommended maximums. |
-| G-3 | No documented disaster recovery procedures. | No runbook for database corruption, exchange API outage, or cloud region failure. | Write DR playbook covering each failure domain. |
-| G-4 | No documented data retention policy beyond `HOT_DATA_RETENTION_DAYS=7`. | Unclear how long historical candles, fills, and audit logs are retained. Compliance risk. | Define retention tiers (hot/warm/cold) with explicit TTLs. |
-| G-5 | No documented monitoring or alerting thresholds. | Unknown what conditions trigger PagerDuty alerts. | Publish alert definitions with severity levels and escalation paths. |
-| G-6 | No documented rollback procedures for failed deployments. | Operators have no playbook when a deploy introduces regressions. | Document rollback steps per service, including database migration rollback. |
-| G-7 | No documented exchange API key rotation procedures. | Key compromise response time is unknown. Keys may be long-lived. | Document rotation steps and implement automated rotation on a schedule. |
+| ~~G-1~~ | ~~No documented SLA targets beyond the fast gate (50ms).~~ | **RESOLVED at v1** (2026-06-13, ruling D-L): `docs/ops/SLA-TARGETS.md` — code-pinned values cited file:line; all other targets marked PROPOSED (dev-box) pending ops review. | — |
+| ~~G-2~~ | ~~No documented capacity planning guidelines.~~ | **RESOLVED at v1** (2026-06-13, ruling D-L): `docs/ops/CAPACITY.md` — method + dev-box numbers (WS fan-out measured via `scripts/ws_bench.py`; symbol/profile/DB limits derived from config with derivations marked PROPOSED). | — |
+| ~~G-3~~ | ~~No documented disaster recovery procedures.~~ | **RESOLVED at v1** (2026-06-13, ruling D-L): `docs/ops/DR-PLAYBOOK.md` — folds the tested S1–S3 resilience evidence (2026-05-11 run + row-33 fail-safe validation); untested domains (TimescaleDB loss, host loss, exchange outage) explicitly marked with code-derived expectations. | — |
+| ~~G-4~~ | ~~No documented data retention policy beyond `HOT_DATA_RETENTION_DAYS=7`.~~ | **RESOLVED at v1** (2026-06-13, ruling D-L): `docs/ops/DATA-RETENTION.md` — hot/warm/cold tiers from `HOT_DATA_RETENTION_DAYS` + archiver `ARCHIVE_POLICIES` (30/90/180/365-day windows, chunk-aware moves to `*_archive`); policy choices marked PROPOSED; off-host gap flagged (D-21 blocked-on-cloud). | — |
+| ~~G-5~~ | ~~No documented monitoring or alerting thresholds.~~ | **RESOLVED at v1** (2026-06-13, ruling D-L): `docs/ops/ALERTING.md` — existing signal inventory + code-pinned tripwires (incl. the new hot_path order-burst tripwire: WARN >10 / CRITICAL >25 orders/profile/60s with `pubsub:system_alerts`) + 12 PROPOSED alert rules with P1–P3 severities. | — |
+| ~~G-6~~ | ~~No documented rollback procedures for failed deployments.~~ | **RESOLVED at v1** (2026-06-13, ruling D-L): `docs/ops/ROLLBACK.md` — git-revert reality, the honest migration story (forward-only `migrate.py`, no down-migrations: dump-restore / inverse-migration / dev-reset paths), env-flag emergency rollbacks, `run_all.sh` relaunch verification. Worked example: `docs/ROLLBACK-PROCEDURE.md`. | — |
+| ~~G-7~~ | ~~No documented exchange API key rotation procedures.~~ | **RESOLVED at v1** (2026-06-13, ruling D-L): `docs/ops/KEY-ROTATION.md` — full secret inventory + today's manual rotation steps (JWT keys, exchange keys via `SecretManager`/Fernet, infra passwords) + PROPOSED cadences. Automation stays Phase 2 P-5 (blocked on cloud target). | — |
 | ~~G-8~~ | ~~Port 8080 collision between 4+ services.~~ | **RESOLVED** (2026-03-27). All services now have unique port assignments (8000–8096). See `run_all.sh`. | — |
 | ~~G-9~~ | ~~No documented rate limits per exchange.~~ | **RESOLVED** (2026-03-27). Rate limits now enforced and documented: Binance 1200 req/min, Coinbase 300 req/min, default 600 req/min. Implemented via Redis sorted-set sliding window in `RateLimiterClient`. Queryable via `GET /commands/../quotas` endpoint on rate limiter service (port 8094). | — |
 | ~~G-10~~ | ~~Strategy rules JSON schema not formally documented.~~ | **RESOLVED** (2026-05-19). Schema published in `docs/STRATEGY_RULES_SCHEMA.md` — both the canonical `strategy_rules` JSONB shape (`RuleSchema`/`RuleCondition` core + transformer-added `preferred_regimes`/`entry_long`/`entry_short`) and the user-facing `StrategyRulesInput` shape, with JSON Schema, validator constraints, enumerations, and examples. Notes that `RuleValidator`/`RuleSchema` only validates the four core fields. | — |
-| G-11 | No documented maximum number of concurrent WebSocket connections. | Unknown scaling ceiling for real-time market data subscriptions. | Benchmark and document per-process and per-host WebSocket limits. |
+| ~~G-11~~ | ~~No documented maximum number of concurrent WebSocket connections.~~ | **RESOLVED at v1** (2026-06-13, ruling D-L): `docs/ops/WS-LIMITS.md` — measured via new `scripts/ws_bench.py` (dev-box, live stack): ~50 fully-served concurrent clients; at N=100 only 52/100 and at N=200 only 36/200 receive data while handshakes stay 100% (gateway accepts before subscribing). Binding constraint is the shared Redis pool `max_connections=100` (`libs/storage/_redis_client.py:19`) — one pubsub connection per WS client (`routes/ws.py:238`). PROPOSED operating limit: ≤40 sessions/gateway. | — |
 
 ---
 
@@ -74,7 +74,7 @@ functional implementation.
 | ~~D-9~~ | ~~Position-level stop-loss enforcement is not implemented.~~ **RESOLVED** (2026-03-27). `StopLossMonitor` checks every position on every price tick against the profile's `stop_loss_pct`. Triggers `PositionCloser` when loss exceeds threshold. Wired into the PnL tick processor. | `services/pnl/src/stop_loss_monitor.py`, `services/pnl/src/main.py` | ~~CRITICAL~~ RESOLVED |
 | ~~D-10~~ | ~~CHECK_3 (Bias validation) is stubbed.~~ **RESOLVED** (2026-03-27). Now implements rolling z-score bias detection over 100 trades. Returns `passed=False` when z-score > 2.5. | `services/validation/src/check_3_bias.py` | ~~HIGH~~ RESOLVED |
 | ~~D-11~~ | ~~Rate limiter service is a stub.~~ **RESOLVED** (2026-03-27). `RateLimiterClient` now implements a Redis sorted-set sliding window. Enforces per-exchange quotas (Binance: 1200/min, Coinbase: 300/min). Returns `retry_after_ms` when limit exceeded. Service upgraded to FastAPI with `/health` and `/quotas` endpoints. | `libs/exchange/_rate_limiter_client.py`, `services/rate_limiter/src/main.py` | ~~HIGH~~ RESOLVED |
-| ~~D-12~~ | ~~`/commands/` endpoint returns `501 Not Implemented`.~~ **PARTIALLY RESOLVED** (2026-03-27). Kill switch endpoints added (`GET/POST /commands/kill-switch`). LLM intent classification still returns 501. | `services/api_gateway/src/routes/commands.py` | LOW |
+| ~~D-12~~ | ~~`/commands/` endpoint returns `501 Not Implemented`.~~ **TRIAGED-CLOSED — wontfix** (2026-06-13, ruling D-F): the command palette shipped without LLM intent classification and no consumer needs the endpoint; the permanent 501 stub was deleted from `routes/commands.py` (a NOTE comment marks the removal). Kill-switch endpoints (the part that mattered) landed 2026-03-27. | `services/api_gateway/src/routes/commands.py` | ~~LOW~~ CLOSED |
 
 ### Other Issues
 
@@ -85,10 +85,10 @@ functional implementation.
 | ~~D-15~~ | ~~`profile_id` path parameters accept arbitrary strings.~~ **RESOLVED** (2026-04-03). Profile route path parameters changed from `str` to `UUID`. FastAPI auto-returns 422 on invalid UUIDs. | `services/api_gateway/src/routes/profiles.py` | ~~MEDIUM~~ RESOLVED |
 | ~~D-16~~ | ~~WebSocket Redis listener has no reconnection logic on disconnect.~~ **RESOLVED** (2026-03-27). `listen_to_redis` now wraps the subscribe/listen loop in an outer retry loop with exponential backoff (1s → 30s max). On Redis disconnect, pubsub is cleaned up and re-established automatically. Only exits on WebSocket close or task cancellation. | `services/api_gateway/src/routes/ws.py` | ~~HIGH~~ RESOLVED |
 | ~~D-17~~ | ~~CORS configuration uses `allow_methods=["*"]` and `allow_headers=["*"]`.~~ **RESOLVED** (2026-04-03). Methods restricted to `["GET","POST","PUT","DELETE","PATCH","OPTIONS"]`, headers to `["Authorization","Content-Type","X-Request-ID","Accept"]`. Origins already configurable via `settings.CORS_ORIGINS`. | `services/api_gateway/src/main.py` | ~~MEDIUM~~ RESOLVED |
-| D-18 | `llama-cpp-python` not in `pyproject.toml` but SLM Inference service imports it. This is intentional — the library requires platform-specific C++/GPU toolchain and is lazy-imported. When not installed, the service returns mock responses. Documented as optional dependency in `agent-architecture.md`. | `services/slm_inference/src/main.py` | LOW (by design) |
+| ~~D-18~~ | `llama-cpp-python` not in `pyproject.toml` but SLM Inference service imports it. **TRIAGED-CLOSED — documented-by-design** (2026-06-13, ruling D-G): the library requires a platform-specific C++/GPU toolchain, is lazy-imported, and the service degrades to mock responses when absent; documented as an optional dependency in `agent-architecture.md`. Terminal status — this is the intended design, not open debt. | `services/slm_inference/src/main.py` | ~~LOW~~ CLOSED (by design) |
 | ~~D-19~~ | ~~Strategy Agent main loop was an empty `sleep(60)` — no profile update consumption.~~ **RESOLVED** (2026-04-16). Added periodic profile polling: fetches active profiles from DB every 60s, detects changes via hash comparison, re-validates and re-compiles rules, caches compiled rule sets in Redis (`strategy:compiled:{profile_id}`). | `services/strategy/src/main.py` | ~~MEDIUM~~ RESOLVED |
 | ~~D-20~~ | ~~Logger Alerter hardcoded with `pagerduty_key=None, slack_webhook=None`.~~ **RESOLVED** (2026-04-16). Wired to `settings.PAGERDUTY_API_KEY` and new `settings.SLACK_WEBHOOK`. Alerter activates when env vars are set. | `services/logger/src/main.py`, `libs/config/settings.py` | ~~MEDIUM~~ RESOLVED |
-| D-21 | Archiver GCS export is deferred — when `PRAXIS_GCS_BUCKET_NAME` is set, the service logs "deferred to batch pipeline" but does not upload. Redis cleanup and TimescaleDB table archiving work correctly. | `services/archiver/src/migrator.py` | LOW |
+| ~~D-21~~ | Archiver GCS export is deferred — when `PRAXIS_GCS_BUCKET_NAME` is set, the service logs "deferred to batch pipeline" but does not upload. **TRIAGED-CLOSED — blocked-on-cloud** (2026-06-13, ruling D-G): the deployment is local-only with no GCS bucket; implementing an upload path now would be untestable dead code. Redis cleanup and TimescaleDB archiving (chunk-aware as of 2026-06-13) work. Reopen when a GCS bucket exists — the off-host durability need is tracked in `docs/ops/DR-PLAYBOOK.md` (domain 6) and `docs/ops/DATA-RETENTION.md`. | `services/archiver/src/migrator.py` | ~~LOW~~ BLOCKED-ON-CLOUD |
 | ~~D-22~~ | ~~News scraper silently returns `[]` when no API key is configured.~~ **RESOLVED** (2026-04-16). Added startup warning log when `NEWS_API_KEY` is not set. | `services/analyst/src/news_scraper.py` | ~~LOW~~ RESOLVED |
 
 ---
@@ -100,11 +100,11 @@ Conflicts between existing documentation files and the actual codebase.
 | # | Document | Claim | Reality | Severity |
 |---|----------|-------|---------|----------|
 | ~~A-1~~ | `WALKTHROUGH.md` | "5 SQL migrations" | **RESOLVED** (2026-03-27). 9 migrations exist (`001` through `009`). Documentation updated. | ~~MEDIUM~~ RESOLVED |
-| A-2 | `WALKTHROUGH.md` | `POST /auth/login` endpoint | No `/auth/login` endpoint exists. Authentication uses `/auth/callback` (OAuth flow). | HIGH |
-| A-3 | `RUNTIME_ARCHITECTURE.md` | "Fast Gate responds in 35ms" | `constants.py` sets the fast gate timeout to 50ms. 35ms is not referenced anywhere in code. | MEDIUM |
-| A-4 | `SHUTDOWN.md` | Lists 8 services for graceful shutdown | 19 services exist in the codebase (14 HTTP + 5 async). 11 services have no documented shutdown procedure. | HIGH |
+| ~~A-2~~ | `WALKTHROUGH.md` | ~~`POST /auth/login` endpoint~~ | **RESOLVED** (2026-06-13). WALKTHROUGH.md Step 4.8 now documents the real flow: NextAuth.js OAuth → `POST /auth/callback` (NextAuth token verified against `NEXTAUTH_SECRET`, user upserted, session row created, access+refresh tokens returned) plus `/auth/refresh`, `/auth/me`, and the sessions endpoints, per `services/api_gateway/src/routes/auth.py`. | ~~HIGH~~ RESOLVED |
+| ~~A-3~~ | `RUNTIME_ARCHITECTURE.md` (+ data-model.md, modules/validation.md, risk-management.md) | ~~"Fast Gate responds in 35ms"~~ | **RESOLVED** (2026-06-13) — with a correction to this row's own claim: 35ms IS in code, as the validation-internal soft-warning threshold (`fast_gate.py:40`), while the consumer-side response timeout is 50ms (`FAST_GATE_TIMEOUT_MS`, `settings.py:76` / `constants.py:3`). Docs that stated 35ms as the response budget now say 50ms timeout (35ms soft warning); docs describing the warning were already correct and were left alone. | ~~MEDIUM~~ RESOLVED |
+| ~~A-4~~ | `SHUTDOWN.md` | ~~Lists 8 services for graceful shutdown~~ | **RESOLVED** (2026-06-13). SHUTDOWN.md rewritten from `run_all.sh` + every service's lifespan teardown: covers all 19 HTTP services (incl. `oracle` :8097) + the `strategy` worker + the `daily_report` daemon, the three-layer `--stop` sweep, per-service teardown/kill-safety notes, and the Redis-persistence invariants (halt state survives restarts; consumer groups redeliver). | ~~HIGH~~ RESOLVED |
 | ~~A-5~~ | `README.md` (root) | Lists a subset of services | **RESOLVED** (2026-03-24). README updated with all services including Analyst, SLM Inference, Debate, and HITL. | ~~HIGH~~ RESOLVED |
-| A-6 | `RUNTIME_ARCHITECTURE.md` | "migrate.py applies 001 to 005" | `migrate.py` applies migrations `001` through `010`. | MEDIUM |
+| ~~A-6~~ | `RUNTIME_ARCHITECTURE.md`, `WALKTHROUGH.md` | ~~"migrate.py applies 001 to 005"~~ | **RESOLVED** (2026-06-13). Both docs now state the mechanism (migrate.py applies **every** file in `migrations/versions/` in sorted order) and the real current range `001`–`024` (24 files), so the docs can't go stale at the next migration. | ~~MEDIUM~~ RESOLVED |
 | ~~A-7~~ | Multiple docs | Services documented on port 8080 | **RESOLVED** (2026-03-27). All services have unique port assignments. See `run_all.sh`. | ~~HIGH~~ RESOLVED |
 | ~~A-8~~ | `architecture-overview.md`, `trading-engine.md`, `event-system.md`, `agent-architecture.md`, `SLM-Multi-Agent-Implementation-Plan.md` | Pipeline described as "9-stage" | **RESOLVED** (2026-04-16). Standardized to "11-stage" across all docs. Code has 11 labeled steps in `processor.py`. | ~~MEDIUM~~ RESOLVED |
 | ~~A-9~~ | `architecture-overview.md`, `SLM-Multi-Agent-Implementation-Plan.md` | "17 services" | **RESOLVED** (2026-04-16). Updated to 19 (matching `run_all.sh`). | ~~MEDIUM~~ RESOLVED |
@@ -199,21 +199,28 @@ The platform was renamed from **Aion** to **Praxis**:
 | Severity | Count | Items |
 |----------|-------|-------|
 | **CRITICAL** | 0 | — |
-| **HIGH** | 2 | A-2, A-4 |
-| **MEDIUM** | 2 | A-3, A-6 |
-| **LOW** | 3 | D-12, D-18, D-21 |
-| **RESOLVED** | 27 | D-1–D-11, D-13–D-17, D-19, D-20, D-22, A-1, A-5, A-7–A-14, G-8 |
+| **HIGH** | 0 | — |
+| **MEDIUM** | 0 | — |
+| **LOW** | 0 | — |
+| **RESOLVED** | 31 | D-1–D-11, D-13–D-17, D-19, D-20, D-22, A-1–A-14, G-8 |
+| **RESOLVED at v1 (PROPOSED docs, ruling D-L)** | 8 | G-1–G-7, G-11 (`docs/ops/`) |
+| **TRIAGED-CLOSED** | 3 | D-12 (wontfix, ruling D-F), D-18 (by design, ruling D-G), D-21 (blocked-on-cloud, ruling D-G) |
+
+Every row in this document is now terminal (resolved, closed, or blocked on an external
+prerequisite). New gaps/defects go to `docs/TECH-DEBT-REGISTRY.md`, not here.
 
 ---
 
 ## How to Use This Document
 
-**For engineers**: All CRITICAL defects have been resolved. Two HIGH items remain (A-2: stale
-auth endpoint in WALKTHROUGH.md, A-4: stale shutdown list in SHUTDOWN.md) — both are in legacy
-docs with warning banners. Remaining MEDIUM items (A-3, A-6) are stale values in legacy docs.
+**For engineers**: every defect and discrepancy row is terminal as of 2026-06-13. The
+last four doc discrepancies (A-2, A-3, A-4, A-6) were fixed in the source docs themselves;
+D-12 is closed wontfix, D-18 is by-design, D-21 is blocked until a GCS bucket exists.
 
-**For documentation**: Remaining gaps (G-1 through G-7, G-11) require input from the
-engineering team. Schedule a 30-minute review session per gap to capture the missing information.
+**For documentation**: the operational gaps (G-1–G-7, G-11) are closed at **v1 PROPOSED**
+under `docs/ops/` (ruling D-L, 2026-06-13): code-pinned numbers are cited file:line; every
+unmeasured number is marked PROPOSED (dev-box) with its derivation. The remaining work is
+an ops/partner review pass over the PROPOSED values, not missing documentation.
 
 **For auditors**: Financial precision defects (D-1 through D-7) have been fully remediated.
 All financial calculations now use `Decimal` (Python) and `NUMERIC` (PostgreSQL). Review the
@@ -222,4 +229,4 @@ context of how financial values flow through the system.
 
 ---
 
-*Last updated: 2026-04-16*
+*Last updated: 2026-06-13*

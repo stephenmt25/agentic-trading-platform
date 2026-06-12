@@ -34,7 +34,7 @@ flowchart TD
         CB["Circuit Breaker"]
         RG["Risk Gate"]
     end
-    subgraph FastGate["Fast Gate Validation (synchronous, &lt;35ms)"]
+    subgraph FastGate["Fast Gate Validation (synchronous, &lt;50ms timeout)"]
         C1["CHECK_1: Strategy Recheck"]
         C6["CHECK_6: Risk Level"]
     end
@@ -82,7 +82,7 @@ flowchart TD
 | Layer | Location | Timing | Purpose |
 |-------|----------|--------|---------|
 | **Hot Path** | `services/hot_path/src/` | Synchronous, pre-decision | Fast rejection of obviously invalid trades |
-| **Fast Gate** | `services/validation/src/fast_gate.py` | Synchronous, pre-decision, 35ms budget | Independent verification of signal and risk limits |
+| **Fast Gate** | `services/validation/src/fast_gate.py` | Synchronous, pre-decision, 50ms consumer timeout (`FAST_GATE_TIMEOUT_MS`; 35ms soft-warning threshold) | Independent verification of signal and risk limits |
 | **Risk Service** | `services/risk/src/__init__.py` | Synchronous, pre-execution | System-wide hard caps and concentration limits |
 | **Async Audit** | `services/validation/src/check_2` through `check_5` | Asynchronous, post-decision | Statistical monitoring, drift detection, escalation |
 
@@ -258,7 +258,7 @@ sequenceDiagram
         RG->>FG: sized order
     end
 
-    par Parallel execution (35ms budget)
+    par Parallel execution (50ms consumer timeout; 35ms soft warning)
         FG->>C1: RSI recheck
         FG->>C6: risk level recheck
     end

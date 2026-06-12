@@ -1,10 +1,10 @@
 # Runtime Architecture: What Runs, When, and How
 
-> **Legacy Document** (covers the original 8-service system). The platform now has 19 services.
-> Key differences from current state:
-> 1. All services have unique port assignments (8000–8096) — port 8080 is only used by Ingestion.
-> 2. Fast Gate timeout is 50ms (not 35ms as stated below).
-> 3. ML agents (TA Agent, Sentiment, Regime HMM, Debate, Analyst, SLM Inference) and infrastructure services (Rate Limiter, Risk) are not covered here.
+> **Legacy Document** (covers the original 8-service system; fast-gate timeout and migration
+> range corrected 2026-06-13). Key differences from current state:
+> 1. All services have unique port assignments (8000–8097) — port 8080 is only used by Ingestion.
+> 2. ML agents (TA Agent, Sentiment, Regime HMM, Debate, Analyst, SLM Inference) and infrastructure services (Rate Limiter, Risk, Oracle) are not covered here.
+> 3. The supported launcher is `bash run_all.sh` (correct startup order, port checks, PID file) — not per-terminal manual starts.
 >
 > For the current architecture, see [Architecture Overview](architecture-overview.md).
 
@@ -23,7 +23,7 @@ These must be started before any Python service. They are containers defined in 
 
 | Script | When | What It Does |
 |---|---|---|
-| [migrate.py](file:///c:/Users/stevo/DEV/agent_trader_1/aion-trading/scripts/migrate.py) | After DB starts, before services | Applies all SQL migrations (`001` through `009`) creating tables |
+| [migrate.py](file:///c:/Users/stevo/DEV/agent_trader_1/aion-trading/scripts/migrate.py) | After DB starts, before services (run automatically by `run_all.sh`) | Applies **every** SQL file in `migrations/versions/` in sorted order — currently `001` through `024` |
 | [daily_report.py](file:///c:/Users/stevo/DEV/agent_trader_1/aion-trading/scripts/daily_report.py) | Once daily (cron) during paper trading | Writes performance metrics to `paper_trading_reports` table |
 
 ---
@@ -103,7 +103,7 @@ graph TD
 
 **Starts 3 background loops:**
 
-1. **Fast Gate Loop** — consumes `stream:validation_requests`, runs Check 1 (Strategy recheck) + Check 6 (Risk level), responds to `stream:validation_responses` within **35ms**
+1. **Fast Gate Loop** — consumes `stream:validation_requests`, runs Check 1 (Strategy recheck) + Check 6 (Risk level), responds to `stream:validation_responses` within the **50ms** budget (`FAST_GATE_TIMEOUT_MS` — `libs/config/settings.py:76`, `libs/core/constants.py:3`)
 2. **Async Audit Loop** — runs Checks 2-5 post-execution (Hallucination, Bias, Drift, Escalation), writes findings to `validation_events` table
 3. **Learning Loop** — hourly scan of audit results, generates backtesting jobs for detected anomalies
 

@@ -671,7 +671,7 @@ Execution context for validation checks.
 
 | Value | Meaning |
 |-------|---------|
-| `FAST_GATE` | Synchronous, on the critical path. Must complete within 35ms. Runs CHECK_1 + CHECK_6 in parallel |
+| `FAST_GATE` | Synchronous, on the critical path. Must respond within the consumer's 50ms timeout (`FAST_GATE_TIMEOUT_MS`, `libs/config/settings.py:76`); the gate itself logs a soft warning above 35ms (`fast_gate.py:40`). Runs CHECK_1 + CHECK_6 in parallel |
 | `ASYNC_AUDIT` | Asynchronous, post-decision. Runs CHECK_2 through CHECK_5. Does not block trade execution |
 
 ### `SignalDirection`

@@ -13,12 +13,13 @@ The PnL Service computes real-time profit-and-loss for all open positions in the
 class PnLSnapshot:
     position_id: str
     symbol: str
-    gross_pnl: float
-    fees: float
-    net_pre_tax: float
-    net_post_tax: float
-    pct_return: float
-    tax_estimate: float
+    gross_pnl: Decimal
+    fees: Decimal
+    net_pre_tax: Decimal
+    net_post_tax: Decimal
+    pct_return: Decimal
+    tax_estimate: Decimal
+    cost_basis: Decimal  # real entry value (entry_price * quantity), row 69
 
 class PnLCalculator:
     @staticmethod

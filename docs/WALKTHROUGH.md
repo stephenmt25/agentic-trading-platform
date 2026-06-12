@@ -1,11 +1,14 @@
 # Praxis Trading Platform — Full Feature Walkthrough
 
-> **Legacy Document** (written for an earlier version of the platform). Known inaccuracies:
-> 1. References `POST /auth/login` — no such endpoint exists; authentication uses OAuth via `/auth/callback`.
-> 2. Port 8080 was shared by multiple services — all 19 services now have unique ports (8000–8096). See `run_all.sh`.
-> 3. Fast Gate timeout is 50ms (not 35ms as stated below).
-> 4. The hot-path pipeline has 11 stages (not 9).
-> 5. Migration count may differ from what's stated.
+> **Legacy Document** (written for an earlier version of the platform; auth flow, fast-gate
+> timeout, and migration range corrected 2026-06-13). Remaining known drift:
+> 1. The per-terminal manual startup in Step 4 predates `run_all.sh` — the supported way to
+>    launch/stop the stack is `bash run_all.sh [--local-frontend]` / `bash run_all.sh --stop`
+>    (it starts every backend service in the right order with port checks and a PID file).
+> 2. The service walkthrough covers the original 8 core services only; the platform now runs
+>    19 HTTP services (unique ports 8000–8097) plus the portless `strategy` worker and the
+>    `daily_report` daemon. See `run_all.sh` and [SHUTDOWN.md](SHUTDOWN.md).
+> 3. The hot-path pipeline has 11 stages (not 9 as described in Step 4.4).
 >
 > For the current system overview, see [Architecture Overview](architecture-overview.md). For local setup, see [Developer Guide](developer-guide.md).
 
@@ -78,7 +81,8 @@ You should see both containers with status `Up` and `(healthy)`. Wait ~10 second
 
 ## Step 3 — Run Database Migrations
 
-Apply the 9 SQL migration scripts to create all tables:
+Apply the SQL migration scripts to create all tables. `scripts/migrate.py` applies **every**
+file in `migrations/versions/` in sorted order — currently `001` through `024` (24 files):
 
 ```powershell
 python -m poetry run python scripts/migrate.py
@@ -89,17 +93,12 @@ python -m poetry run python scripts/migrate.py
 Starting Database Migrations...
 Applying migrations/versions\001_initial_schema.sql...
 Applying migrations/versions\002_audit_tables.sql...
-Applying migrations/versions\003_validation_log.sql...
-Applying migrations/versions\004_pnl_snapshots.sql...
-Applying migrations/versions\005_paper_trading.sql...
-Applying migrations/versions\006_users_and_exchange_keys.sql...
-Applying migrations/versions\007_profile_soft_delete.sql...
-Applying migrations/versions\008_backtest_results.sql...
-Applying migrations/versions\009_backtest_decimal_precision.sql...
+... (one line per migration, in order) ...
+Applying migrations/versions\024_trade_cost_attribution.sql...
 Migrations complete.
 ```
 
-**What gets created:**
+**What gets created (first 9 — core schema):**
 
 | Migration | Tables Created |
 |---|---|
@@ -112,6 +111,12 @@ Migrations complete.
 | `007_profile_soft_delete.sql` | Adds soft-delete columns to `trading_profiles` |
 | `008_backtest_results.sql` | `backtest_results` |
 | `009_backtest_decimal_precision.sql` | Converts `backtest_results` columns to `NUMERIC` |
+
+Migrations `010`–`024` add the later-phase tables: trade decisions, agent score/weight
+history, pipeline configs, intent correlation, closed trades, debate transcripts, shadow
+decisions, insight-engine tables, backtest history fields, user risk defaults, user
+sessions, position close lifecycle, and trade cost attribution. List them with
+`ls migrations/versions/`.
 
 **Verify manually** (optional):
 ```powershell
@@ -162,7 +167,7 @@ python -m poetry run python -m services.validation.src.main
 ```
 
 **What happens:** Starts 3 background loops:
-1. **Fast Gate** — Consumes `stream:validation_requests`, runs Check 1 (strategy recheck) + Check 6 (risk level), responds on `stream:validation_responses` in <35ms
+1. **Fast Gate** — Consumes `stream:validation_requests`, runs Check 1 (strategy recheck) + Check 6 (risk level), responds on `stream:validation_responses` within the 50ms budget (`FAST_GATE_TIMEOUT_MS` — `libs/config/settings.py:76`, `libs/core/constants.py:3`)
 2. **Async Audit** — Post-execution checks: hallucination, bias, drift, escalation
 3. **Learning Loop** — Hourly scan generating backtesting jobs from anomalies
 
@@ -242,7 +247,17 @@ python -m poetry run python -m services.api_gateway.src.main
 **Runs on:** `http://localhost:8000`
 
 **Endpoints available:**
-- `POST /auth/login` — JWT authentication
+- `POST /auth/callback` — OAuth callback (there is **no** `/auth/login` endpoint). The
+  frontend authenticates the user via NextAuth.js (Google/GitHub OAuth) and then POSTs the
+  NextAuth session token (HS256-signed with the shared `PRAXIS_NEXTAUTH_SECRET`) plus the
+  provider account info to this endpoint. The gateway verifies the token, upserts the user,
+  records a `user_sessions` row, and returns a backend access token (1h) + refresh token
+  (7d). See `services/api_gateway/src/routes/auth.py`.
+- `POST /auth/refresh` — Rotate the refresh token (old jti revoked; session liveness checked
+  against the `user_sessions` row — a revoked session forces re-login)
+- `GET /auth/me` — Current user profile
+- `GET /auth/sessions` / `POST /auth/sessions/{id}/revoke` — Active-session list + revocation
+  (backs `/settings/sessions`)
 - `GET /profiles/` — List trading profiles
 - `POST /profiles/` — Create profile (validates rules via `RuleValidator`)
 - `GET /orders/` — Order history

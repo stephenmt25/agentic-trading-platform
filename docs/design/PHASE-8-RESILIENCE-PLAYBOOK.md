@@ -1,6 +1,21 @@
 # Phase 8.3 — Critical-Path Resilience Playbook for `/hot/[symbol]` (Real-Browser Session)
 
 > Generated 2026-05-11. Closes the §8.3 gate from `11-redesign-execution-plan.md`. This playbook injects three failures into the live local stack and verifies that the redesign degrades gracefully — no white screens, no hangs, no silent data corruption. Run it after §8.4 in the same Chrome session. Capture one screenshot per scenario plus a one-line PASS/FAIL; commit only the verdict, not service logs.
+>
+> **S2/S3 corrected 2026-06-13** (registry row 35) against the 2026-05-11 run results
+> (`perf-traces/2026-05-11-resilience-results.md`). Two architectural facts the original
+> playbook got wrong:
+>
+> 1. **The WebSocket endpoint IS the api_gateway.** `/ws` is served by
+>    `services/api_gateway/src/routes/ws.py` on :8000 — there is no separate WS path.
+>    Killing api_gateway therefore kills the WS too, and the correct S2 expectation is
+>    that WS-driven panels degrade to "awaiting feed" empty states (which they do).
+> 2. **Redis is the pubsub backend *behind* the WS handler, not the WS transport.**
+>    Stopping Redis does NOT drop the browser's WS connection — the socket to the gateway
+>    stays open; only the server-side `pubsub.get_message()` subscription inside
+>    `listen_to_redis` stops yielding (and now reconnects with backoff per the handler's
+>    retry loop). The correct S3 expectation is a silent feed (open-but-idle WS), not
+>    client reconnect churn.
 
 ---
 
@@ -12,7 +27,7 @@ From `11-redesign-execution-plan.md` §8.3, paraphrased into testable conditions
 |---|---|---|
 | **S1** Kill `services/ingestion` | OrderBook + Tape show `stale Ns` warn tag within 5–10 s. PriceChart shows the "No candles" empty state if no cached candles, or freezes at the last bar (acceptable). `/hot` route stays interactive (kill switch button, settings menu, chrome nav all clickable). | Any panel white-screens, the page hangs, or a panel renders stale data with no staleness indicator. |
 | **S2** Kill `services/api_gateway` | Connection pill (`StatusPills`) flips from `live` to `offline` within 90 s (3 × 30-s `/health` poll). `/risk` shows a clear backend-offline state — either empty + error tag, or a banner, but not a crashed render. KillSwitchModal still opens; attempting the toggle surfaces a user-readable error (does not silently fail). | Connection pill stays green > 120 s. `/risk` white-screens. KillSwitchModal silently fails or throws an unhandled rejection. |
-| **S3** Kill Redis (`deploy-redis-1`) | The `KillSwitch.is_active` server-side check fail-safes to ACTIVE — verify via `GET /v1/kill-switch/status` returning a non-`off` state OR the chrome kill-switch pill showing `armed: hard`/`armed: soft`. WebSocket connections drop and the client enters reconnect backoff (visible in DevTools Network as repeated WS handshake attempts with exponential backoff up to 60 s, per `lib/ws/client.ts:171-175`). | Kill switch returns `off` after Redis loss (this is a real-money risk and a P0 finding). The frontend crashes rather than reconnects. |
+| **S3** Kill Redis (`deploy-redis-1`) | The `KillSwitch.is_active` server-side check fail-safes to ACTIVE — verify via `GET /commands/kill-switch` returning a non-`off` state OR the chrome kill-switch pill showing `armed: hard`/`armed: soft`. The browser WS connection **stays open** (the WS terminates at api_gateway, which is still up); the feed simply goes silent while the server-side pubsub subscription reconnects with backoff. The chrome should surface degradation via the `/ready`-driven `degraded` pill (ADR-017), not via WS drop. | Kill switch returns `off` after Redis loss (this is a real-money risk and a P0 finding). The frontend crashes. |
 | **S4** Restore each service in turn | After each restore: the affected surface reconnects without a page reload. WebSocket resumes inside one reconnect-backoff window; HTTP-poll-based stores (connection pill, kill-switch state) recover at the next poll interval (≤ 30 s). | Any surface requires F5 to recover. |
 
 If any threshold fails, capture the screenshot, log a HIGH-severity row in `docs/TECH-DEBT-REGISTRY.md`, and **do not merge** until resolved. Resilience failures are by definition real-money-risk regressions.
@@ -63,7 +78,7 @@ The stack should already be up from §8.4. Verify:
 
 ## S2. Kill `services/api_gateway` (15 min)
 
-**What this simulates:** REST API outage. WS keeps flowing (it goes through a different connection path), but every HTTP request — profile load, order submission, kill switch toggle, health poll — will fail.
+**What this simulates:** full gateway outage — REST **and** WebSocket. The WS endpoint lives in api_gateway (`services/api_gateway/src/routes/ws.py`), so killing the gateway severs both: every HTTP request (profile load, order submission, kill switch toggle, health poll) fails AND the live feed (OrderBook, Tape, pnl pushes) stops.
 
 1. With ingestion restored from S1, confirm the page is back to `live` and ticking.
 2. Kill the API gateway:
@@ -76,8 +91,8 @@ The stack should already be up from §8.4. Verify:
 4. **Wait up to 90 s** for the connection pill to flip. The poller in `lib/stores/connectionStore.ts:80-84` runs every 30 s and requires 3 consecutive failures, so worst case is 90 s + jitter. The pill should flip `live → offline` (color tone goes from `ok` to `danger` per `components/shell/StatusPills.tsx:47-56`).
 5. Navigate to `/risk` (via chrome nav). Expected:
    - Backend-offline state of some kind — banner, empty table with a clear error tag, or skeleton-with-error. NOT a white screen, NOT a partial render with stale numbers presented as fresh.
-6. Navigate back to `/hot/BTC-USDT`. WebSocket-driven panels (OrderBook, Tape, PriceChart) should still be live — they don't depend on the REST gateway. Verify in DevTools Network that the WS connection stays open.
-7. Screenshot: `/hot` showing offline pill + WS-driven panels still ticking. Save as `docs/design/perf-traces/2026-05-11-s2-offline.png`.
+6. Navigate back to `/hot/BTC-USDT`. WebSocket-driven panels (OrderBook, Tape, PriceChart) are **also down** — the WS is served by the same api_gateway process, so the client enters reconnect backoff (visible in DevTools Network as repeated failed WS handshakes). The pass condition is graceful degradation: each panel shows its "awaiting feed" / "no data" empty state (verified in the 2026-05-11 run: "No book data — awaiting feed.", "Awaiting trades…", "Backend is not reachable"), with no white screen and no stale data presented as live.
+7. Screenshot: `/hot` showing offline pill + the WS-driven panels in their awaiting-feed empty states. Save as `docs/design/perf-traces/2026-05-11-s2-offline.png`.
 
 **Pass:** all observations above, no white screen, KillSwitchModal surfaces a real error.
 **Fail:** pill stays green > 120 s after kill (health poll regression), `/risk` crashes, or KillSwitchModal silently fails the toggle.
@@ -103,7 +118,7 @@ The stack should already be up from §8.4. Verify:
    ```
    The response should indicate the switch is `active` / `hard` / `soft` — anything other than `off`. If the API returns `off` (or 500s without a fail-safe interpretation), that is a **P0 finding** — log it as CRITICAL severity, not HIGH.
 4. **Then check the UI:** the chrome kill-switch pill in `StatusPills` should show `armed: soft` or `armed: hard` (per `components/shell/StatusPills.tsx:58-60`). If it still shows `armed: off`, the frontend hasn't picked up the fail-safe — check the polling cadence in `killSwitchStore`.
-5. **Observe WebSocket behavior:** in DevTools Network (filter `WS`), the connection should drop within a few seconds. Then watch for reconnect attempts — `lib/ws/client.ts:171-175` uses `Math.pow(2, attempts) * 1000` capped at 60 s, so you'll see attempts at 1 s, 2 s, 4 s, 8 s, 16 s, 32 s, 60 s, 60 s, … Each attempt should fail (Redis is gone, ingestion can't publish). **No frontend crash.**
+5. **Observe WebSocket behavior:** in DevTools Network (filter `WS`), the connection **stays open** — the WS terminates at api_gateway (still running); Redis is only the pubsub backend behind the WS handler (`routes/ws.py` `listen_to_redis`). What actually happens: the server-side pubsub subscription errors/goes silent and the handler retries it with exponential backoff (1 s → 30 s, server-side), so the client sees an open-but-idle socket and the feed simply stops. Confirmed in the 2026-05-11 run: no WS drop, no client reconnect churn. Panels should go stale/empty honestly; **no frontend crash.** (The client backoff at `lib/ws/client.ts` only engages in S2, when the gateway itself dies.)
 6. Screenshot:
    - The `curl` output showing fail-safe ACTIVE state. Save as `docs/design/perf-traces/2026-05-11-s3-killswitch-failsafe.txt`.
    - The `/hot` page with the kill-switch pill armed + WS reconnect attempts visible in Network. Save as `docs/design/perf-traces/2026-05-11-s3-redis-down.png`.
@@ -116,7 +131,7 @@ The stack should already be up from §8.4. Verify:
 ```bash
 docker start deploy-redis-1
 ```
-Then wait ~10 s. **Recovery observation:** WS reconnects on the next backoff attempt (could be up to 60 s if you're in a late-attempt window — be patient, do not F5). Once reconnected, OrderBook / Tape resume. Kill-switch pill returns to `armed: off` only after the operator explicitly resets the switch via `POST /v1/kill-switch/off` — Redis restoration alone is NOT supposed to clear the safety state, since the operator hasn't acknowledged the incident. Confirm this behavior; if the switch auto-clears, log as HIGH severity.
+Then wait ~10 s (Docker's health probe can take longer — the 2026-05-11 run saw ~2 min to PONG). **Recovery observation:** the browser WS never dropped, so there is no client reconnect to wait for — the server-side pubsub subscription re-establishes on its next backoff attempt (1–30 s) and the feed resumes on the same socket. Do not F5. Once flowing, OrderBook / Tape resume. Kill-switch pill returns to `armed: off` only after the operator explicitly resets the switch via `POST /v1/kill-switch/off` — Redis restoration alone is NOT supposed to clear the safety state, since the operator hasn't acknowledged the incident. Confirm this behavior; if the switch auto-clears, log as HIGH severity.
 
 ---
 

@@ -8,18 +8,18 @@
 
 ## 1 · Project Overview & Structure
 
-Agentic cryptocurrency trading platform with 19 microservices, ML prediction agents, and a Next.js dashboard. Backend is Python 3.11+ (FastAPI, asyncio), frontend is Next.js 16 (React 19, TypeScript). Services communicate via Redis Streams/Pub/Sub, persist to TimescaleDB.
+Agentic cryptocurrency trading platform with 20 microservices, ML prediction agents, and a Next.js dashboard. Backend is Python 3.11+ (FastAPI, asyncio), frontend is Next.js 16 (React 19, TypeScript). Services communicate via Redis Streams/Pub/Sub, persist to TimescaleDB.
 
 Architecture is governed by a merged architecture document (v2.0) organized into Phase 1 (Core Trading Engine) and Phase 2 (ML Intelligence and Scale). A developer execution blueprint serves as the AI execution contract for sprint-level work. **Specification documents are contracts** — when a spec exists, treat it as binding. Deviations require justification in `DECISIONS.md`.
 
 ```
 ./ (aion-trading)
 ├── libs/           # Shared Python libraries (config, core, exchange, indicators, messaging, observability, storage)
-├── services/       # 19 microservices (api_gateway, hot_path, execution, pnl, validation, ta_agent,
-│                   #   analyst, archiver, backtesting, debate, ingestion, logger, rate_limiter,
-│                   #   regime_hmm, risk, sentiment, slm_inference, strategy, tax)
+├── services/       # 20 microservices (api_gateway, hot_path, execution, pnl, validation, ta_agent,
+│                   #   analyst, archiver, backtesting, debate, ingestion, logger, oracle,
+│                   #   rate_limiter, regime_hmm, risk, sentiment, slm_inference, strategy, tax)
 ├── frontend/       # Next.js 16 dashboard
-├── migrations/     # 11 SQL migration files (in migrations/versions/)
+├── migrations/     # 24 SQL migration files (in migrations/versions/; 025 reserved for EN-W3)
 ├── docs/           # Markdown documentation (incl. AGENT-FRAMEWORK.md, DOCUMENTATION-GAPS.md, TECH-DEBT-REGISTRY.md)
 ├── deploy/         # Docker Compose, Kubernetes, Terraform
 ├── docker/         # Dockerfiles
@@ -108,6 +108,7 @@ Consult before greping. Saves exploration tokens.
 | rate_limiter | 8094 | core, messaging (Redis) | — (Redis keys) |
 | slm_inference | 8095 | core | — (HTTP inference) |
 | debate | 8096 | core | sub: multiple agent signals |
+| oracle | 8097 | core, indicators, messaging | sub: stream:market_data (predicted-trade fail-safe; see services/oracle/src/main.py) |
 | strategy | (worker) | core, messaging | sub: stream:market_data → pub: stream:orders |
 
 **Redis channels source of truth**: `libs/messaging/channels.py`

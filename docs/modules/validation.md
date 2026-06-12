@@ -2,7 +2,7 @@
 
 ## Purpose and Responsibility
 
-The Validation Service provides a two-tier safety layer that sits between the Hot-Path Processor and order execution. The synchronous **Fast Gate** performs sub-35ms checks on every trade signal before it can proceed, while the **Async Audit** runs deeper, non-blocking analysis on the same signals after the fact. A **Learning Loop** scans audit results hourly and triggers automated backtests to improve future decision quality.
+The Validation Service provides a two-tier safety layer that sits between the Hot-Path Processor and order execution. The synchronous **Fast Gate** validates every trade signal inside the hot path's 50ms response timeout (`FAST_GATE_TIMEOUT_MS`; the gate logs a soft warning above 35ms) before it can proceed, while the **Async Audit** runs deeper, non-blocking analysis on the same signals after the fact. A **Learning Loop** scans audit results hourly and triggers automated backtests to improve future decision quality.
 
 ## Public Interface
 
