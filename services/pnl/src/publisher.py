@@ -59,7 +59,9 @@ class PnLPublisher:
 
         # 2. Redis Latest (Dashboard loads instantly)
         cache_key = f"pnl:{profile_id}:{snapshot.position_id}:latest"
-        await self._redis.set(cache_key, json.dumps(ev.dict(), cls=_DecimalEncoder))
+        await self._redis.set(
+            cache_key, json.dumps(ev.model_dump(), cls=_DecimalEncoder)
+        )
 
         # 3. Daily running total is owned by hot_path/pnl_sync via HINCRBY on the
         # same pubsub event — see services/hot_path/src/pnl_sync.py. Writing here
@@ -72,9 +74,11 @@ class PnLPublisher:
         last_pct = self._last_snapshot.get(snapshot.position_id, _ZERO)
         diff = abs(snapshot.pct_return - last_pct)
         if diff > _SNAPSHOT_THRESHOLD:
-            cost_basis = (
-                snapshot.gross_pnl + snapshot.net_pre_tax
-            )  # entry_price * qty approximation
+            # Registry row 69: cost_basis is the REAL entry value
+            # (entry_price * quantity) carried on the PnLSnapshot by the
+            # calculator — the old gross_pnl + net_pre_tax "approximation"
+            # (= 2*gross - fees) fabricated a number whenever gross differed
+            # from the entry value.
             # Use the PnLSnapshot fields directly — matches pnl_repo.write_snapshot() expected dict
             await self._pnl_repo.write_snapshot(
                 {
@@ -85,7 +89,7 @@ class PnLPublisher:
                     "net_pnl_post_tax": snapshot.net_post_tax,
                     "total_fees": snapshot.fees,
                     "estimated_tax": snapshot.tax_estimate,
-                    "cost_basis": cost_basis,
+                    "cost_basis": snapshot.cost_basis,
                     "pct_return": snapshot.pct_return,
                 }
             )

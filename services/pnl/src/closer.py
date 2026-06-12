@@ -158,6 +158,7 @@ class PositionCloser:
                 outcome=outcome,
                 pnl_pct=snapshot.pct_return,
                 agent_scores=agent_scores,
+                trade_direction=str(getattr(position.side, "value", position.side)),
             )
             logger.info(
                 "Position closed with agent outcome tagging",

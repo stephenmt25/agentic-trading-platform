@@ -9,6 +9,7 @@ validated at order time, but never enforced against open positions.
 
 from decimal import Decimal
 
+from libs.config import settings
 from libs.core.models import Position
 from libs.core.schemas import RiskLimitsPayload
 from libs.observability import get_logger
@@ -20,7 +21,9 @@ from .closer import PositionCloser
 logger = get_logger("pnl.stop-loss")
 
 _ZERO = Decimal("0")
-_DEFAULT_STOP_LOSS = Decimal("0.05")  # 5% default if not set
+# Fallback when the profile lookup itself fails — sourced from the settings
+# authority (D-D ruling, 2026-06-13) so there is exactly one default.
+_DEFAULT_STOP_LOSS = Decimal(str(settings.DEFAULT_STOP_LOSS_PCT))
 
 
 class StopLossMonitor:

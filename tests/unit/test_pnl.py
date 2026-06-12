@@ -5,6 +5,7 @@ and position closer with agent outcome tagging.
 """
 
 import json
+import warnings
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock
 
@@ -25,9 +26,12 @@ class TestStopLossMonitor:
 
     @pytest.mark.asyncio
     async def test_default_stop_loss_is_decimal(self):
-        """Default stop-loss threshold must be Decimal."""
+        """Default stop-loss threshold must be Decimal, sourced from the
+        settings authority (D-D ruling, 2026-06-13)."""
+        from libs.config import settings
+
         assert isinstance(_DEFAULT_STOP_LOSS, Decimal)
-        assert _DEFAULT_STOP_LOSS == Decimal("0.05")
+        assert _DEFAULT_STOP_LOSS == Decimal(str(settings.DEFAULT_STOP_LOSS_PCT))
 
     @pytest.mark.asyncio
     async def test_no_trigger_on_profit(self, mock_profile_repo, sample_position):
@@ -199,6 +203,7 @@ class TestPnLPublisherWireShape:
             net_post_tax=Decimal("103.91"),
             pct_return=Decimal("0.0207"),
             tax_estimate=Decimal("18.34"),
+            cost_basis=Decimal("6000.00"),  # entry 60000.00 * qty 0.1
         )
 
     def _make_publisher(self):
@@ -279,3 +284,117 @@ class TestPnLPublisherWireShape:
         assert payload["position_id"] == snapshot.position_id
         assert Decimal(payload["net_post_tax"]) == snapshot.net_post_tax
         assert Decimal(payload["pct_return"]) == snapshot.pct_return
+
+
+# ---------------------------------------------------------------------------
+# cost_basis truth (registry row 69)
+# ---------------------------------------------------------------------------
+
+
+class TestCostBasisTruth:
+    """Registry row 69: the persisted cost_basis must be the REAL entry value
+    (entry_price * quantity), NOT the old gross_pnl + net_pre_tax fabrication
+    (= 2*gross - fees)."""
+
+    def _make_publisher(self):
+        from services.pnl.src.publisher import PnLPublisher
+
+        redis_client = AsyncMock()
+        redis_client.get = AsyncMock(return_value=None)
+        pubsub = AsyncMock()
+        pnl_repo = AsyncMock()
+        return PnLPublisher(redis_client, pubsub, pnl_repo), pnl_repo
+
+    def test_calculator_snapshot_carries_real_entry_value(self, sample_position):
+        """PnLCalculator.calculate() threads cost_basis = entry_price * qty
+        onto the snapshot, as Decimal end-to-end."""
+        from services.pnl.src.calculator import PnLCalculator
+
+        position = sample_position()  # entry 50000.00, qty 0.5, entry_fee 25.00
+        snapshot = PnLCalculator.calculate(
+            position=position,
+            current_price=Decimal("52000.00"),
+            taker_rate=Decimal("0.001"),
+        )
+
+        assert isinstance(snapshot.cost_basis, Decimal)
+        assert snapshot.cost_basis == position.entry_price * position.quantity
+        assert snapshot.cost_basis == Decimal("25000.00")
+        # gross (1000) != entry value here, so the old fabricated formula
+        # (gross + net_pre_tax = 1949) is provably NOT what we carry.
+        fabricated = snapshot.gross_pnl + snapshot.net_pre_tax
+        assert snapshot.cost_basis != fabricated
+
+    @pytest.mark.asyncio
+    async def test_persisted_snapshot_writes_real_cost_basis(self):
+        """publish_update writes snapshot.cost_basis (entry_price * quantity)
+        into the pnl_snapshots row — not the old gross + net_pre_tax number."""
+        from services.pnl.src.calculator import PnLSnapshot
+
+        entry_price = Decimal("60000.00")
+        quantity = Decimal("0.1")
+        snapshot = PnLSnapshot(
+            position_id="11111111-2222-4333-8444-555555555555",
+            symbol="BTC/USDT",
+            gross_pnl=Decimal("125.50"),
+            fees=Decimal("3.25"),
+            net_pre_tax=Decimal("122.25"),
+            net_post_tax=Decimal("103.91"),
+            pct_return=Decimal("0.0207"),  # > 0.5% threshold -> snapshot write
+            tax_estimate=Decimal("18.34"),
+            cost_basis=entry_price * quantity,
+        )
+
+        publisher, pnl_repo = self._make_publisher()
+        await publisher.publish_update("profile-1", snapshot)
+
+        pnl_repo.write_snapshot.assert_awaited_once()
+        row = pnl_repo.write_snapshot.await_args.args[0]
+        assert isinstance(row["cost_basis"], Decimal)
+        assert row["cost_basis"] == entry_price * quantity
+        # The old fabricated formula (= 2*gross - fees = 247.75) must NOT be
+        # what lands in the row when gross != entry value.
+        fabricated = snapshot.gross_pnl + snapshot.net_pre_tax
+        assert row["cost_basis"] != fabricated
+
+
+# ---------------------------------------------------------------------------
+# Pydantic v2 hygiene (registry row 76, pnl half)
+# ---------------------------------------------------------------------------
+
+
+class TestNoPydanticV1Deprecations:
+    """Registry row 76 (pnl half): publisher must not call Pydantic v1 APIs
+    (`.dict()`) — the Redis latest-cache write uses `model_dump()` and the
+    publish path emits zero PydanticDeprecatedSince20 warnings."""
+
+    @pytest.mark.asyncio
+    async def test_publish_update_emits_no_pydantic_deprecation_warning(self):
+        from pydantic import PydanticDeprecatedSince20
+
+        from services.pnl.src.calculator import PnLSnapshot
+        from services.pnl.src.publisher import PnLPublisher
+
+        redis_client = AsyncMock()
+        redis_client.get = AsyncMock(return_value=None)
+        publisher = PnLPublisher(redis_client, AsyncMock(), AsyncMock())
+        snapshot = PnLSnapshot(
+            position_id="11111111-2222-4333-8444-555555555555",
+            symbol="ETH/USDT",
+            gross_pnl=Decimal("10.00"),
+            fees=Decimal("1.00"),
+            net_pre_tax=Decimal("9.00"),
+            net_post_tax=Decimal("8.00"),
+            pct_return=Decimal("0.01"),
+            tax_estimate=Decimal("1.00"),
+            cost_basis=Decimal("800.00"),
+        )
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            await publisher.publish_update("profile-1", snapshot)
+
+        deprecations = [
+            w for w in caught if issubclass(w.category, PydanticDeprecatedSince20)
+        ]
+        assert deprecations == [], [str(w.message) for w in deprecations]

@@ -19,6 +19,9 @@ class PnLSnapshot:
     net_post_tax: Decimal
     pct_return: Decimal
     tax_estimate: Decimal
+    # Registry row 69: the REAL entry value (entry_price * quantity), carried
+    # so the publisher persists truth instead of a derived approximation.
+    cost_basis: Decimal
 
 
 class PnLCalculator:
@@ -58,4 +61,5 @@ class PnLCalculator:
             net_post_tax=net_post_tax,
             pct_return=pct_return,
             tax_estimate=tax_est,
+            cost_basis=cost_basis,
         )
