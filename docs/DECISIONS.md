@@ -695,3 +695,47 @@ SELECT confirmed every existing `trading_profiles.risk_limits` row in-bounds.
 
 Pre-made rulings D-D/D-E from the 2026-06-13 debt burn-down handoff
 (user-directed); behavior pinned by tests/unit/test_exit_policy.py.
+
+---
+
+## 2026-06-13 — Strategy DSL exposes the full 19-indicator canonical surface
+
+### Context
+
+The user-facing strategy DSL (`_UserIndicatorName` / `_INDICATOR_USER_TO_CANONICAL`,
+`libs/core/schemas.py`) mapped only 12 of the 19 canonical `SUPPORTED_INDICATORS`.
+The engine (hot_path eval_dict + both backtest engines) computed all 19 every
+tick and the canonical `RuleCondition` validator accepted all 19, but
+`POST /profiles` 422-rejected `adx`, `obv`, `choppiness`, `bb.pct_b`,
+`bb.bandwidth`, `bb.upper`, `bb.lower` — so the most-requested trend-strength
+gate (ADX) and every Bollinger/volume signal were unbuildable via the documented
+API. The frontend selectors were tighter still (5 indicators). Surfaced by the
+2026-06-13 test-strategy capability audit.
+
+### Decision
+
+Align the user-facing DSL with the canonical engine: extend `_UserIndicatorName`
+and `_INDICATOR_USER_TO_CANONICAL` to all 19 keys (the 7 newly-exposed are
+identity-mapped — their canonical names already equal the user names), and align
+both frontend `INDICATORS` arrays to 19. Parity is now an invariant pinned by
+`tests/unit/test_long_short.py::TestIndicatorSurfaceParity` (the user map's values
+must equal `SUPPORTED_INDICATORS`). This is a pure surface-widening change: no
+canonical/engine behavior changed; profiles that were previously only writable via
+a direct canonical write are now authorable through the API.
+
+### Known boundary recorded alongside (NOT fixed)
+
+The DSL remains **indicator-vs-constant only** — no indicator-to-indicator,
+price-relative, or crossover comparison, and no stateful/sequence/multi-timeframe
+logic (TECH-DEBT-REGISTRY 2026-06-13). Widening the indicator list does not change
+this; crossover/relative/stateful expressiveness is a separate roadmap decision.
+A consequence the operator must know: a fixed scalar threshold on a price-scale
+indicator (`vwap`, `keltner.*`, `bb.upper`/`bb.lower`, absolute `atr`, `obv`) is a
+per-symbol level gate, not a normalized signal, and is applied across the whole
+universe — so it is easy to author a silently-dead or BTC-only-by-accident leg.
+
+### Approved by
+
+Claude Code (handler), on user direction to "do the recommended for the api"
+from the 2026-06-13 test-strategy portfolio brief
+(`docs/TEST-STRATEGY-PORTFOLIO-2026-06-13.md` §2.2 / Recommendation 1).

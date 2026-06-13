@@ -688,6 +688,16 @@ _UserIndicatorName = Literal[
     "rvol",
     "z_score",
     "hurst",
+    # 2026-06-13: the remaining SUPPORTED_INDICATORS that the engine has always
+    # computed but the user-facing DSL never exposed (POST /profiles 422'd them).
+    # Now authorable so the full indicator surface matches the canonical engine.
+    "adx",
+    "obv",
+    "choppiness",
+    "bb.pct_b",
+    "bb.bandwidth",
+    "bb.upper",
+    "bb.lower",
 ]
 _ComparisonName = Literal["above", "below", "at_or_above", "at_or_below", "equals"]
 _TradeDirection = Literal["long", "short"]
@@ -707,6 +717,15 @@ _INDICATOR_USER_TO_CANONICAL: Dict[_UserIndicatorName, str] = {
     "rvol": "rvol",
     "z_score": "z_score",
     "hurst": "hurst",
+    # 2026-06-13 additions — user-facing names are identical to the canonical
+    # keys (already dotted where applicable), so these are identity mappings.
+    "adx": "adx",
+    "obv": "obv",
+    "choppiness": "choppiness",
+    "bb.pct_b": "bb.pct_b",
+    "bb.bandwidth": "bb.bandwidth",
+    "bb.upper": "bb.upper",
+    "bb.lower": "bb.lower",
 }
 _INDICATOR_CANONICAL_TO_USER: Dict[str, _UserIndicatorName] = {
     v: k for k, v in _INDICATOR_USER_TO_CANONICAL.items()

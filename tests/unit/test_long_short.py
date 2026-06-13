@@ -13,7 +13,9 @@ Covers:
 import pytest
 
 from libs.core.enums import SignalDirection
+from libs.core.schemas import _INDICATOR_USER_TO_CANONICAL as USER_TO_CANONICAL
 from libs.core.schemas import (
+    SUPPORTED_INDICATORS,
     StrategyRulesInput,
     strategy_rules_from_canonical,
     strategy_rules_to_canonical,
@@ -65,6 +67,59 @@ class TestSchema:
             }
         )
         assert rules.entry_short is not None
+
+
+class TestIndicatorSurfaceParity:
+    """2026-06-13: the user-facing DSL must expose the FULL canonical engine
+    surface. The previously-divergent 7 keys (adx/obv/choppiness/bb.*) are now
+    authorable via POST /profiles, not just via a direct canonical write."""
+
+    NEWLY_EXPOSED = [
+        "adx",
+        "obv",
+        "choppiness",
+        "bb.pct_b",
+        "bb.bandwidth",
+        "bb.upper",
+        "bb.lower",
+    ]
+
+    def test_user_dsl_covers_every_supported_indicator(self):
+        # Every canonical engine indicator must be reachable through the user map.
+        assert set(USER_TO_CANONICAL.values()) == set(SUPPORTED_INDICATORS)
+
+    @pytest.mark.parametrize("indicator", NEWLY_EXPOSED)
+    def test_newly_exposed_indicator_validates_and_canonicalizes(self, indicator):
+        rules = StrategyRulesInput.model_validate(
+            {
+                "confidence": 0.6,
+                "entry_long": [
+                    {"indicator": indicator, "comparison": "above", "threshold": 1.0}
+                ],
+                "match_mode_long": "all",
+            }
+        )
+        canonical = strategy_rules_to_canonical(rules)
+        # Identity-mapped: the canonical condition carries the same indicator key.
+        cond = canonical["entry_long"]["conditions"][0]
+        assert cond["indicator"] == indicator
+        assert cond["operator"] == "GT"
+
+    def test_unknown_indicator_still_rejected(self):
+        with pytest.raises(Exception):
+            StrategyRulesInput.model_validate(
+                {
+                    "confidence": 0.6,
+                    "entry_long": [
+                        {
+                            "indicator": "not_a_real_indicator",
+                            "comparison": "above",
+                            "threshold": 1.0,
+                        }
+                    ],
+                    "match_mode_long": "all",
+                }
+            )
 
     def test_both_legs_accepted(self):
         rules = StrategyRulesInput.model_validate(

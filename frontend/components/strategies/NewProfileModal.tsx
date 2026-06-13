@@ -7,7 +7,29 @@ import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api/client";
 import { toast } from "sonner";
 
-const INDICATORS = ["rsi", "atr", "macd_line", "macd_signal", "macd_histogram"] as const;
+// Full authorable indicator surface — mirrors libs/core/schemas.py
+// _UserIndicatorName (all 19 canonical SUPPORTED_INDICATORS, aligned 2026-06-13).
+const INDICATORS = [
+  "rsi",
+  "atr",
+  "macd_line",
+  "macd_signal",
+  "macd_histogram",
+  "vwap",
+  "keltner.upper",
+  "keltner.middle",
+  "keltner.lower",
+  "rvol",
+  "z_score",
+  "hurst",
+  "adx",
+  "obv",
+  "choppiness",
+  "bb.pct_b",
+  "bb.bandwidth",
+  "bb.upper",
+  "bb.lower",
+] as const;
 const COMPARISONS = ["above", "below", "at_or_above", "at_or_below", "equals"] as const;
 
 type Indicator = (typeof INDICATORS)[number];
